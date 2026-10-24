@@ -61,6 +61,9 @@ internal sealed partial class ClientItemManager
             ClaimFlags = flags,
             SavedState = standIn.State
         };
+        // The stand-in expects the revision the stash commits at: a move or take-out right after it, or the
+        // late echo of a change before it (ProcessReceivedAsClient), is measured against that.
+        standIn.Revision = request.ExpectedRevision + 1;
         // Its release and deactivation are the put-away's, not the player's: no drop is reported.
         item.BeginColdStorageRetirement();
         if (item.Item.IsGrabbed())
@@ -130,7 +133,9 @@ internal sealed partial class ClientItemManager
         standIn.Relation = update.Relation;
         standIn.ClaimSlot = update.InventoryClaimSlot;
         standIn.ClaimFlags = update.InventoryClaimFlags;
-        if (update.AuthorityRevision > standIn.Revision)
+        // A correction sets it back, as a refused stash never committed at the revision it expected.
+        if (update.AuthorityRevision > standIn.Revision ||
+            update.MoveCause?.Reason == Core.Items.ChangeCauses.ItemMoveReason.HostCorrection)
             standIn.Revision = update.AuthorityRevision;
         if (!string.IsNullOrEmpty(state))
             standIn.State = state;
@@ -165,6 +170,23 @@ internal sealed partial class ClientItemManager
         standIn.Retire();
         InventoryRows.Remove(update.ItemNetId);
         return made;
+    }
+
+    // An update a stand-in in the local inventory is already past: this player's own change, echoed
+    // after they put the item away again (a take-out and its stash within one round trip), or one
+    // that doesn't say where the item is (no ItemState: an object's state change). Either would
+    // take the stand-in out of its slot.
+    private static bool SupersededForStandIn(ItemUpdate update)
+    {
+        if (update.UpdateType == ItemUpdate.ItemUpdateType.Destroy ||
+            !InventoryStandIn.TryGet(update.ItemNetId, out InventoryStandIn standIn) ||
+            InventorySilhouettes.IsSilhouette(standIn))
+            return false;
+        if (!ItemUpdate.IncludesItemState(update.UpdateType))
+            return true;
+        return update.MoveCause?.Reason != Core.Items.ChangeCauses.ItemMoveReason.HostCorrection &&
+               NetworkRole.LocalPlayerId != 0 && update.OriginatingPlayerId == NetworkRole.LocalPlayerId &&
+               update.AuthorityRevision < standIn.Revision;
     }
 
     // A put-away the server refused (a station fixture, owned-items PR 1c): it keeps the item in

@@ -79,6 +79,9 @@ internal static class InventoryRows
     {
         if (update == null || update.ItemNetId == 0)
             return;
+        // An object's state alone doesn't say where the item is.
+        if (update.UpdateType != ItemUpdate.ItemUpdateType.Destroy && !ItemUpdate.IncludesItemState(update.UpdateType))
+            return;
         if (!IsLocalInventory(update))
         {
             rows.Remove(update.ItemNetId);
