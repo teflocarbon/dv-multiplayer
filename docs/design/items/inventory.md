@@ -108,7 +108,15 @@ Every other change to a row is that item's ordinary update:
   object of it on this game goes (`ReceiveAsStandIn`); one the player is holding stays theirs unless
   the update is the server refusing a take-out;
 - an update that takes it anywhere else makes its object from the row, with its state, for the update
-  to place, and the stand-in goes (`LeaveStandIn`, `MakeFromRow`). A `Destroy` just ends the row.
+  to place, and the stand-in goes (`LeaveStandIn`, `MakeFromRow`). A `Destroy` just ends the row;
+- an update the stand-in is already past changes nothing (`SupersededForStandIn`): one with no
+  `ItemState` (an object's state alone says nothing of where the item is), and this player's own
+  change echoed after they put the item away again. A put-away sets the stand-in's revision to the
+  one its stash commits at, and a correction sets it back.
+
+A row the server sends after the join (a server-made item, or a recall or Lost and Found retrieval
+into a slot, sent as the row with its state once the server's object goes) is no news for an item
+this game has taken out since: its own change decides.
 
 ### Putting away
 
@@ -117,7 +125,10 @@ hotbar's stash) or an object added straight in (`InventoryPutAwayPatch`). Before
 the object and its stand-in swap places, so vanilla adds the stand-in and its events carry it. Once
 the stand-in is in its slot the server is asked for the stash with the item's state for its row
 (`CommitPutAway`, OI-COLD-13), and the object goes through the retirement path (no drop is reported).
-On a player host the stash is committed there as the host's own change. If vanilla didn't add it the
+On a player host the stash is committed there as the host's own change, and sent at once to every
+game that was shown the item (its object goes to data in that frame, before a tick would send
+it). An expired or missing-licence report has no recipe to be made from, so it stays an object
+in its slot. If vanilla didn't add it the
 swap is undone; a refusal comes back as the item's update and makes it again
 ([The optimistic client](#the-optimistic-client)).
 
@@ -138,7 +149,9 @@ that is both the server's and the player's, committed by the host's observed cha
 An item's own saved state goes with its row (OI-COLD-13, `ItemStateText`): what vanilla's
 `ItemSaveData` keeps (a lighter's fuel, duct tape's uses, a spool's ammo, a label, an alarm's time),
 captured as the object is put away, carried on the stash request, kept in the server's row and the
-client's, and loaded into the object made at a take-out. A job paper's state also names its job
+client's, and loaded into the object made at a take-out. The holder's state is laid over the
+server's row, so what changed in their hands is theirs and what only the server keeps (a container's
+id, `ContainerIdentityPatch.SaveKey`) stays the server's. A job paper's state also names its job
 ([Job papers](#job-papers)).
 
 ## Silhouettes
@@ -375,7 +388,10 @@ by NetId (`NetworkedJob`), and its object is made again from its job when it lea
   them again. Vanilla's reprint at the load skips a job whose booklet a player carries.
 - **A row the job no longer wants goes**, at the holder's join or when the job ends. That is a booklet
   of a job that's over, or an overview of a job someone took or that expired. A connected holder's is
-  made and destroyed, so their game is told.
+  made and destroyed, so their game is told. A report never goes: one with no recipe or no free slot
+  stays cold.
+- **A holder who leaves** takes their papers cold, and the jobs forget their NetIds
+  (`JobPaperRows.Forget`).
 
 docs/jobs.md ("Papers in inventories") has the job side.
 
