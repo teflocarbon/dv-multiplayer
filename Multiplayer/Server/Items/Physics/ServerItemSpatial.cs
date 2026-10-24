@@ -698,7 +698,7 @@ internal sealed class ServerItemSpatial
             current.Epoch != lease.Epoch)
             return;
         if (!LiveItems.TryCommitSpatialPose(item, lease.AuthorityRevision, state,
-                out LiveItems.LiveItem record, out string rejection))
+                out LiveItems.LiveItem record, out string rejection, PlayerNumbers.Identity(lease.SimulatorPlayerId)))
         {
             Reject(state, null, rejection);
             return;
