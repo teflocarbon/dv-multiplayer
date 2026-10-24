@@ -87,3 +87,19 @@ is taken back, the ledger moves the item back into the box, and the reservation 
 A move from one slot to another, in one box or between a box and one nested in it, needs the keeper
 of both. `ContainerGraph.CheckMove` checks it and names the item; the ledger moves it from one
 `Container` home to the other; `ContainerGraph.Move` commits, and a refusal moves the ledger back.
+
+## Depth
+
+A box may sit at most `ContainerLimits.MaximumDepth` (8) boxes deep inside the outermost one. A
+deposit or a move of a box checks where it would land (`ValidateDestination`): how deep its
+destination is, plus one, plus how deep the boxes inside it go. A ninth level is refused
+(`container-depth-exceeded`, OI-CON-15), so no graph is made that the load, which holds a save to the
+same limit (`ValidateDepthFrom`), would refuse. A box can't go inside itself or one of its own boxes
+(`destination-is-descendant`).
+
+## Before the load
+
+No item request is carried out before the load has run (OI-PER-23): every request is refused
+`items-loading` (`ItemRefusal.Busy`) at the one entry (`NetworkServer.Carry`), and a container browse
+too (OI-CON-05). A request made before the load would act on items the load hasn't placed, and the
+load would wipe it (F19).
