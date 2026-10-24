@@ -73,7 +73,7 @@ internal static partial class PlayerItems
             return;
         try
         {
-            stashedStates[netId] = JObject.Parse(state);
+            stashedStates[netId] = JObject.Parse(SplitStashedAmmo(state));
         }
         catch (Exception exception)
         {
@@ -84,19 +84,23 @@ internal static partial class PlayerItems
     private static void ClearDataOnly()
     {
         stashedStates.Clear();
+        ammoRows.Clear();
         pendingData.Clear();
         materializing.Clear();
         knownBy.Clear();
     }
 
-    /// <summary>Whether the server keeps this item as data only: a live record in a remote inventory, with no object.</summary>
+    /// <summary>
+    /// Whether the server keeps this item as data only: a live record in a remote inventory, or in
+    /// the magazine of a tool kept so (PlayerItems.Ammo), with no object.
+    /// </summary>
     public static bool IsDataOnly(ushort netId) =>
         netId != 0 && LiveItems.TryGet(netId, out LiveItems.LiveItem record) && IsDataOnly(record);
 
     public static bool IsDataOnly(LiveItems.LiveItem record) =>
         record != null && record.Placement == ItemPlacementKind.PlayerInventory &&
         ColdInventories.Contains(record.PersistentItemId) &&
-        !(NetworkedItem.TryGet(record.NetId, out NetworkedItem item) && item != null);
+        !(NetworkedItem.TryGet(record.NetId, out NetworkedItem item) && item != null) || IsDataOnlyAmmo(record);
 
     /// <summary>The NetId of a container shell kept as data, by its container's id (the shell's item id), or 0.</summary>
     public static ushort DataOnlyShell(Guid containerId)
@@ -150,8 +154,8 @@ internal static partial class PlayerItems
 
     // One item the server put in an inventory: its object goes to data now. True to wait a frame
     // (it's being made, or restored, or its holder's game isn't ready for items). Left an object: one
-    // that can't be a stand-in, as in its holder's game: a loaded magazine (its ammo is an object
-    // inside it; OI-CON-16), an expired or missing-licence report (no recipe to make it again from).
+    // that can't be a stand-in, as in its holder's game: a loaded magazine whose ammo can't go to data
+    // with it (AmmoCanGoData; OI-CON-16), an expired or missing-licence report (no recipe to make it again from).
     // Job papers go too: their job keeps them by NetId, and they're made again from it (JobPapers;
     // OI-COLD-07).
     private static bool ToData(ushort netId, bool sendRow)
@@ -159,7 +163,7 @@ internal static partial class PlayerItems
         if (!LiveItems.TryGet(netId, out LiveItems.LiveItem record) || record.Placement != ItemPlacementKind.PlayerInventory ||
             record.Slot < 0 ||
             !NetworkedItem.TryGet(netId, out NetworkedItem item) || item == null || item.Item == null ||
-            item.ColdStorageRetirement || !InventoryStandIn.CanStandIn(item.gameObject))
+            item.ColdStorageRetirement || !InventoryStandIn.CanStandIn(item.gameObject) || !AmmoCanGoData(item))
         {
             // It stays an object (or has gone): its object's state is the item's, not a stash's.
             stashedStates.Remove(netId);
@@ -224,6 +228,7 @@ internal static partial class PlayerItems
             NetworkServer.Instance.SendItemUpdate(destroy, player);
         }
         knownBy[record.NetId] = keeping.ToArray();
+        AmmoGoesData(item, holder, keeping);
 
         ServerItemManager.Instance?.UnregisterHostWorldItem(item);
         item.HandOverToData();
@@ -234,7 +239,7 @@ internal static partial class PlayerItems
         // update with no state: their stand-in is given the row's, so a take-out isn't a fresh item.
         if (sendRow && !fromHolder)
             NetworkServer.Instance.SendInventoryRows(holder, new List<ItemUpdate> { CreateOf(record) },
-                new List<string> { row.State?.ToString(Newtonsoft.Json.Formatting.None) ?? string.Empty });
+                new List<string> { StandInState(record.NetId, row.State) });
     }
 
     // The holder's copy of an item's state over the server's: what changed in their hands (fuel, a
@@ -273,6 +278,13 @@ internal static partial class PlayerItems
     /// </summary>
     public static void WithObject(ushort netId, Action<NetworkedItem> done)
     {
+        // Ammo kept as data is made with its tool.
+        if (LiveItems.TryGet(netId, out LiveItems.LiveItem ammo) && IsDataOnlyAmmo(ammo))
+        {
+            WithObject(ammo.MagazineNetId, tool =>
+                done(tool != null && NetworkedItem.TryGet(netId, out NetworkedItem made) && made != null ? made : null));
+            return;
+        }
         if (!IsDataOnly(netId) && !materializing.Contains(netId))
         {
             done(NetworkedItem.TryGet(netId, out NetworkedItem existing) && existing != null ? existing : null);
@@ -446,6 +458,7 @@ internal static partial class PlayerItems
                     knower.KnownItems[item] = tick;
         knownBy.Remove(netId);
         item.CompleteColdMaterialization();
+        TakeUpAmmo(record);
         return item;
     }
 
@@ -454,6 +467,7 @@ internal static partial class PlayerItems
     // silhouette) is told, and its record and NetId go.
     private static void DataGoesCold(LiveItems.LiveItem record, ServerPlayer leaver)
     {
+        AmmoGoesCold(record, leaver);
         ItemUpdate destroy = new()
         {
             UpdateType = ItemUpdate.ItemUpdateType.Destroy,

@@ -72,7 +72,7 @@ internal static partial class PlayerItems
     {
         if (IsTakenUp(row.PersistentItemId) || TakeUp(player, row) is not { } create)
             return 0;
-        HostInventory.Draw(create, row.State?.ToString(Formatting.None) ?? string.Empty);
+        HostInventory.Draw(create, StandInState(create.ItemNetId, row.State));
         return 1;
     }
 

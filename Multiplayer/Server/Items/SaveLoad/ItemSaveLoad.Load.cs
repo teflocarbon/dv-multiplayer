@@ -255,7 +255,7 @@ internal static partial class ItemSaveLoad
         ColdInventories.TryGet(toolId, out SavedItemRow cold) ? cold.PrefabName
         : ContainerServer.Graph.TryGetItem(toolId, out StoredItemRecord stored) ? stored.PrefabName : string.Empty;
 
-    private static bool EnsureToolContainer(Guid toolId, string prefab)
+    internal static bool EnsureToolContainer(Guid toolId, string prefab)
     {
         if (ContainerServer.Graph.IsContainer(toolId))
             return true;
@@ -405,7 +405,7 @@ internal static partial class ItemSaveLoad
         }
     }
 
-    private static StoredItemRecord StoredOf(SavedItemRow row, Guid container, int slot) => new()
+    internal static StoredItemRecord StoredOf(SavedItemRow row, Guid container, int slot) => new()
     {
         PersistentItemId = row.PersistentItemId,
         PrefabName = row.PrefabName,

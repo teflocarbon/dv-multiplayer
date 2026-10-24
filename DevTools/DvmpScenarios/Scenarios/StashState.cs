@@ -18,13 +18,11 @@ namespace Dvmp.Scenarios
     /// D14, OI-COLD-13): a client changes a lighter (lid open), duct tape (two uses gone) and a
     /// lantern (its wick turned down) in the hand, loads each vanilla magazine (the sprayer, the
     /// soldering tool) with its ammo (a paint can, a spool), and stashes each one. The stand-in
-    /// keeps the state the object had (a loaded magazine stays an object in its slot, its ammo
-    /// inside, until R5 makes the ammo a row: OI-CON-16); a take-out makes the object with it in
-    /// its first frame, and it still has it after a second in the hand (the server's copy, made
-    /// afresh, doesn't overwrite it); after a rejoin the row brings it down again and a second
-    /// take-out has it too (a magazine's ammo through a rejoin waits for the ammo as a row inside
-    /// its tool's row, so it's noted, not checked). The ammo stays in a client's magazine too: it
-    /// has the magazine as its home (R5 C7, CN1). WHO=host does it
+    /// keeps the state the object had (a loaded magazine's ammo nested in its row: OI-CON-16, R5
+    /// C8); a take-out makes the object with it, and the ammo in it, in its first frame, and it
+    /// still has it after a second in the hand (the server's copy, made afresh, doesn't overwrite
+    /// it); after a rejoin the row brings it down again, its ammo nested, and a second take-out has
+    /// it too. WHO=host does it
     /// with the host's own player (R4C C4), saving and restarting both games for the rejoin (a
     /// player host only). The items are destroyed at the end.
     /// </summary>
@@ -64,22 +62,18 @@ namespace Dvmp.Scenarios
                 Kept kept = await who.Run<Kept>(s => InGame.ChangeAndStash(s, netId, ammoId), 90);
                 Report.Note($"{prefab} {netId}, stashed: {kept}");
                 bool loaded = ammo.Length > 0;
+                Expect.That(kept.StandIn, $"{prefab}: a stand-in in the {who.Name}'s slot");
                 if (loaded)
-                {
-                    Expect.That(!kept.StandIn, $"{prefab}: an object in the {who.Name}'s slot, loaded (OI-CON-16)");
-                    Expect.Equal(kept.Contents, kept.StoredContents, $"{prefab}: what's in it in the slot");
-                }
-                else
-                    Expect.That(kept.StandIn, $"{prefab}: a stand-in in the {who.Name}'s slot");
+                    Expect.Equal(kept.Contents, kept.StoredContents, $"{prefab}: its ammo nested in the stand-in (OI-CON-16)");
                 Expect.Equal(kept.State, kept.StandInState, $"{prefab}: the stand-in's state, against the object's at put-away");
                 Kept out1 = await who.Run<Kept>(s => InGame.TakeOutAndStash(s, netId), 60);
                 Report.Note($"{prefab}, taken out: {out1}");
                 Expect.Equal(kept.State, out1.State, $"{prefab}: its state in the take-out's first frame");
                 Expect.Equal(kept.Contents, out1.Contents, $"{prefab}: what's in it in the take-out's first frame");
                 Expect.Equal(kept.State, out1.StandInState, $"{prefab}: its state after a second in the hand, stashed again");
-                Expect.That(out1.StandIn != loaded, $"{prefab}: {(loaded ? "an object" : "a stand-in")} again after the second stash");
+                Expect.That(out1.StandIn, $"{prefab}: a stand-in again after the second stash");
                 if (loaded)
-                    Expect.Equal(kept.Contents, out1.StoredContents, $"{prefab}: what's in it in the slot after the second stash");
+                    Expect.Equal(kept.Contents, out1.StoredContents, $"{prefab}: its ammo nested in the stand-in after the second stash");
                 ids.Add(await pair.Host.Run(() => Owned.IdOf(netId)));
                 if (ammoId != 0) ammoIds.Add(await pair.Host.Run(() => Owned.IdOf(ammoId)));
                 before.Add(out1);
@@ -115,14 +109,13 @@ namespace Dvmp.Scenarios
                 if (netId == 0) continue;
                 after.Add(netId);
                 string row = await who.Run(() => InGame.StandInState(netId));
+                Expect.Equal(before[i].StandInState, row, $"{prefab}: its row's state after the rejoin");
                 if (items[i].ammo.Length > 0)
                 {
-                    // Its ammo isn't kept when its inventory goes cold: a row inside its row is R5's (OI-CON-16).
+                    // Its ammo went cold with it as rows of its container, and came back nested in its row (OI-CON-16).
                     string holds = await who.Run(() => InGame.StoredContents(netId));
-                    Report.Note($"{prefab} after the rejoin: {row}, holding {(holds.Length > 0 ? holds : "nothing")}");
-                    continue;
+                    Expect.Equal(before[i].Contents, holds, $"{prefab}: its ammo nested in the stand-in after the rejoin");
                 }
-                Expect.Equal(before[i].StandInState, row, $"{prefab}: its row's state after the rejoin");
                 Kept again = await who.Run<Kept>(s => InGame.TakeOutAndStash(s, netId), 60);
                 Report.Note($"{prefab}, taken out after the rejoin: {again}");
                 Expect.Equal(before[i].State, again.State, $"{prefab}: its state after the rejoin, in the take-out's first frame");
@@ -209,13 +202,16 @@ namespace Dvmp.Scenarios
             /// <summary>Client: the stored item's state as its stand-in has it (or its object in the slot), "" for none.</summary>
             [Step]
             public static string StandInState(ushort id) =>
-                InventoryStandIn.TryGet(id, out InventoryStandIn standIn) ? Normal(standIn.State) :
+                InventoryStandIn.TryGet(id, out InventoryStandIn standIn) ? Normal(StandInAmmo.Without(standIn.State)) :
                 PlayerInventory.Holds(id) ? Normal(ItemStateText.Capture(PlayerInventory.SlotObject(id))) : "";
 
-            /// <summary>Client: what a stored object's magazine holds, "" for none or a stand-in.</summary>
+            /// <summary>Client: what a stored item's magazine holds (a stand-in's nested ammo, or its object's), "" for none.</summary>
             [Step]
             public static string StoredContents(ushort id) =>
-                !InventoryStandIn.TryGet(id, out _) && PlayerInventory.Holds(id) ? Contents(PlayerInventory.SlotObject(id)) : "";
+                InventoryStandIn.TryGet(id, out InventoryStandIn standIn)
+                    ? string.Join(", ", StandInAmmo.Of(standIn.State).OrderBy(a => a.Slot)
+                        .Select(a => a.PrefabName + " " + Normal(a.State?.ToString(Newtonsoft.Json.Formatting.None))))
+                    : PlayerInventory.Holds(id) ? Contents(PlayerInventory.SlotObject(id)) : "";
 
             /// <summary>
             /// Client: takes the stored item out to the hand, reads its state and contents in that
@@ -249,7 +245,8 @@ namespace Dvmp.Scenarios
                 var magazine = go.GetComponentInChildren<ItemMagazine>(true);
                 if (magazine == null) return "";
                 return string.Join(", ", Enumerable.Range(0, magazine.Capacity).Select(i => magazine[i]).Where(a => a != null)
-                    .Select(a => a.name.Replace("(Clone)", "") + " " + Normal(ItemStateText.Capture(a))));
+                    .Select(a => (a.GetComponent<InventoryItemSpec>()?.ItemPrefabName ?? a.name.Replace("(Clone)", "")) + " " +
+                                 Normal(ItemStateText.Capture(a))));
             }
 
             // The state as compact JSON with its keys sorted, so two reads compare.

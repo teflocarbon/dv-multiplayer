@@ -56,13 +56,14 @@ internal sealed partial class ClientItemManager
             InventoryClaimFlags = standIn.ClaimFlags,
             Relation = standIn.Relation
         };
-        NetworkedItem item = MakeFromRow(inSlot, standIn.State);
+        NetworkedItem item = MakeFromRow(inSlot, StandInAmmo.Without(standIn.State));
         if (item == null)
             return null;
         // What the server last said of it, so the object's own request carries the right revision.
         item.ApplyAuthorityMetadata(inSlot);
         inventory.FinalizeRemoveItemFromWorld(item.gameObject);
         VanillaInventorySlots.Rebind(inventory, standIn.gameObject, item.gameObject);
+        MakeAmmo(item, standIn.State);
         pendingTakeOuts[standIn.NetId] = new PendingTakeOut
         {
             Slot = inSlot,
@@ -102,6 +103,7 @@ internal sealed partial class ClientItemManager
         InventoryStandIn standIn = InventoryStandIn.ForObject(item);
         VanillaInventorySlots.Rebind(DV.InventorySystem.Inventory.Instance, item.gameObject, standIn.gameObject);
         item.BeginColdStorageRetirement();
+        RetireAmmoOf(item, "stored-off-vr-belt-with-its-tool");
         RetireClientProjection(item, "stored-off-vr-belt");
     }
 

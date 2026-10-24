@@ -984,6 +984,33 @@ public static class LiveItems
         return record;
     }
 
+    /// <summary>
+    /// Server: ammo kept as data in the magazine of a tool kept as data (PlayerItems.Ammo), under a
+    /// NetId reserved for it. Its ledger entry, if owned, is already moved to the magazine.
+    /// </summary>
+    internal static LiveItem RegisterDataOnlyAmmo(ushort netId, LiveItem tool, SavedItemRow row, int slot)
+    {
+        if (netId == 0 || tool == null || row == null || row.PersistentItemId == Guid.Empty || slot < 0)
+            return null;
+        LiveItem record = new()
+        {
+            NetId = netId,
+            Revision = 1,
+            Placement = ItemPlacementKind.Magazine,
+            MagazineNetId = tool.NetId,
+            MagazineToolId = tool.PersistentItemId,
+            MagazineSlot = slot,
+            StoredOwner = row.OwnerIdentity,
+            PrefabName = row.PrefabName,
+            LastReason = ItemTransitionReason.HostLocalState,
+            PersistentItemId = row.PersistentItemId,
+            AuthoredItemKey = string.Empty
+        };
+        records[netId] = record;
+        ServerLedger.BindNetId(row.PersistentItemId, netId);
+        return record;
+    }
+
     public static void RollbackLostAndFoundCollection(NetworkedItem item, uint previousRevision,
         ItemPlacementKind previousPlacement, Guid previousHolder,
         ItemTransitionReason previousReason)

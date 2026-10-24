@@ -186,6 +186,10 @@ internal static partial class ItemSaveLoad
         foreach (SavedItemRow row in ColdInventories.All())
             if (!ServerLedger.Ledger.IsLive(row.PersistentItemId))
                 items.Unowned.Add(row.ToJson(owned: false));
+        // Unowned ammo in a tool kept as data, kept as data with it (OI-CON-16).
+        foreach (SavedItemRow row in PlayerItems.AmmoRows())
+            if (!ServerLedger.Ledger.IsLive(row.PersistentItemId))
+                items.Unowned.Add(row.ToJson(owned: false));
         // A container's items the ledger doesn't hold: their container is their home.
         foreach (StoredItemRecord stored in ContainerServer.Graph.ExportSnapshot().Items)
             if (!ServerLedger.Ledger.IsLive(stored.PersistentItemId))
@@ -211,11 +215,11 @@ internal static partial class ItemSaveLoad
         return live;
     }
 
-    // An owned item's one copy: its object (Lost and Found's included), else a cold row, else a container's row.
+    // An owned item's one copy: its object (Lost and Found's included), else a cold row (or a data tool's ammo row), else a container's row.
     private static SavedItemRow OwnedRow(Guid id, Dictionary<Guid, (LiveItems.LiveItem Record, NetworkedItem Item)> live,
         Dictionary<Guid, StoredItemRecord> stored)
     {
-        if (ColdInventories.TryGet(id, out SavedItemRow cold))
+        if (ColdInventories.TryGet(id, out SavedItemRow cold) || PlayerItems.TryGetAmmoRow(id, out cold))
             return cold;
         if (live.TryGetValue(id, out (LiveItems.LiveItem Record, NetworkedItem Item) copy))
             return RowOf(copy.Record, copy.Item);
