@@ -75,6 +75,8 @@ namespace Dvmp.Scenarios
             [Step]
             public static Held ClientHas(ushort id)
             {
+                // Put away on a client, it's a stand-in with no object (D14).
+                if (PlayerInventory.IsStandIn(id)) return new Held { State = PlayerInventory.Holds(id) ? "InInventory" : "a stand-in in no slot" };
                 if (!NetworkedItem.TryGet(id, out NetworkedItem n) || n == null) return new Held { State = "gone" };
                 var lantern = n.GetComponentInChildren<Lantern>(true);
                 string state = Hands.Held == n ? "InHand"

@@ -11,6 +11,7 @@ using Multiplayer.Server.Items.LiveState;
 using Multiplayer.Server.Items.Projection;
 using Multiplayer.Server.Items.SaveLoad;
 using Multiplayer.Server.Session;
+using Multiplayer.Shared.Items.Inventory;
 using Multiplayer.Shared.Items.LiveState;
 using Multiplayer.Shared.Items.VanillaStorage;
 using Multiplayer.Shared.Protocol.Data;
@@ -233,7 +234,7 @@ internal static partial class PlayerItems
         }
 
         materializing.Add(netId);
-        GameObject instance = Object.Instantiate(spec.gameObject,
+        GameObject instance = ItemStateText.Instantiate(spec.gameObject,
             StartingItemsController.ITEM_INSTANTIATION_SAFETY_POSITION, Quaternion.identity);
         instance.name = row.PrefabName;
         InventoryItemSpec placed = instance.GetComponent<InventoryItemSpec>();
@@ -257,6 +258,7 @@ internal static partial class PlayerItems
                 saveData.LoadItemData(row.State);
                 saveData.PostLoadItemData();
             }
+            ItemStateText.FinishContainer(instance);
             ItemBase itemBase = instance.GetComponent<ItemBase>();
             if (itemBase == null || !item.TakeUpFromData(netId))
                 throw new InvalidOperationException("couldn't take up its net id");

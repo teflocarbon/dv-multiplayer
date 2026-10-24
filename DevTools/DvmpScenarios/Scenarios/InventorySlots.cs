@@ -162,12 +162,8 @@ namespace Dvmp.Scenarios
             public static ushort Find(string prefab)
             {
                 var inv = DV.InventorySystem.Inventory.Instance;
-                for (int s = 0; s < inv.Capacity; s++)
-                {
-                    GameObject go = inv.PeekItemAtSlot(s, false);
-                    NetworkedItem item = go != null ? go.GetComponent<NetworkedItem>() : null;
-                    if (item != null && item.NetId != 0 && go.name.Replace("(Clone)", "") == prefab) return item.NetId;
-                }
+                foreach (var (netId, _, go) in PlayerInventory.Stored())
+                    if (netId != 0 && PlayerInventory.PrefabOf(go).Replace("(Clone)", "") == prefab) return netId;
                 return 0;
             }
 
@@ -175,10 +171,7 @@ namespace Dvmp.Scenarios
             [Step]
             public static IEnumerator Move(Step<bool> step, ushort netId, int slot)
             {
-                var inv = DV.InventorySystem.Inventory.Instance;
-                NetworkedItem.TryGet(netId, out NetworkedItem item);
-                int from = item != null ? inv.IndexOf(item.gameObject) : -1;
-                step.Result = from == slot || from >= 0 && inv.MoveItemFromTo(from, slot, false);
+                step.Result = PlayerInventory.MoveTo(netId, slot);
                 yield return new WaitForSeconds(1.5f);
             }
 
@@ -186,8 +179,7 @@ namespace Dvmp.Scenarios
             [Step]
             public static IEnumerator Drop(ushort netId)
             {
-                NetworkedItem.TryGet(netId, out NetworkedItem item);
-                if (item == null || DV.InventorySystem.Inventory.Instance.DropItemFromHandsOrInventory(item.gameObject) == null)
+                if (PlayerInventory.Drop(netId) == null)
                     throw new Exception($"couldn't drop item {netId}");
                 yield return new WaitForSeconds(2f);
             }
@@ -198,11 +190,10 @@ namespace Dvmp.Scenarios
             [Step]
             public static IEnumerator Request(Step<bool> step, ushort netId, int slot)
             {
-                NetworkedItem.TryGet(netId, out NetworkedItem item);
-                step.Result = item != null && ItemClient.Current?.SendItemRequest(new ItemRequest
+                step.Result = PlayerInventory.SlotObject(netId) != null && ItemClient.Current?.SendItemRequest(new ItemRequest
                 {
                     ItemNetId = netId,
-                    ExpectedRevision = item.AuthorityRevision,
+                    ExpectedRevision = PlayerInventory.Revision(netId),
                     Action = ItemAction.MoveSlot,
                     Slot = slot
                 }) > 0;
@@ -213,12 +204,7 @@ namespace Dvmp.Scenarios
             [Step]
             public static IEnumerator Swap(Step<bool> step, ushort a, ushort b)
             {
-                var inv = DV.InventorySystem.Inventory.Instance;
-                NetworkedItem.TryGet(a, out NetworkedItem first);
-                NetworkedItem.TryGet(b, out NetworkedItem second);
-                int from = first != null ? inv.IndexOf(first.gameObject) : -1;
-                int to = second != null ? inv.IndexOf(second.gameObject) : -1;
-                step.Result = from >= 0 && to >= 0 && inv.SwapItems(from, to);
+                step.Result = PlayerInventory.Swap(a, b);
                 yield return new WaitForSeconds(1.5f);
             }
         }

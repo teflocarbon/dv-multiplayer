@@ -130,37 +130,41 @@ namespace Dvmp.Scenarios
             [Step]
             public static IEnumerator FetchByName(string name, int slot)
             {
-                byte me = Multiplayer.Shared.Session.NetworkLifecycle.Instance.LocalSession.PlayerId;
+                ushort stored = PlayerInventory.Stored().Where(e => PlayerInventory.PrefabOf(e.go).Replace("(Clone)", "") == name)
+                    .Select(e => e.netId).FirstOrDefault();
                 var item = Dev.All<NetworkedItem>().FirstOrDefault(n => n != null && n.NetId != 0 && n.Relation == ItemRelation.Mine && n.name.Replace("(Clone)", "") == name);
-                if (item != null) yield return Fetch(item.NetId, slot);
+                if (stored != 0 || item != null) yield return Fetch(stored != 0 ? stored : item.NetId, slot);
             }
 
             /// <summary>Client, cleanup: recalls the essential into <paramref name="slot"/>, or walks
-            /// to it, picks it up and stashes it there.</summary>
+            /// to it, picks it up and stashes it there. Stored, it's a stand-in with no object (D14).</summary>
             [Step]
             public static IEnumerator Fetch(ushort id, int slot)
             {
                 var inv = DV.InventorySystem.Inventory.Instance;
-                if (!NetworkedItem.TryGet(id, out NetworkedItem item) || item == null) yield break;
-                if (inv.IndexOf(item.gameObject) >= 0)
+                if (!PlayerInventory.Holds(id))
                 {
-                    NetworkedItemManager.Instance.RequestItemRecall(item, inv.IndexOf(item.gameObject));
-                    float t0 = Time.realtimeSinceStartup;
-                    while (Time.realtimeSinceStartup - t0 < 10f && item.GetItemState() != ItemState.InInventory) yield return null;
+                    if (!NetworkedItem.TryGet(id, out NetworkedItem item) || item == null) yield break;
+                    if (inv.IndexOf(item.gameObject) >= 0)
+                    {
+                        NetworkedItemManager.Instance.RequestItemRecall(item, inv.IndexOf(item.gameObject));
+                        float t0 = Time.realtimeSinceStartup;
+                        while (Time.realtimeSinceStartup - t0 < 10f && !PlayerInventory.Holds(id)) yield return null;
+                    }
+                    if (!PlayerInventory.Holds(id))
+                    {
+                        if (Hands.Held != null) yield return Hands.Drop();
+                        yield return LocalPlayer.GoTo(item);
+                        yield return Hands.Pickup(id);
+                        if (inv.PeekItemAtSlot(slot, true) is GameObject other && other != item.gameObject)
+                            inv.MoveItemFromTo(slot, inv.GetLastFreeSlot(), false);
+                        inv.AddItemToInventory(item.gameObject, slot, false);
+                        for (int i = 0; i < 60; i++) yield return null;
+                    }
                 }
-                if (item.GetItemState() != ItemState.InInventory)
-                {
-                    if (Hands.Held != null) yield return Hands.Drop();
-                    yield return LocalPlayer.GoTo(item);
-                    yield return Hands.Pickup(id);
-                    if (inv.PeekItemAtSlot(slot, true) is GameObject other && other != item.gameObject)
-                        inv.MoveItemFromTo(slot, inv.GetLastFreeSlot(), false);
-                    inv.AddItemToInventory(item.gameObject, slot, false);
-                    for (int i = 0; i < 60; i++) yield return null;
-                }
-                int now = inv.IndexOf(item.gameObject);
+                int now = PlayerInventory.Slot(id);
                 if (now >= 0 && now != slot && inv.PeekItemAtSlot(slot, true) == null) inv.MoveItemFromTo(now, slot, false);
-                if (item.GetItemState() != ItemState.InInventory) throw new Exception($"couldn't get {item.name} back: {item.GetItemState()}");
+                if (!PlayerInventory.Holds(id)) throw new Exception($"couldn't get item {id} back into the inventory");
             }
         }
     }

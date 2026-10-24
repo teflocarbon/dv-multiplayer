@@ -37,6 +37,7 @@ public partial class NetworkClient : IItemClient
     private void OnClientboundItemResultPacket(ClientboundItemResultPacket packet)
     {
         ItemExchange.Receive(packet);
+        ClientItemManager.Instance?.ReceiveTakeOutResult(packet);
         ItemResultReceived?.Invoke(packet);
     }
 

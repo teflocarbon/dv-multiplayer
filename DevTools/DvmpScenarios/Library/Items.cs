@@ -75,17 +75,23 @@ namespace Dvmp.Scenarios
         [Step]
         public static Abs Position(ushort netId) => Positions.Of(Find(netId).transform.position);
 
-        /// <summary>Which of these items this game has.</summary>
+        /// <summary>Which of these items this game has: as an object, as a stand-in in an inventory (D14),
+        /// or on the host as data only.</summary>
         [Step]
         public static ushort[] Existing(ushort[] ids) =>
-            Dev.All<NetworkedItem>().Where(i => i != null && ids.Contains(i.NetId)).Select(i => i.NetId).ToArray();
+            Dev.All<NetworkedItem>().Where(i => i != null && ids.Contains(i.NetId)).Select(i => i.NetId)
+                .Concat(Multiplayer.Shared.Items.Inventory.InventoryStandIn.All.Where(s => ids.Contains(s.NetId)).Select(s => s.NetId))
+                .Concat(ids.Where(PlayerItems.IsDataOnly))
+                .Distinct().ToArray();
 
         /// <summary>Host: destroys the items. Result: those still there 30 frames later.</summary>
         [Step]
         public static IEnumerator Destroy(Step<ushort[]> step, ushort[] ids)
         {
             // One the server keeps as data (in a client's inventory) is made again first, so its
-            // destroy reaches the client.
+            // destroy reaches the client. One whose object is going to data this frame (it has
+            // just settled in a slot) is data by the next, and is made again like the rest.
+            yield return null;
             int making = 0;
             foreach (ushort id in ids.Where(PlayerItems.IsDataOnly))
             {
@@ -93,7 +99,7 @@ namespace Dvmp.Scenarios
                 PlayerItems.WithObject(id, _ => making--);
             }
             for (int i = 0; i < 300 && making > 0; i++) yield return null;
-            foreach (NetworkedItem item in Dev.All<NetworkedItem>().Where(i => i != null && ids.Contains(i.NetId)).ToList())
+            foreach (NetworkedItem item in Dev.All<NetworkedItem>().Where(i => i != null && ids.Contains(i.NetId) && !i.ColdStorageRetirement).ToList())
                 UnityEngine.Object.Destroy(item.gameObject);
             for (int i = 0; i < 30; i++) yield return null;
             step.Result = Existing(ids);

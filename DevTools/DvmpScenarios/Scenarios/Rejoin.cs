@@ -94,14 +94,15 @@ namespace Dvmp.Scenarios
                 yield return Hands.Pickup(item.NetId);
                 yield return new WaitForSeconds(2);
                 Hands.ReleaseControl();
-                var owned = Dev.All<NetworkedItem>().Where(n => n.NetId != 0 && n.GetItemState() == ItemState.InInventory && n.Relation == ItemRelation.Mine).ToList();
+                // Stored items on a client are stand-ins (D14).
+                var owned = PlayerInventory.Mine().Where(n => n.State == ItemState.InInventory).ToList();
                 step.Result = new Holding
                 {
                     Item = Hands.Held.NetId,
                     Name = Hands.Held.name,
                     Inventory = owned.Select(n => n.NetId).ToArray(),
-                    Names = owned.Select(n => n.name.Replace("(Clone)", "")).OrderBy(s => s).ToArray(),
-                    Slots = owned.Select(n => n.NetId + "@" + DV.InventorySystem.Inventory.Instance.IndexOf(n.gameObject)).ToArray()
+                    Names = owned.Select(n => n.Name).OrderBy(s => s).ToArray(),
+                    Slots = owned.Select(n => n.NetId + "@" + n.Slot).ToArray()
                 };
             }
 
@@ -157,15 +158,16 @@ namespace Dvmp.Scenarios
             public static Returned AfterRejoin(string[] names, string[] slots)
             {
                 byte me = NetworkLifecycle.Instance.LocalSession.PlayerId;
-                var mine = Dev.All<NetworkedItem>().Where(n => n.NetId != 0 && n.Relation == ItemRelation.Mine).ToList();
-                string Name(NetworkedItem n) => n.name.Replace("(Clone)", "");
+                // Stored items on a client are stand-ins (D14).
+                var mine = PlayerInventory.Mine();
+                string Name(PlayerInventory.OwnItem n) => n.Name;
                 var failures = new List<string>();
                 // Items that were in the inventory before leaving (an owned item left lying in the world stays there).
                 var wasInInventory = new HashSet<ushort>(slots.Where(e => e.Contains("@")).Select(e => ushort.Parse(e.Substring(0, e.IndexOf('@')))));
-                foreach (var n in mine.Where(n => wasInInventory.Contains(n.NetId) && n.GetItemState() != ItemState.InInventory && n.GetItemState() != ItemState.InHand))
-                    failures.Add($"{Name(n)} {n.NetId} is {n.GetItemState()}, expected in inventory");
+                foreach (var n in mine.Where(n => wasInInventory.Contains(n.NetId) && n.State != ItemState.InInventory && n.State != ItemState.InHand))
+                    failures.Add($"{Name(n)} {n.NetId} is {n.State}, expected in inventory");
                 var expected = names.Where(s => s.Length > 0).GroupBy(s => s).ToDictionary(g => g.Key, g => g.Count());
-                var actual = mine.Where(n => n.GetItemState() == ItemState.InInventory).GroupBy(Name).ToDictionary(g => g.Key, g => g.ToList());
+                var actual = mine.Where(n => n.State == ItemState.InInventory).GroupBy(Name).ToDictionary(g => g.Key, g => g.ToList());
                 foreach (var kv in expected)
                 {
                     int have = actual.TryGetValue(kv.Key, out var items) ? items.Count : 0;
@@ -182,8 +184,7 @@ namespace Dvmp.Scenarios
                 for (int slot = 0; slot < inventory.Capacity; slot++)
                 {
                     var go = inventory.PeekItemAtSlot(slot, false);
-                    var n = go != null ? go.GetComponent<NetworkedItem>() : null;
-                    if (go != null && (n == null || n.NetId == 0))
+                    if (go != null && PlayerInventory.NetIdOf(go) == 0)
                         failures.Add($"unbound local {go.name.Replace("(Clone)", "")} in slot {slot}");
                 }
                 var moved = new List<string>();
@@ -192,7 +193,7 @@ namespace Dvmp.Scenarios
                     ushort id = ushort.Parse(entry.Substring(0, entry.IndexOf('@')));
                     int slot = int.Parse(entry.Substring(entry.IndexOf('@') + 1));
                     var item = mine.FirstOrDefault(n => n.NetId == id);
-                    int now = item != null ? inventory.IndexOf(item.gameObject) : -1;
+                    int now = item != null ? item.Slot : -1;
                     if (item != null && now != slot) moved.Add($"{Name(item)} {slot}->{now}");
                 }
                 return new Returned { Owned = mine.Count, Failures = failures.ToArray(), Moved = moved.ToArray() };

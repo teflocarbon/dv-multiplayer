@@ -131,10 +131,11 @@ namespace Dvmp.Scenarios
                 if (!result.Accepted) throw new Exception($"retrieval refused: {result.Refusal} {result.Detail}");
                 var inventory = DV.InventorySystem.Inventory.Instance;
                 ushort id = result.ItemNetId;
-                NetworkedItem item = null;
-                yield return Wait.Until(() => NetworkedItem.TryGet(id, out item) && item != null && inventory.IndexOf(item.gameObject) >= 0, 15f, $"retrieved item {id} in the inventory");
-                step.Note($"listed {LostAndFoundList.Items.Count(e => e.Handle == handle)} time(s) after retrieval");
-                step.Result = inventory.IndexOf(item.gameObject);
+                // On a client it's a stand-in in its slot, or still its object until R4C C5 (D14).
+                yield return Wait.Until(() => PlayerInventory.Holds(id), 15f, $"retrieved item {id} in the inventory");
+                step.Note($"listed {LostAndFoundList.Items.Count(e => e.Handle == handle)} time(s) after retrieval" +
+                          (PlayerInventory.IsStandIn(id) ? ", a stand-in" : ""));
+                step.Result = PlayerInventory.Slot(id);
             }
         }
     }

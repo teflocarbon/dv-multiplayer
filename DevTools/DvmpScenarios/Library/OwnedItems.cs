@@ -157,9 +157,9 @@ namespace Dvmp.Scenarios
         [Step]
         public static IEnumerator DropFromInventory(ushort netId)
         {
-            yield return Items.Arrive(netId);
-            NetworkedItem.TryGet(netId, out NetworkedItem item);
-            if (DV.InventorySystem.Inventory.Instance.DropItemFromHandsOrInventory(item.gameObject) == null)
+            // In a client's inventory it's a stand-in, and its object is made as it drops (D14).
+            if (!PlayerInventory.IsStandIn(netId)) yield return Items.Arrive(netId);
+            if (PlayerInventory.Drop(netId) == null)
                 throw new Exception($"item {netId} could not be dropped from the inventory");
             for (int i = 0; i < 120; i++) yield return null;
         }
@@ -198,14 +198,12 @@ namespace Dvmp.Scenarios
             yield return Hands.Pickup(netId);
             DV.InventorySystem.Inventory.Instance.AddItemToInventory(item.gameObject);
             yield return new WaitForSecondsRealtime(3f);
-            step.Result = item != null && DV.InventorySystem.Inventory.Instance.IndexOf(item.gameObject) >= 0;
+            step.Result = PlayerInventory.Holds(netId);
             if (Hands.Held != null) yield return Hands.Drop();
         }
 
         /// <summary>Whether this game's player has the item in their inventory.</summary>
         [Step]
-        public static bool InInventory(ushort netId) =>
-            NetworkedItem.TryGet(netId, out NetworkedItem item) && item != null &&
-            DV.InventorySystem.Inventory.Instance.IndexOf(item.gameObject) >= 0;
+        public static bool InInventory(ushort netId) => PlayerInventory.Slot(netId) >= 0;
     }
 }

@@ -65,8 +65,7 @@ namespace Dvmp.Scenarios
                 {
                     var go = inv.PeekItemAtSlot(s, false);
                     if (go == null) continue;
-                    var n = go.GetComponent<NetworkedItem>();
-                    rows.Add(go.name.Replace("(Clone)", "") + (n != null && n.NetId != 0 ? "" : "*"));
+                    rows.Add(PlayerInventory.PrefabOf(go).Replace("(Clone)", "") + (PlayerInventory.NetIdOf(go) != 0 ? "" : "*"));
                 }
                 return new Contents { Count = rows.Count(r => r.StartsWith(prefab)), Bound = rows.Count(r => r == prefab), All = string.Join(",", rows) };
             }
