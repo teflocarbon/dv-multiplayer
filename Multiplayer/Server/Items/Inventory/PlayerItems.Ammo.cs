@@ -257,19 +257,24 @@ internal static partial class PlayerItems
         row.Rotation = Quaternion.identity;
         row.ContainerId = Guid.Empty;
         row.Slot = -1;
-        if (owned && ServerLedger.CommitStored(id, prefabName, loaded, Home.World,
-                ItemChangeLog.Move(ItemMoveReason.UnloadedFromMagazine, leaver, "its tool couldn't keep it: " + why)) is { Length: > 0 } refused)
-        {
-            Multiplayer.LogError($"Inventory: {prefabName} ({id:D}) couldn't be left where its holder was: the ledger refused, {refused}");
-            return;
-        }
+        // From wherever the ledger has it: a stow's rollback that was refused left it in the tool's
+        // container. A refusal here still leaves the object at the holder's feet, where the home
+        // check finds it, rather than nowhere.
+        Home from = owned && ServerLedger.Ledger.TryGetHome(id, out Home had) ? had : loaded;
+        string refused = owned
+            ? ServerLedger.CommitStored(id, prefabName, from, Home.World,
+                ItemChangeLog.Move(ItemMoveReason.UnloadedFromMagazine, leaver, "its tool couldn't keep it: " + why))
+            : string.Empty;
+        if (refused.Length > 0)
+            Multiplayer.LogError($"Inventory: {prefabName} ({id:D}): the ledger refused to move it to where its holder was ({refused}); " +
+                                 "it is made there anyway");
         if (!ItemSaveLoad.MakeLive(row, owned, out LiveItems.LiveItem made) ||
             !NetworkedItem.TryGet(made.NetId, out NetworkedItem item) || item == null)
         {
             Multiplayer.LogError($"Inventory: {prefabName} ({id:D}) couldn't be made where its holder was");
             return;
         }
-        if (owned)
+        if (owned && refused.Length == 0)
             LostAndFoundServer.Collect(item, LostItemReason.ContainerCleared, "its tool went cold without it");
     }
 

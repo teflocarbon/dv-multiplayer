@@ -140,10 +140,13 @@ tool. Its ammo has a home in each of the tool's forms (CN1 and OI-CON-16; R5 C7 
   ([wire.md](wire.md#one-request-one-result)). The server takes it from the ammo's holder (`SenderPossesses`), checks
   the tool (not one another player holds), the slot and that the magazine takes that item
   (`LiveItems.MagazineRefusal`: `magazine-tool-unknown`, `magazine-tool-foreign`,
-  `magazine-slot-invalid`, `magazine-refused-item`, `magazine-slot-taken`),
-  and every other game loads its copy into its copy of the tool (`NetworkedItem.LoadInto`; an update
+  `magazine-slot-invalid`, `magazine-refused-item`, `magazine-slot-taken`), within 64 m of the
+  sender as a drop is (`magazine-outside-sender-bound`), and a load into a tool the server is still
+  making again from data waits for it (`DataOnlyNamed`), and every other game loads its copy into its copy of the tool (`NetworkedItem.LoadInto`; an update
   that arrives before the tool waits for it ten seconds). Loaded ammo is non-spatial: a player gets
-  it with its tool.
+  it with its tool. Ammo in a tool another player holds or has stashed is theirs: a take of it
+  into someone else's hand is a take from that player (`ItemAccess` refuses it), and moving it
+  anywhere else is `magazine-tool-foreign` (H1).
 - **While the tool is a row** (in a box, in a cold inventory), its ammo is a row of the tool's
   container, `Container(tool, slot)`, as a box's contents are; the tool's container id is its item id
   (OI-CON-09). `MagazineServer.OnToolRemoved` (from `ContainerServer.OnRemoved`) stows each
@@ -152,6 +155,9 @@ tool. Its ammo has a home in each of the tool's forms (CN1 and OI-CON-16; R5 C7 
   then its object retires by interest, as a deposit's does. `MagazineServer.LoadFromRows` makes them
   objects in the magazine again when the tool's object is bound (the server's shell scan), whichever
   way it came back.
+- **A stow that fails** as the tool goes cold leaves its ammo where the holder was, an owned item
+  on to their Lost and Found (`PlayerItems.AmmoLeftBehind`), moved from wherever the ledger has it;
+  if the ledger refuses even that, the object is still made there for the home check to find.
 - **The tool destroyed for good** lets its ammo go as a destroyed box's contents go: an owned item to
   its owner's Lost and Found (`ContainerCleared`), any other loose where the tool was.
 - **Retrieved by its owner** (owned items), loaded ammo is where its tool is: nothing to do while the
@@ -206,7 +212,11 @@ overview or a report as a row, as an inventory does ([inventory.md](inventory.md
   NetId (`JobPaperRows.Forget`).
 - **Withdrawal:** it's made again from its job, a row in the withdrawer's slot that the job keeps by
   its new NetId (`JobPaperRows.Admit`), or loose at their feet with no slot free. One its job no
-  longer wants (`JobPaperRows.Wanted`) goes from the box instead (`withdraw-paper-job-over`).
+  longer wants (`JobPaperRows.Wanted`) goes from the box instead (`withdraw-paper-job-over`), and so
+  does a booklet whose job has since printed the withdrawer another copy at a validator (the deposit
+  let the job forget it): theirs is that copy (`withdraw-paper-copy-issued`, H2). The job takes the
+  paper only once the withdrawal is committed, so a rollback never costs the board its overview (H5).
+  A paper is owned by the player who took it, as other personal items are, so only they deposit it.
 - **Its job ends:** a booklet or overview in a box goes from it (`JobPaperRows.DropStored`); a
   report outlives its job. A booklet in a box counts as carried, so the load doesn't print another
   (`JobPaperRows.HasBookletRow`).

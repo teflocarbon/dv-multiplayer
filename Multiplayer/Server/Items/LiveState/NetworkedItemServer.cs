@@ -209,6 +209,12 @@ public static class NetworkedItemServer
                  (staticParent.position - WorldMover.currentMove - senderPlayer.AbsoluteWorldPosition).sqrMagnitude > 192f * 192f))
                 return Refused(item, "invalid-or-distant-static-parent");
         }
+        // A load has the same bound as a drop: into a tool near the sender, not one across the map (H6).
+        if (ItemUpdate.IncludesItemState(snapshot.UpdateType) && snapshot.ItemState == ItemState.InMagazine &&
+            !(authority?.Placement == ItemPlacementKind.Magazine && authority.MagazineNetId == snapshot.MagazineNetId) &&
+            NetworkedItem.TryGet(snapshot.MagazineNetId, out NetworkedItem tool) && tool != null &&
+            (tool.transform.position - WorldMover.currentMove - senderPlayer.AbsoluteWorldPosition).sqrMagnitude > 64f * 64f)
+            return Refused(item, "magazine-outside-sender-bound");
 
         if (snapshot.States != null && snapshot.States.TryGetValue(NetworkedPageBookState.TrackedValueKey, out object pageValue))
         {
