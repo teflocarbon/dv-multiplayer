@@ -240,8 +240,8 @@ namespace Dvmp.Scenarios
             [Step]
             public static string[] InNoSlot(ushort[] netIds)
             {
-                var inv = DV.InventorySystem.Inventory.Instance;
-                return netIds.Where(id => !Multiplayer.Shared.Items.LiveState.NetworkedItem.TryGet(id, out var n) || n == null || inv.IndexOf(n.gameObject) < 0)
+                // A stored item is a stand-in with no object (D14).
+                return netIds.Where(id => PlayerInventory.Slot(id) < 0)
                     .Select(id => Multiplayer.Shared.Items.LiveState.NetworkedItem.TryGet(id, out var n) && n != null ? $"{n.name} {id}" : $"no object {id}")
                     .ToArray();
             }

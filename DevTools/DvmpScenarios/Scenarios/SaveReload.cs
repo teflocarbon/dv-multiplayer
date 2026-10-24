@@ -63,13 +63,11 @@ namespace Dvmp.Scenarios
             {
                 yield return new WaitForSeconds(settle);
                 var all = Dev.All<NetworkedItem>().Where(i => i.NetId != 0).ToList();
-                var inventory = DV.InventorySystem.Inventory.Instance;
+                // The host's own player's slots hold stand-ins (D14).
                 int misrecorded = 0;
-                for (int slot = 0; slot < inventory.Capacity; slot++)
+                foreach (var (netId, _, _) in PlayerInventory.Stored())
                 {
-                    var go = inventory.PeekItemAtSlot(slot, false);
-                    var n = go != null ? go.GetComponent<NetworkedItem>() : null;
-                    if (n != null && LiveItems.TryGet(n.NetId, out var r) && r.Placement != ItemPlacementKind.PlayerInventory)
+                    if (netId != 0 && LiveItems.TryGet(netId, out var r) && r.Placement != ItemPlacementKind.PlayerInventory)
                         misrecorded++;
                 }
                 step.Result = new Counts
