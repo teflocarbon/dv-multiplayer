@@ -100,6 +100,7 @@ arguments the action uses are written:
 | `ReportBelowMap` | the surface height | the terrain guard |
 | `Attach` | the car's NetId and which end; states | the live state |
 | `SetState` | the states, and whether it was a world interaction (a lever, a switch) | the live state |
+| `LoadMagazine` | the tool's NetId and the magazine slot; states | the live state; refused on `magazine-tool-unknown`, `magazine-tool-foreign` (a tool another player holds), `magazine-slot-invalid`, `magazine-refused-item`, `magazine-slot-taken` ([containers.md](containers.md#ammo-in-a-magazine)) |
 
 `ItemAction` is a byte, append-only. `CollectLost` sends the inventory's occupancy from the client
 until R3 keeps slots on the server.

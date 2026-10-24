@@ -130,9 +130,11 @@ tool. Its ammo has a home in each of the tool's forms (CN1 and OI-CON-16; R5 C7 
   the wire it is `ItemState.InMagazine` with the tool's NetId and the slot (`MagazineNetId`,
   `MagazineSlot`; [wire.md](wire.md#the-update)). The game that loads it (`MagazinePatch` on
   `AddItem` and `RemoveItem`) observes it as any change: a client may send it while it holds or
-  stashes the tool, and the server takes it from the tool's holder only (`SenderPossesses`), checks
-  the tool, the slot and that the magazine takes that item (`LiveItems.MagazineRefusal`:
-  `magazine-tool-unknown`, `magazine-slot-invalid`, `magazine-refused-item`, `magazine-slot-taken`),
+  stashes the tool, and a client's load is a `LoadMagazine` request with the tool and the slot
+  ([wire.md](wire.md#one-request-one-result)). The server takes it from the ammo's holder (`SenderPossesses`), checks
+  the tool (not one another player holds), the slot and that the magazine takes that item
+  (`LiveItems.MagazineRefusal`: `magazine-tool-unknown`, `magazine-tool-foreign`,
+  `magazine-slot-invalid`, `magazine-refused-item`, `magazine-slot-taken`),
   and every other game loads its copy into its copy of the tool (`NetworkedItem.LoadInto`; an update
   that arrives before the tool waits for it ten seconds). Loaded ammo is non-spatial: a player gets
   it with its tool.

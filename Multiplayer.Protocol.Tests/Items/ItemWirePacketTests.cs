@@ -144,6 +144,7 @@ public sealed class ItemWirePacketTests
         yield return new ItemRequest { RequestId = 13, ItemNetId = 78, ExpectedRevision = 13, Action = ItemAction.ReportBelowMap, SurfaceHeight = 117.5f };
         yield return new ItemRequest { RequestId = 14, ItemNetId = 78, ExpectedRevision = 14, Action = ItemAction.Attach, CarNetId = 22, Front = true, States = new() { ["lit"] = 1 } };
         yield return new ItemRequest { RequestId = 15, ItemNetId = 78, ExpectedRevision = 15, Action = ItemAction.SetState, WorldInteraction = true, States = new() { ["notch"] = 2 } };
+        yield return new ItemRequest { RequestId = 16, ItemNetId = 81, ExpectedRevision = 16, Action = ItemAction.LoadMagazine, MagazineNetId = 82, MagazineSlot = 0, States = new() { ["track"] = 3 } };
     }
 
     [TestCaseSource(nameof(Requests))]
@@ -273,6 +274,7 @@ public sealed class ItemWirePacketTests
     [TestCase(ItemState.Dropped, ItemAction.Drop)]
     [TestCase(ItemState.Thrown, ItemAction.Throw)]
     [TestCase(ItemState.Attached, ItemAction.Attach)]
+    [TestCase(ItemState.InMagazine, ItemAction.LoadMagazine)]
     public void AnObservedMoveIsARequest_AndTranslatesBackToTheSameChange(ItemState state, ItemAction action)
     {
         ItemUpdate observed = Observed(ItemUpdate.ItemUpdateType.ItemState | ItemUpdate.ItemUpdateType.ObjectState, state);
@@ -314,6 +316,11 @@ public sealed class ItemWirePacketTests
             case ItemState.Attached:
                 Assert.That(change.CarNetId, Is.EqualTo(22));
                 Assert.That(change.AttachedFront, Is.True);
+                break;
+            case ItemState.InMagazine:
+                // The tool and its slot, which the server checks (LiveItems.MagazineRefusal).
+                Assert.That(change.MagazineNetId, Is.EqualTo(23));
+                Assert.That(change.MagazineSlot, Is.EqualTo(1));
                 break;
         }
         // Only a stash names a slot: every other move leaves the server's record's slot alone.
@@ -419,6 +426,8 @@ public sealed class ItemWirePacketTests
         ParentLocalRotation = Quaternion.identity,
         CarNetId = 22,
         AttachedFront = true,
+        MagazineNetId = 23,
+        MagazineSlot = 1,
         States = new Dictionary<string, object> { ["on"] = true }
     };
 

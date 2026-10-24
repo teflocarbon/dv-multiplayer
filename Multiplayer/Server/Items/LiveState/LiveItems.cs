@@ -290,7 +290,7 @@ public static class LiveItems
             return false;
         }
         if (appliesPlacement && requestedPlacement == ItemPlacementKind.Magazine &&
-            MagazineRefusal(item, snapshot) is { Length: > 0 } magazineRefusal)
+            MagazineRefusal(item, snapshot, actor) is { Length: > 0 } magazineRefusal)
         {
             rejectionReason = magazineRefusal;
             PublishRejected(item, record, actor, snapshot, rejectionReason);
@@ -419,13 +419,16 @@ public static class LiveItems
     }
 
     // Into a tool's magazine (containers.md, "Ammo in a magazine"): a live tool whose magazine takes
-    // this ammo, in a slot nothing else has.
-    private static string MagazineRefusal(NetworkedItem item, ItemUpdate snapshot)
+    // this ammo, in a slot nothing else has, and not one in another player's hands or inventory.
+    private static string MagazineRefusal(NetworkedItem item, ItemUpdate snapshot, ServerPlayer actor)
     {
         if (!NetworkedItem.TryGet(snapshot.MagazineNetId, out NetworkedItem tool) || tool == null || tool == item ||
             !records.TryGetValue(tool.NetId, out LiveItem toolRecord) ||
             toolRecord.Placement is ItemPlacementKind.Destroyed or ItemPlacementKind.LostAndFound or ItemPlacementKind.Magazine)
             return "magazine-tool-unknown";
+        if (actor != null && toolRecord.Holder != Guid.Empty && toolRecord.Holder != actor.Guid &&
+            toolRecord.Placement is ItemPlacementKind.PlayerHand or ItemPlacementKind.PlayerInventory)
+            return "magazine-tool-foreign";
         DV.Items.ItemMagazine magazine = tool.GetComponentInChildren<DV.Items.ItemMagazine>(true);
         if (magazine == null || snapshot.MagazineSlot < 0 || snapshot.MagazineSlot >= magazine.Capacity)
             return "magazine-slot-invalid";

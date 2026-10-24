@@ -232,6 +232,8 @@ public static class DebugPacketProjectorRegistry
                 result["position"] = Vec3(request.Position); result["rotation"] = Quat(request.Rotation); result["throwDirection"] = Vec3(request.ThrowDirection); break;
             case ItemAction.Attach:
                 result["carNetId"] = request.CarNetId; result["front"] = request.Front; break;
+            case ItemAction.LoadMagazine:
+                result["magazineNetId"] = request.MagazineNetId; result["magazineSlot"] = request.MagazineSlot; break;
             case ItemAction.Deposit:
             case ItemAction.Withdraw:
             case ItemAction.MoveInContainer:

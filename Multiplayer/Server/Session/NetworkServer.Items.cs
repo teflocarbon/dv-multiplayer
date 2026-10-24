@@ -423,6 +423,7 @@ public partial class NetworkServer : IItemServer
             case ItemAction.Throw:
             case ItemAction.Attach:
             case ItemAction.SetState:
+            case ItemAction.LoadMagazine:
                 return CarryChange(request, player);
             case ItemAction.Recall:
                 return CarryRecall(request, player);
