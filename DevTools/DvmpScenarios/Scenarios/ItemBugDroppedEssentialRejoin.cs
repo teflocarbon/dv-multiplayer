@@ -117,12 +117,13 @@ namespace Dvmp.Scenarios
             public static string Silhouette(ushort id)
             {
                 var inv = DV.InventorySystem.Inventory.Instance;
-                if (!NetworkedItem.TryGet(id, out NetworkedItem n) || n == null) return "the client has no item " + id;
-                int slot = inv.IndexOf(n.gameObject);
+                // The silhouette is the item's stand-in (D14), with no object here while the item is in Lost and Found.
+                int slot = PlayerInventory.Slot(id);
                 if (slot >= 0) return $"silhouette in slot {slot} (dropped {inv.GetSlotDroppedState(slot)}, reserved {inv.GetSlotReservedState(slot)})";
+                if (!NetworkedItem.TryGet(id, out NetworkedItem n) || n == null) return "the client has no item " + id;
                 int claim = n.InventoryClaimSlot;
                 GameObject at = claim >= 0 ? inv.PeekItemAtSlot(claim, true) : null;
-                return $"no silhouette: {n.GetItemState()}, claim slot {claim} holds {(at != null ? at.name.Replace("(Clone)", "") : "nothing")}";
+                return $"no silhouette: {n.GetItemState()}, claim slot {claim} holds {(at != null ? PlayerInventory.PrefabOf(at).Replace("(Clone)", "") : "nothing")}";
             }
 
             /// <summary>Client, cleanup: <see cref="Fetch"/> for the item of this name the player
@@ -132,8 +133,8 @@ namespace Dvmp.Scenarios
             {
                 ushort stored = PlayerInventory.Stored().Where(e => PlayerInventory.PrefabOf(e.go).Replace("(Clone)", "") == name)
                     .Select(e => e.netId).FirstOrDefault();
-                var item = Dev.All<NetworkedItem>().FirstOrDefault(n => n != null && n.NetId != 0 && n.Relation == ItemRelation.Mine && n.name.Replace("(Clone)", "") == name);
-                if (stored != 0 || item != null) yield return Fetch(stored != 0 ? stored : item.NetId, slot);
+                ushort mine = PlayerInventory.Mine().Where(m => m.Name == name).Select(m => m.NetId).FirstOrDefault();
+                if (stored != 0 || mine != 0) yield return Fetch(stored != 0 ? stored : mine, slot);
             }
 
             /// <summary>Client, cleanup: recalls the essential into <paramref name="slot"/>, or walks
@@ -144,19 +145,20 @@ namespace Dvmp.Scenarios
                 var inv = DV.InventorySystem.Inventory.Instance;
                 if (!PlayerInventory.Holds(id))
                 {
-                    if (!NetworkedItem.TryGet(id, out NetworkedItem item) || item == null) yield break;
-                    if (inv.IndexOf(item.gameObject) >= 0)
+                    // Its silhouette recalls it, from the world or (no object here) Lost and Found.
+                    int silhouette = PlayerInventory.Slot(id);
+                    if (silhouette >= 0 && PlayerInventory.Recall(id, silhouette))
                     {
-                        NetworkedItemManager.Instance.RequestItemRecall(item, inv.IndexOf(item.gameObject));
                         float t0 = Time.realtimeSinceStartup;
                         while (Time.realtimeSinceStartup - t0 < 10f && !PlayerInventory.Holds(id)) yield return null;
                     }
                     if (!PlayerInventory.Holds(id))
                     {
+                        if (!NetworkedItem.TryGet(id, out NetworkedItem item) || item == null) yield break;
                         if (Hands.Held != null) yield return Hands.Drop();
                         yield return LocalPlayer.GoTo(item);
                         yield return Hands.Pickup(id);
-                        if (inv.PeekItemAtSlot(slot, true) is GameObject other && other != item.gameObject)
+                        if (inv.PeekItemAtSlot(slot, true) is GameObject other && PlayerInventory.NetIdOf(other) != id)
                             inv.MoveItemFromTo(slot, inv.GetLastFreeSlot(), false);
                         inv.AddItemToInventory(item.gameObject, slot, false);
                         for (int i = 0; i < 60; i++) yield return null;

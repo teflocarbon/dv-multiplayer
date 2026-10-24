@@ -1,17 +1,20 @@
 # Inventories
 
-> Status: built in R3 of the [item refactor](../item-refactor.md), 2026-10-24; the join as rows in R4. This page says what the
-> code does. Every player's inventory is server data: each item in it has an exact slot on the
-> server, a client's change to it is a request, a leaver's inventory goes cold and comes back at
-> join. Claims are issued by the ledger ([ledger.md](ledger.md), [essentials.md](essentials.md));
-> this page says how a client shows them. The record and its transitions are [live-state.md](live-state.md)'s.
+> Status: built in R3 of the [item refactor](../item-refactor.md), 2026-10-24; the join as rows in
+> R4; rows on every game (D14) in R4C, 2026-10-25. This page says what the code does. Every
+> player's inventory is the server's rows: each item in it has an exact slot and its own saved state
+> on the server, and no game has an object of it while it's in its slot. The server keeps it as
+> data, and its holder's game draws it from a stand-in. A client's change to it is a request; a
+> leaver's inventory goes cold and comes back at join. Claims are issued by the ledger
+> ([ledger.md](ledger.md), [essentials.md](essentials.md)); this page says how a client shows them.
+> The record and its transitions are [live-state.md](live-state.md)'s.
 
 | Side | Code |
 | --- | --- |
 | Core | `Multiplayer.Core/Items/Inventory/`: `InventorySlots`, `BeltSlots`, `SlotClaimPlanner`, `InventoryPresentation` |
-| Server | `Multiplayer/Server/Items/Inventory/`: `PlayerItems` (`PlayerItems.cs`, `PlayerItems.DataOnly.cs`), `ColdInventories`, `InventoryMembershipPatch` |
-| Shared | `Multiplayer/Shared/Items/Inventory/`: `InventoryIntegration`, `InventoryItemStatePatch` |
-| Client | `Multiplayer/Client/Items/Inventory/`: `InventorySlotMovePatch`, `InventoryOwnershipUiPatch` |
+| Server | `Multiplayer/Server/Items/Inventory/`: `PlayerItems` (`PlayerItems.cs`, `.DataOnly.cs`, `.Rows.cs`, `.Host.cs`, `.Alarms.cs`), `ColdInventories`, `HostInventory`, `InventoryMembershipPatch`; `Multiplayer/Server/Jobs/JobPaperRows.cs` |
+| Shared | `Multiplayer/Shared/Items/Inventory/`: `InventoryStandIn`, `InventoryRowHolder`, `InventoryPutAwayPatch`, `InventoryTakeOutPatch`, `InventoryStandInPatches`, `VanillaInventorySlots`, `InventorySilhouettes`, `ItemStateText`, `StashedItems`, `AlarmRows`, `ForcedItemRows`, `TutorialRadio`, `InventoryIntegration`, `InventoryItemStatePatch`; `Multiplayer/Shared/Jobs/JobPapers.cs` |
+| Client | `Multiplayer/Client/Items/Inventory/`: `InventoryRows`, `InventorySlotMovePatch`, `InventoryOwnershipUiPatch`; `Multiplayer/Client/Items/Projection/`: `ClientItemManager.StandIns.cs`, `.Rows.cs`, `.TakeOut.cs` |
 | Requests | `NetworkServer.CarryMoveSlot` and `DataOnlyNamed` (`Multiplayer/Server/Session/NetworkServer.Items.cs`) |
 
 ## Slots
@@ -21,8 +24,9 @@
 
 - **Every inventory item has an exact slot on the server,** owned or not: `LiveItem.Slot` (OI-SLOT-01).
   An owned item's ledger home is `Slot(holder, slot)` with the same slot; an unowned one's slot is its
-  record's. The update carries it (the home `Slot` on the wire, [wire.md](wire.md#the-update)), and a
-  client puts the item in exactly that slot (`InventoryIntegration.PlaceAt`).
+  record's. The update carries it (the home `Slot` on the wire, [wire.md](wire.md#the-update)), and the
+  holder's game puts the item's stand-in in exactly that slot (`InventoryStandIn.Place`, through
+  `InventoryIntegration.PlaceAt`).
 - **One item per slot** (OI-SLOT-03). The ledger refuses a home another item fills, owned, unowned
   (`ServerLedger.UnownedInSlot`) or a cold row (`ColdInventories.At`): `slot-occupied`. A slot one of
   the holder's essentials claims while that essential is elsewhere (its silhouette fills it) is
@@ -47,28 +51,124 @@ essentials first, each its saved claim if free, else the lowest free one; cold r
 ## The belt
 
 The belt slots are ordinary slots to the server: an item on the belt is in its holder's inventory,
-and only the owner's game shows it snapped to their body. `BeltSlots` keeps a VR release onto the belt
-from looking like a drop: nothing is sent in the frame the hand lets go (`HoldVrRelease`), the echo
-of the player's own hold after the belt took the item is skipped (`IsSupersededOwnHold`), and an
-update that puts a belt item in its holder's inventory leaves it snapped (`KeepBeltSnap`).
+and only the owner's game shows it snapped to their body. Unlike the other slots, an enabled VR belt
+slot holds the item's object, as a hand does (OI-COLD-14): moving an item onto the belt takes it out
+of its row ([Taking out](#taking-out)), and moving it off puts it away again. `BeltSlots` keeps a VR
+release onto the belt from looking like a drop: nothing is sent in the frame the hand lets go
+(`HoldVrRelease`), the echo of the player's own hold after the belt took the item is skipped
+(`IsSupersededOwnHold`), and an update that puts a belt item in its holder's inventory leaves it
+snapped (`KeepBeltSnap`).
 
 A claim never takes a belt slot (`InventorySlots.ChooseClaim`, OI-ESS-03), and an essential moved onto
 the belt keeps its old claim; moved to another slot off the belt, its claim follows it
 ([ledger.md](ledger.md)). When a client makes room for an item, the item it moves aside goes to the
 last free slot off the belt, never onto it.
 
+## Stand-ins
+
+What a slot holds under D14 (OI-COLD-09): an `InventoryStandIn`, an empty, inactive object with no
+renderer, collider, `ItemBase` or `NetworkedItem`. It carries its prefab's look (the
+`IInventoryItemSpec` vanilla's inventory UI, hotbar and item icons draw from, with the item's name
+from its state: a label, a job's id) and its row: the NetId the server keeps the item by, its claim,
+its relation, its revision and its own saved state. Nothing in it can fall, be swept, be saved by
+vanilla or be destroyed as an item. It is the cold container UI's proxy made general.
+
+On which games: a remote client's own inventory (`ClientItemManager.StandIns.cs`), and on a player
+host the host's own player's ([The host's own player](#the-hosts-own-player)). Both act through one
+row holder (`InventoryRowHolder.Current`), so every hook below is the same on either. A dedicated
+host has no inventory. Other players' items are never in the local inventory.
+
+Vanilla keys its slots, its dropped and active sets, its claims and its hands by the GameObject
+(`VanillaInventorySlots`). An item's object and its stand-in swap places there (`Rebind`) before
+vanilla acts on either, so vanilla, its UI and every listener of its events see one consistent
+object for the slot. `InventoryStandInPatches` answers every hook `InventoryDV` asks of a slot
+object's `ItemBase` (essential, belt-snappable, two-handed) from the row and its prefab, and keeps
+vanilla from parking, laying out or firing item events for a stand-in.
+
+These stay objects in a slot:
+
+- an item on an enabled VR belt slot (OI-COLD-14, above);
+- a magazine that holds anything (a boombox's cassette, a sprayer's can, a soldering tool's spool),
+  whose ammo has no row yet (`InventoryStandIn.HoldsAmmo`; OI-CON-16, R5);
+- an item whose prefab this game doesn't know (a mod item without its mod), and a job paper whose job
+  this game doesn't know ([Job papers](#job-papers)).
+
+Every scenario run ends by checking that no slot on either game holds any other object
+(`Invariant.ObjectsInSlots`).
+
+### Rows on the client
+
+The client keeps the server's rows for its own inventory (`InventoryRows`): one per item, by NetId,
+with its update (prefab, exact slot, claim, relation, revision) and its saved state (`ItemSaveData`
+JSON). The server sends whole rows, with their state, at the join and for every item it puts into the
+inventory itself (`ClientboundInventoryRowsPacket`: a starting item, a grant, a withdrawal).
+Every other change to a row is that item's ordinary update:
+
+- an update that puts an item in the local inventory makes or moves its stand-in to its slot, and an
+  object of it on this game goes (`ReceiveAsStandIn`); one the player is holding stays theirs unless
+  the update is the server refusing a take-out;
+- an update that takes it anywhere else makes its object from the row, with its state, for the update
+  to place, and the stand-in goes (`LeaveStandIn`, `MakeFromRow`). A `Destroy` just ends the row.
+
+### Putting away
+
+The player puts an object away: a hand's item into the inventory (vanilla's unequip with add, the
+hotbar's stash) or an object added straight in (`InventoryPutAwayPatch`). Before vanilla adds it,
+the object and its stand-in swap places, so vanilla adds the stand-in and its events carry it. Once
+the stand-in is in its slot the server is asked for the stash with the item's state for its row
+(`CommitPutAway`, OI-COLD-13), and the object goes through the retirement path (no drop is reported).
+On a player host the stash is committed there as the host's own change. If vanilla didn't add it the
+swap is undone; a refusal comes back as the item's update and makes it again
+([The optimistic client](#the-optimistic-client)).
+
+### Taking out
+
+The take-out is predicted (OI-COLD-10, `ClientItemManager.TakeOut.cs`, `InventoryTakeOutPatch`): the
+player takes an item out of a slot (the hotbar's unstash, the UI's equip or drop, the VR backpack, a
+move onto the belt), and its object is made from the row in that frame, under its NetId and with its
+state, parked as vanilla parks a stashed item and swapped in for the stand-in before vanilla acts.
+Vanilla then equips or drops it as it would any item, and the object's own change goes up as the
+request (a take, a drop). The server confirms it, or refuses: a refusal with a correction puts the
+item back in its slot as that update does, and one without is rolled back from what the take-out
+kept. A player host's own take-out is the same object, made from the server's row: the one object
+that is both the server's and the player's, committed by the host's observed change.
+
+### State
+
+An item's own saved state goes with its row (OI-COLD-13, `ItemStateText`): what vanilla's
+`ItemSaveData` keeps (a lighter's fuel, duct tape's uses, a spool's ammo, a label, an alarm's time),
+captured as the object is put away, carried on the stash request, kept in the server's row and the
+client's, and loaded into the object made at a take-out. A job paper's state also names its job
+([Job papers](#job-papers)).
+
+## Silhouettes
+
+An essential out of its owner's inventory keeps its claim slot, shown dropped and reserved: its
+silhouette (`InventoryIntegration.EnsureDroppedClaim`, planned by `SlotClaimPlanner.EnsureDroppedClaim`).
+Under D14 the silhouette is the item's stand-in, not its object, while the item is elsewhere (in the
+world, in Lost and Found, held by another player): `InventorySilhouettes`. Vanilla routes an item back
+to its silhouette by the GameObject (its reserved slot, the Get button, an equip), so the object takes
+the slot back (`ToObject`) just before vanilla acts on it by identity, and gives it to the stand-in
+again (`ToStandIn`) once vanilla leaves it there dropped and out of the player's hands. While the
+local player holds the item the slot is vanilla's own shape. A silhouette lives as long as the
+object would have kept it: whatever takes the object's claim away takes the stand-in.
+
+A silhouette isn't stored: `Contains(go, false)` and a slot peek without dropped entries skip it, its
+item's updates go to the item's object, and none of the stashed items' effects run for it.
+
+An update putting the essential back in its claim slot restores the entry (`RestoreClaim`); an item
+without a claim in that slot is moved aside first (`MakeRoomForClaim`).
+
 ## Claims as a client shows them
 
 The claim is sent only to its claimant ([wire.md](wire.md#naming-a-player)). On that player's game:
 
-- **A silhouette.** An essential out of its owner's inventory shows as a dropped, reserved entry in its
-  claim slot (`InventoryIntegration.EnsureDroppedClaim`, planned by `SlotClaimPlanner.EnsureDroppedClaim`).
-  An update putting it back in its claim slot restores that entry (`RestoreClaim`); an item without a
-  claim in that slot is moved aside first (`MakeRoomForClaim`).
+- **A silhouette**, above.
 - **Red.** An item someone else owns is red, online owner or not (D3, OI-ESS-12):
-  `InventoryPresentationPlanner.Plan` from the item's relation, drawn by `InventoryOwnershipUiPatch`
-  (`ForeignItemInventoryMarker`). Someone else's silhouette left in the local inventory is purged
-  (`PurgeForeignDroppedClaims`, run after each inventory change by `InventoryItemStatePatch`).
+  `InventoryPresentationPlanner.Plan` from the item's relation (a stand-in's row has it), drawn by
+  `InventoryOwnershipUiPatch` (`ForeignItemInventoryMarker`). Someone else's silhouette left in the
+  local inventory is purged (`PurgeForeignDroppedClaims`, run after each inventory change by
+  `InventoryItemStatePatch`).
 - **The Get button** on a silhouette routes by `InventoryRecallRoute`: someone else's item is blocked,
   an item that can't be recalled is blocked, the owner's own essential sends a `Recall`
   ([live-state.md](live-state.md#recall-in-one-step)), and one in Lost and Found is collected.
@@ -76,9 +176,10 @@ The claim is sent only to its claimant ([wire.md](wire.md#naming-a-player)). On 
 ## Moving between slots
 
 Vanilla moves an item to an empty slot (`Inventory.MoveItemFromTo`) or swaps two (`Inventory.SwapItems`)
-on the player's game. `InventorySlotMovePatch` then sends one `MoveSlot` request with the item now in
-the target slot and that slot. Moves the mod makes itself for the server (`PlaceAt`,
-`MakeRoomForClaim`, inside `BeginAuthoritativePlacement`) are already the server's and aren't sent.
+on the player's game, stand-ins as objects. `InventorySlotMovePatch` then sends one `MoveSlot` request
+with the item now in the target slot (a stand-in's NetId and revision are its row's) and that slot.
+Moves the mod makes itself for the server (`PlaceAt`, `MakeRoomForClaim`, inside
+`BeginAuthoritativePlacement`) are already the server's and aren't sent.
 
 `NetworkServer.CarryMoveSlot` checks the slot is valid (`slot-invalid`), then:
 
@@ -95,28 +196,31 @@ A move is logged `SlotMoved` with the slots it went between.
 ## The optimistic client
 
 Every inventory change is a request the ledger commits first (OI-COLD-05). A client's game shows a
-stash, slot move, hotbar switch, drop or pick-up at once, as vanilla does it, and sends it: the
-observed change as a request (`NetworkedItemClient.SendLocalObservation`) or the slot move above. It
-doesn't wait. The server commits it in its own order and sends the accepted update to everyone, the
-requester included as its acknowledgement.
+stash, slot move, hotbar switch, take-out, drop or pick-up at once, as vanilla does it, and sends it:
+the put-away's stash ([Putting away](#putting-away)), the taken-out object's own change
+([Taking out](#taking-out)), the observed change of an object in the world
+(`NetworkedItemClient.SendLocalObservation`) or the slot move above. It doesn't wait. The server
+commits it in its own order and sends the accepted update to everyone, the requester included as its
+acknowledgement.
 
 Only a refusal rolls the client back: the server sends the requester a correction, the record's
 state with the cause `HostCorrection` (`SendCanonicalRejectionCorrection`), and their game applies it,
-which puts the item back in its slot, hand or the world. A refused swap corrects both items. A refused
-stash the server keeps in the player's hand drops at their feet, so the two games agree.
+which puts the item back in its slot (as its stand-in), hand or the world. A refused swap corrects
+both items. A refused stash the server keeps in the player's hand drops at their feet, so the two
+games agree.
 
 ## Data only on the server
 
-An item in a connected remote player's inventory is data on the server, not a second object
-(OI-COLD-06, `PlayerItems.DataOnly.cs`). That player's game holds the only object.
+An item in a player's inventory is data on the server, not an object (OI-COLD-06,
+`PlayerItems.DataOnly.cs`): a remote player's, and since R4C C4 the host's own player's too.
 
-- **Going to data.** When the server commits an item into a remote player's inventory (a stash, a slot
+- **Going to data.** When the server commits an item into a player's inventory (a stash, a slot
   move, a recall, a Lost and Found retrieval: `PlayerItems.Stored`, from each commit), it queues it,
   and `PlayerItems.Update` puts it to data that frame, or as soon as the holder's game is ready for
   items and the item isn't being made, moved or restored: its row is kept in `ColdInventories` (its
   state, slot, owner, claim), its `LiveItem` stays, and the server's object is destroyed
-  (`GoData`). The holder keeps theirs, and so does an owner whose silhouette stands for it; anyone
-  else who was shown it gets a `Destroy` (`WentCold`). The NetId stays the item's
+  (`GoData`). The holder draws its stand-in, and so does an owner whose silhouette stands for it;
+  anyone else who was shown it gets a `Destroy` (`WentCold`). The NetId stays the item's
   ([live-state.md](live-state.md#data-only-records)). Container shells go to data too
   (`PlayerItems.DataOnlyShell` finds one by its container id). Items the server makes straight into
   an inventory (starting items, admin grants, a container withdrawal) are data from the start, with
@@ -125,13 +229,11 @@ An item in a connected remote player's inventory is data on the server, not a se
   under the same NetId and in its slot, before it runs (`PlayerItems.WithObject`): an item request
   naming the item, the shell it opens, the item a `MoveSlot` would swap with, or a retrieval's subject
   (`NetworkServer.DataOnlyNamed`); a shop banknote deposit (`HandleShopDeposit`); a container browse
-  (`HandleItemListRequest`). The players who had it are marked as knowing the new object, so it isn't
-  sent to them again. Once the request is done it goes back to data (it is queued again, after a
-  second's grace).
-- **Not data:** job papers, which stay objects on the server (OI-COLD-07, R4C C7), and a loaded
-  magazine, whose ammo has no row yet (OI-CON-16, R5). The host's own player's items are data too
-  since R4C C4 ([The host's own player](#the-hosts-own-player)): the server puts one away as its
-  stand-in once it's committed to the host's slot (`HostInventory.Stow`).
+  (`HandleItemListRequest`); a job's end, for its papers ([Job papers](#job-papers)). The players who
+  had it are marked as knowing the new object, so it isn't sent to them again. Once the request is
+  done it goes back to data (it is queued again, after a second's grace).
+- **Not data:** a loaded magazine, whose ammo has no row yet (OI-CON-16, R5), and an item whose
+  prefab isn't known. Job papers are data like any item since R4C C7 (OI-COLD-07).
 
 ## Cold inventories
 
@@ -149,7 +251,7 @@ ledger entry stays, home `Slot(holder, slot)`.
 3. Every other item in their inventory goes cold (`PlayerItems.GoCold`, OI-COLD-02): its row is kept,
    a `Destroy` with the cause `WentCold` goes to every other game, and the server's object is destroyed.
    A data-only item already has its row: only its record and NetId go. A scene-authored item becomes
-   an ordinary one first, so the scene doesn't make it again. Job papers don't go cold (R6, OI-COLD-07).
+   an ordinary one first, so the scene doesn't make it again. Job papers go cold as any item does.
 
 The save writes every row (`ItemSaveLoad.WriteSave`), and the load makes no object for an item whose
 holder isn't connected: its row goes straight into `ColdInventories` (`KeepCold`,
@@ -164,23 +266,22 @@ anything else of theirs is sent:
 2. Each row becomes a live record kept as data only from the start (`LiveItems.RegisterDataOnly`),
    under a NetId reserved for it (`NetworkedItem.ReserveDataNetId`), in its saved slot if it's still
    free (`ServerLedger.FreeSlot`, the row's slot first), else its claim, else the lowest free one. Its
-   row stays in `ColdInventories`. No object is made on the server.
+   row stays in `ColdInventories`. No object is made on the server. A job paper joins its job, or
+   goes if its job no longer wants it ([Job papers](#job-papers)).
 3. The joiner is sent one `ClientboundInventoryRowsPacket`: each item's `Create`, built for them, and
-   its saved state (`ItemSaveData` JSON). Their game makes each object from its row
-   (`ClientItemManager.MakeFromRow`, at the safety position under its NetId), loads its state a frame
-   later, as vanilla's starting items do, and places it by its `Create`. R4C's take-out reuses
-   `MakeFromRow`.
+   its saved state. Their game keeps the rows (`InventoryRows`) and draws each as its stand-in in its
+   slot ([Stand-ins](#stand-ins)); an item that stays an object there is made from its row
+   (`ClientItemManager.MakeFromRow`, at the safety position under its NetId, its state loaded a frame
+   later as vanilla's starting items are) and placed by its `Create`.
 4. An essential of theirs that another connected player holds as data has no object for interest to
    find, so they are sent its `Create` too and kept up to date with it (OI-ESS-17).
 
 Made as objects instead, by `GoLive` (the prefab made, its state loaded a frame later, registered
 in its holder's inventory under its own id by `LiveItems.RegisterMaterializedColdItem`, sent to
-everyone): job papers (OI-COLD-07, R6); a row with no free slot or whose ledger home is `LostAndFound`
-(a re-key clash), which overflows: dropped at the player's feet and sent to their Lost and Found
-(`InventoryOverflow`), or left there if unowned; and the host's own player's rows, made once the
-load has run (`PlayerItems.Join`; it is admitted before the load, so the load joins it).
-A row whose prefab is unknown stays cold; one whose state won't load
-comes back fresh in its owner's Lost and Found (D9).
+everyone): a row with no free slot or whose ledger home is `LostAndFound` (a re-key clash), which
+overflows: dropped at the player's feet and sent to their Lost and Found (`InventoryOverflow`), or
+left there if unowned. A row whose prefab is unknown stays cold; one whose state won't load comes back
+fresh in its owner's Lost and Found (D9).
 
 ## The re-key merge
 
@@ -197,7 +298,8 @@ into whatever the Steam id already has, never skipping (OI-ID-19):
 ## The host's own player
 
 The host's own player has an inventory like anyone's, keyed by identity, with the same slots, rules
-and ledger homes. How its changes reach the server:
+and ledger homes, and its game is the server's (`HostInventory`, the row holder there). How its
+changes reach the server:
 
 - Its grabs, drops, stashes and hotbar switches are the server's own world already: the server's item
   manager sees them (`ServerItemManager.ProcessChanged`) and commits each as a forced change by the
@@ -206,10 +308,13 @@ and ledger homes. How its changes reach the server:
 - Its slot moves and swaps, recalls, collections and container requests are requests through its local
   session (`LocalPlayerSession.Items`), handled in-process by the same handlers as a client's
   (`NetworkServer.RegisterLocalItems`).
-- Its items are data only too (R4C C4, D14): its slots hold stand-ins, an object the server commits
-  to one of its slots is put away as its stand-in (`HostInventory.Stow`), and the load takes its cold
-  rows up as data and draws their stand-ins (`PlayerItems.JoinHost`; the load joins it: it is admitted
-  first). Job papers and loaded magazines stay objects.
+- Its items are data only too (R4C C4, D14): its slots hold stand-ins drawn from the server's own rows
+  (`HostInventory.Draw`). A put-away commits the stash there and the object goes to data with the
+  state it had; a take-out makes the object from its row in that frame, the one object that is both
+  the server's and the player's. An object that reaches a slot any other way (a recall, a Lost and
+  Found retrieval, a purchase vanilla adds directly) is put away once the server has committed it
+  there (`HostInventory.Stow`, from `PlayerItems.Stored`). The load takes its cold rows up as data and
+  draws their stand-ins (`PlayerItems.JoinHost`; the load joins it: it is admitted first).
 
 A dedicated host has no player and no inventory: the server moves items about the world but never
 holds one ([live-state.md](live-state.md#a-change)).
@@ -243,9 +348,9 @@ these: its object does.
   control takes a stashed radio out first, and the modes it turns off are kept with the row as the
   radio is put away and given back to its next object. The quick tutorials' pointer at a stashed
   radio has no object to point at, so it isn't drawn.
-- **Items kept near their place** (`ItemLocationForcer`). The forcer follows its item by NetId: a
-  stashed one is where the player's camera is, and once that is too far (or the player fast-travels)
-  it is taken out and put back as vanilla does.
+- **Items kept near their place** (`ItemLocationForcer`). The forcer follows its item by NetId
+  (`ForcedItemRows`): a stashed one is where the player's camera is, and once that is too far (or the
+  player fast-travels) it is taken out and put back as vanilla does.
 
 A stand-in is never destroyed as an item (`InventoryStandInPatches.DestroyItem` skips it). Vanilla's
 `Inventory.DestroyItem` callers are money added to the wallet (never a stand-in: money is destroyed
@@ -282,9 +387,14 @@ docs/jobs.md ("Papers in inventories") has the job side.
 - `Multiplayer.Core.Tests/Items/Ledger/ItemLedgerTests.cs`: two items never share a slot, a swap in
   one commit with the claims following, a stale or cross-inventory swap refused, a claim never on the
   belt, the re-key merge (`Rekey_OntoAnIdentityWithData_MergesIt_ASlotClashGoesToLostAndFound`).
-- Scenarios ([testing.md](../../testing.md)): `inventory-slots` (and `WHO=host`): stash, move, swap,
-  the belt, a reserved slot refused, the same slots after a rejoin; `cold-homes`: data on the server,
-  a move while data, a refused move rolled back, cold rows and D5 across a rejoin;
-  `item-bug-essential-slot-rejoin`; `rekey MERGE=true`; `borrowed-disconnect`; `shop` (the banknote
-  deposit); `starting-items`; `owned-list` and `owned-retrieve` (an item in an inventory); every run
-  ends with the one-home check.
+- Scenarios ([testing.md](../../testing.md)), most also `WHO=host` for the host's own player:
+  `inventory-slots`: stash, move, swap, the belt, a reserved slot refused, the same slots after a
+  rejoin; `stash-state`: an item's state through a stash and a take-out; `hotbar-cycle`: every vanilla
+  item out of the hotbar and back, a stand-in in its slot, the take-out within a frame;
+  `takeout-refused`; `stashed-items`: the clock, the alarm and the boombox in a pocket; `join-rows`;
+  `cold-homes`: data on the server, a move while data, a refused move rolled back, cold rows and D5
+  across a rejoin; `item-bug-essential-slot-rejoin`; `item-bug-booklet-restart`: a carried booklet
+  back in its slot after a restart; `rekey MERGE=true`; `borrowed-disconnect`; `shop` (the banknote
+  deposit); `starting-items`; `owned-list` and `owned-retrieve` (an item in an inventory). Every run
+  ends with the one-home check and with no object in a slot where its row should be
+  (`Invariant.ObjectsInSlots`).

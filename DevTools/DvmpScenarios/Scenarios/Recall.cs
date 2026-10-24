@@ -167,8 +167,10 @@ namespace Dvmp.Scenarios
             [Step]
             public static IEnumerator Recall(Step<Recalled> step, ushort id, int slot)
             {
-                if (!NetworkedItem.TryGet(id, out NetworkedItem item) || item == null) throw new Exception("no item " + id);
-                NetworkedItemManager.Instance.RequestItemRecall(item, slot);
+                // In Lost and Found it has no object here, only its silhouette's stand-in (D14).
+                if (PlayerInventory.SlotObject(id) == null) throw new Exception("no item " + id);
+                NetworkedItem.TryGet(id, out NetworkedItem item);
+                PlayerInventory.Recall(id, slot);
                 var inv = DV.InventorySystem.Inventory.Instance;
                 float t0 = Time.realtimeSinceStartup;
                 // Back on a client, it's a stand-in and the object is gone (D14).
