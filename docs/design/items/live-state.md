@@ -144,6 +144,14 @@ The server forces its own changes: the host's own player's observed changes (`Se
   object state (a lantern's flame) is a run (`ObjectStateRunBase`, `ObjectStateRunTop`), and a request
   made against a revision inside that run still holds (`ItemPlacementRevision.UnchangedSince`): the
   server's copy of a flickering lantern doesn't refuse its holder's drop.
+- **A player's own settle commit** doesn't make their requests stale either. When the player
+  simulating a dropped item commits where it came to rest (`TryCommitSpatialPose`), the record keeps
+  them as `SettledBy`, with the revisions from `SettledBase` (the oldest whose placement they still
+  matched) to `SettledTop` (the commit's). While their settlements, and object state after them, are
+  the only changes since, a request of theirs made against a revision in that window still holds
+  (`ItemPlacementRevision.UnchangedFor`): a regrab just as the item comes to rest isn't refused
+  because their own commit arrived first (OI-PHY-16). Anyone else's request, or one made after
+  another move, is refused as before. The server's own settling has no window.
 - **A stale request** is refused `stale-authority-revision` (code `StaleRevision` on the wire) with a
   correction to the sender. Recall needs the exact revision. Lost and Found's retrieval is refused
   `stale-lost-item-revision`, a physics commit `stale-spatial-authority-revision`. A swap checks the

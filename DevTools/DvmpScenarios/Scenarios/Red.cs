@@ -1,6 +1,9 @@
 using System;
+using System.Collections;
 using System.Linq;
 using System.Threading.Tasks;
+using Dvmp.Agent;
+using Multiplayer.Server.Items.Inventory;
 using Multiplayer.Server.Items.LiveState;
 using Multiplayer.Server.Session;
 using Multiplayer.Shared.Items.Inventory;
@@ -49,9 +52,7 @@ namespace Dvmp.Scenarios
             {
                 Expect.Equal("SomeoneElses", mineTold.Host, "what the host's own player is told of the client's mug");
                 Expect.That(!mineTold.HostClaim, "the host's own player isn't told the client's claim");
-                // Kept as data only on the server, it has no copy there (OI-COLD-06); one that has says so.
-                if (mineTold.HostCopy.Length > 0)
-                    Expect.Equal("SomeoneElses", mineTold.HostCopy, "the relation on the host's own copy of the client's mug");
+                Expect.Equal("SomeoneElses", mineTold.HostCopy, "the relation on the host's own copy of the client's mug");
             }
 
             Told foundTold = await Check(pair, found, "the found", "Nobodys", red: false);
@@ -67,7 +68,7 @@ namespace Dvmp.Scenarios
         private static async Task<Told> Check(Pair pair, ushort id, string whose, string relation, bool red)
         {
             Seen seen = await pair.Client.Run(() => InGame.Seen(id));
-            Told told = await pair.Host.Run(() => InGame.Told(id));
+            Told told = await pair.Host.Run<Told>(s => InGame.Told(s, id));
             Report.Note($"{whose} mug {id}: the client has {seen}; the server tells it {told}");
             Expect.That(seen.InInventory, $"{whose} mug is in the client's inventory", seen.State);
             Expect.Equal(relation, told.Client, $"the relation the server tells the client of {whose} mug");
@@ -87,7 +88,7 @@ namespace Dvmp.Scenarios
 
         public sealed class Told
         {
-            /// <summary>The relations each player is told; "" for no host player (HostCopy: or no copy on the host).</summary>
+            /// <summary>The relations each player is told; "" for no host player.</summary>
             public string Client = "", Host = "", HostCopy = "";
             public bool ClientClaim, HostClaim, OwnerConnected;
             public string Owner = "";
@@ -125,30 +126,30 @@ namespace Dvmp.Scenarios
             }
 
             /// <summary>Host: the item's update as the server builds it for the client and for the
-            /// host's own player (NetworkServer.BuildFor). The protocol tests prove what of it crosses the wire.</summary>
+            /// host's own player (NetworkServer.BuildFor). The protocol tests prove what of it crosses the wire.
+            /// An item in the client's inventory is data on the server (OI-COLD-06), so its object is made first.</summary>
             [Step]
-            public static Told Told(ushort netId)
+            public static IEnumerator Told(Step<Told> step, ushort netId)
             {
-                if (!LiveItems.TryGet(netId, out var record))
+                NetworkedItem item = null;
+                bool made = false;
+                PlayerItems.WithObject(netId, got => { item = got; made = true; });
+                for (int i = 0; i < 300 && !made; i++) yield return null;
+                if (!LiveItems.TryGet(netId, out var record) || item == null)
                     throw new Exception("no record for " + netId);
                 NetworkServer server = NetworkServer.Instance;
-                // In a remote player's inventory the server keeps it as data only, with no copy
-                // (OI-COLD-06): its update is the record's alone.
-                NetworkedItem.TryGet(netId, out NetworkedItem item);
-                ItemUpdate update = item != null
-                    ? item.CreateUpdateData(ItemUpdate.ItemUpdateType.ItemState)
-                    : new ItemUpdate { UpdateType = ItemUpdate.ItemUpdateType.ItemState, ItemNetId = netId, PrefabName = record.PrefabName };
+                ItemUpdate update = item.CreateUpdateData(ItemUpdate.ItemUpdateType.ItemState);
                 LiveItems.WriteToSnapshot(record, update, ItemTransitionReason.Unknown);
                 ServerPlayer client = server.ServerPlayers.First(p => p != server.LocalPlayer && p.PlayerId != 0);
                 ItemUpdate toClient = NetworkServer.BuildFor(update, client);
                 ItemUpdate toHost = server.LocalPlayer == null ? null : NetworkServer.BuildFor(update, server.LocalPlayer);
-                return new Told
+                step.Result = new Told
                 {
                     Client = toClient.Relation.ToString(),
                     ClientClaim = toClient.HasClaim,
                     Host = toHost?.Relation.ToString() ?? "",
                     HostClaim = toHost?.HasClaim == true,
-                    HostCopy = server.LocalPlayer == null || item == null ? "" : item.Relation.ToString(),
+                    HostCopy = server.LocalPlayer == null ? "" : item.Relation.ToString(),
                     Owner = record.Owner.ToString("D"),
                     OwnerConnected = PlayerNumbers.IsConnected(record.Owner)
                 };
