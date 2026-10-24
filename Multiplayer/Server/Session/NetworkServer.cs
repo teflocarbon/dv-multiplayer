@@ -1178,7 +1178,9 @@ public partial class NetworkServer : NetworkManager
 
             case PlayerLoadingState.ReadyForItems:
                 // Claims are the ledger's, one per slot by construction (OI-ESS-01): nothing to repair.
-                // World items will be spawned when the player is within the culling range
+                // Their inventory goes to them as rows (OI-COLD-03); world items will be spawned
+                // when the player is within the culling range.
+                PlayerItems.SendRows(player);
                 break;
 
             case PlayerLoadingState.ReadyForJobs:

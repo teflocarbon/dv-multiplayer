@@ -76,6 +76,12 @@ public abstract class IdMonoBehaviour<T, I> : MonoBehaviour where T : struct whe
         !indexToObject.TryGetValue(id, out IdMonoBehaviour<T, I> holder) || ReferenceEquals(holder, this)
             ? TryRegister(id, alreadyReserved: true) : false;
 
+    /// <summary>
+    /// Reserves an ID for a thing kept as data from the start, with no object yet, as if one had
+    /// handed it over (<see cref="HandOverNetId"/>): the first object for it takes it up.
+    /// </summary>
+    protected static bool ReserveNetId(out T id) => idAllocator.TryAllocate(out id);
+
     /// <summary>Frees an ID handed over that nothing will take up (the thing it named is gone).</summary>
     protected static void FreeHandedOverNetId(T id)
     {

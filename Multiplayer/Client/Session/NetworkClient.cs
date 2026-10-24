@@ -396,6 +396,7 @@ public partial class NetworkClient : NetworkManager, ILocalPlayerSession, IClien
 
         // World Sync
         Handle<ClientboundItemUpdatesPacket>(OnClientboundItemUpdatesPacket);
+        Handle<ClientboundInventoryRowsPacket>(OnClientboundInventoryRowsPacket);
         Handle<ClientboundItemResultPacket>(OnClientboundItemResultPacket);
         Handle<ClientboundItemListPacket>(OnClientboundItemListPacket);
         Handle<ClientboundWorldItemCataloguePacket>(OnClientboundWorldItemCataloguePacket);

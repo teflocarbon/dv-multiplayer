@@ -45,7 +45,8 @@ public sealed class ItemWirePacketTests
             .Select(t => t.Name).OrderBy(n => n, StringComparer.Ordinal).ToArray();
         Assert.That(names, Is.EqualTo(new[]
         {
-            nameof(ClientboundItemListPacket), nameof(ClientboundItemResultPacket), nameof(ClientboundItemUpdatesPacket),
+            nameof(ClientboundInventoryRowsPacket), nameof(ClientboundItemListPacket), nameof(ClientboundItemResultPacket),
+            nameof(ClientboundItemUpdatesPacket),
             nameof(ServerboundItemListRequestPacket), nameof(ServerboundItemRequestPacket)
         }));
     }
@@ -80,6 +81,26 @@ public sealed class ItemWirePacketTests
             Assert.That(result.Updates[1].InventoryClaimSlot, Is.EqualTo(-1));
             Assert.That(result.Updates.All(u => u.PlayerId == 2 && u.AuthorityRevision == 42), Is.True);
         });
+    }
+
+    [Test]
+    public void InventoryRows_RoundTripEachRowWithItsState()
+    {
+        ItemUpdate row = new()
+        {
+            UpdateType = ItemUpdate.ItemUpdateType.Create, ItemNetId = 78, PrefabName = "Lighter", AuthorityRevision = 1,
+            ItemState = ItemState.InInventory, PlayerId = 2, InventorySlot = 7, InventoryClaimSlot = 7
+        };
+        ClientboundInventoryRowsPacket result = RoundTrip(new ClientboundInventoryRowsPacket
+        {
+            Rows = new List<ItemUpdate> { row.For(ItemRelation.Mine, claimant: true), row.For(ItemRelation.Nobodys, claimant: false) },
+            States = new[] { "{\"fuel\":0.5}", "" }
+        }, p => new ClientboundInventoryRowsPacket { Rows = p.Rows.ToList(), States = p.States.ToArray() });
+
+        Assert.That(result.Rows.Select(r => r.InventorySlot), Is.EqualTo(new[] { 7, 7 }));
+        Assert.That(result.Rows[0].InventoryClaimSlot, Is.EqualTo(7));
+        Assert.That(result.Rows[0].PrefabName, Is.EqualTo("Lighter"));
+        Assert.That(result.States, Is.EqualTo(new[] { "{\"fuel\":0.5}", "" }));
     }
 
     [Test]

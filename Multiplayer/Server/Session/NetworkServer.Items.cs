@@ -207,6 +207,19 @@ public partial class NetworkServer : IItemServer
                     SendItemUpdatesTo(recipient, one);
     }
 
+    /// <summary>A joiner's inventory as rows (OI-COLD-03): each Create built for them, beside its saved state.</summary>
+    public void SendInventoryRows(ServerPlayer recipient, List<ItemUpdate> rows, List<string> states)
+    {
+        if (recipient?.Peer == null || recipient == LocalPlayer || rows == null || rows.Count == 0)
+            return;
+        ClientboundInventoryRowsPacket packet = new()
+        {
+            Rows = rows.Select(row => BuildFor(row, recipient)).ToList(),
+            States = states.ToArray()
+        };
+        SendPacket(recipient.Peer, packet, DeliveryMethod.ReliableOrdered);
+    }
+
     // The host's own player is the server's own world: it's never sent its items' changes.
     private void SendItemUpdatesTo(ServerPlayer recipient, List<ItemUpdate> updates)
     {
