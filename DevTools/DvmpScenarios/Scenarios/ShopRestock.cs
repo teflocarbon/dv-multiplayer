@@ -50,24 +50,11 @@ namespace Dvmp.Scenarios
             string withdrew = System.Array.Find(log, l => l.StartsWith("withdrew: "));
             Require.That(withdrew != null, "the round trip reported the withdrawn item");
             ushort back = ushort.Parse(withdrew.Substring("withdrew: ".Length).Split(' ')[0]);
-            await pair.Host.Run(() => InGame.Destroy(back));
+            await pair.Host.Run<ushort[]>(s => Items.Destroy(s, new[] { back }));
             await Task.Delay(2000);
             Shop.HostView gone = await pair.Host.Run(() => Shop.InGame.HostView(b.Prefab, 0, -1));
             Report.Note($"host stock after destroying item {back}: {gone.Stock}");
             Expect.Equal(after.Stock + 1, gone.Stock, "the host's stock after the item was really destroyed");
-        }
-
-        // ---- runs inside the games
-        public static class InGame
-        {
-            /// <summary>Host: destroys the item, as the game does when one is binned or used up.</summary>
-            [Step]
-            public static void Destroy(ushort netId)
-            {
-                if (!NetworkedItem.TryGet(netId, out NetworkedItem item) || item == null)
-                    throw new System.Exception($"item {netId} isn't on the host");
-                UnityEngine.Object.Destroy(item.gameObject);
-            }
         }
     }
 }
