@@ -129,6 +129,9 @@ public partial class NetworkedItem
                 ((dynamic)trackedValue).ServerAuthoritative);
     }
 
+    /// <summary>The server dropped this item's change (another player holds it): it isn't dirty since then.</summary>
+    internal void KeepLastDirtyTick(uint tick) => LastDirtyTick = tick;
+
     /// <summary>Drops the values another player holding this item reports themselves.</summary>
     internal void KeepHostReportsForRemoteHolder(ItemUpdate snapshot)
     {

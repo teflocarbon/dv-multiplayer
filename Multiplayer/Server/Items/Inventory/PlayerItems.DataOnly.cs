@@ -65,6 +65,7 @@ internal static partial class PlayerItems
 
     private static void ClearDataOnly()
     {
+        HostInventory.Clear();
         stashedStates.Clear();
         settlingSince.Clear();
         materializing.Clear();
@@ -99,6 +100,7 @@ internal static partial class PlayerItems
             return;
         float now = Time.realtimeSinceStartup;
         nextScan = now + ScanSeconds;
+        HostInventory.Sweep(now);
         foreach (LiveItems.LiveItem record in LiveItems.Records.ToArray())
         {
             if (!ShouldBeData(record, out NetworkedItem item, out ServerPlayer holder))
@@ -121,7 +123,8 @@ internal static partial class PlayerItems
     }
 
     // A remote player's inventory item whose holder has it: not the host's own player's (the host's
-    // game is theirs), not job papers (their job's objects; OI-COLD-07, R6), nothing being made or moved.
+    // game is theirs), not job papers (their job's objects; OI-COLD-07, R6), not a loaded magazine
+    // (its ammo is an object inside it; OI-CON-16), nothing being made or moved.
     private static bool ShouldBeData(LiveItems.LiveItem record, out NetworkedItem item, out ServerPlayer holder)
     {
         item = null;
@@ -129,7 +132,8 @@ internal static partial class PlayerItems
         if (record.Placement != ItemPlacementKind.PlayerInventory || record.Slot < 0 ||
             materializing.Contains(record.NetId) || ItemSaveLoad.IsJobSystemDocument(record.PrefabName) ||
             !NetworkedItem.TryGet(record.NetId, out item) || item == null || item.Item == null ||
-            item.ColdMaterializationPending || item.ColdStorageRetirement)
+            item.ColdMaterializationPending || item.ColdStorageRetirement ||
+            InventoryStandIn.HoldsAmmo(item.gameObject))
             return false;
         holder = PlayerNumbers.Session(record.Holder);
         return holder != null && holder != NetworkServer.Instance.LocalPlayer && holder.Peer != null &&
@@ -197,13 +201,19 @@ internal static partial class PlayerItems
     /// <summary>
     /// Has the server's object made again for an item kept as data, under its NetId and in its
     /// holder's inventory, then calls <paramref name="done"/> with it (null if it couldn't be). Any
-    /// other item gets its object, or null, straight away.
+    /// other item gets its object, or null, straight away. One in the host's own player's slot is
+    /// made at once, in place of its stand-in (<see cref="HostInventory.MakeInSlot"/>).
     /// </summary>
     public static void WithObject(ushort netId, Action<NetworkedItem> done)
     {
         if (!IsDataOnly(netId) && !materializing.Contains(netId))
         {
             done(NetworkedItem.TryGet(netId, out NetworkedItem existing) && existing != null ? existing : null);
+            return;
+        }
+        if (!materializing.Contains(netId) && HostInventory.Holds(netId))
+        {
+            done(HostInventory.MakeInSlot(netId, "request"));
             return;
         }
         CoroutineManager.Instance.StartCoroutine(Materialize(netId, done));
@@ -224,24 +234,12 @@ internal static partial class PlayerItems
             done(null);
             yield break;
         }
-        InventoryItemSpec spec = Globals.G?.Items?.items?.FirstOrDefault(candidate => candidate != null &&
-            string.Equals(candidate.ItemPrefabName, row.PrefabName, StringComparison.Ordinal));
-        if (spec == null)
+        GameObject instance = InstantiateFromRow(netId, row, out NetworkedItem item);
+        if (instance == null)
         {
-            Multiplayer.LogWarning($"Inventory: no item called {row.PrefabName}; netId {netId} stays data");
             done(null);
             yield break;
         }
-
-        materializing.Add(netId);
-        GameObject instance = ItemStateText.Instantiate(spec.gameObject,
-            StartingItemsController.ITEM_INSTANTIATION_SAFETY_POSITION, Quaternion.identity);
-        instance.name = row.PrefabName;
-        InventoryItemSpec placed = instance.GetComponent<InventoryItemSpec>();
-        if (placed != null && row.OwnerIdentity != Guid.Empty)
-            placed.BelongsToPlayer = true;
-        NetworkedItem item = instance.GetOrAddComponent<NetworkedItem>();
-        item.BeginColdMaterialization();
 
         // DV's own StartingItemsController waits a frame before loading an item's state.
         yield return null;
@@ -252,32 +250,7 @@ internal static partial class PlayerItems
             if (!LiveItems.TryGet(netId, out LiveItems.LiveItem still) || still != record ||
                 !ColdInventories.TryGet(record.PersistentItemId, out SavedItemRow current) || current != row)
                 throw new InvalidOperationException("it changed meanwhile");
-            ItemSaveData saveData = instance.GetComponent<ItemSaveData>();
-            if (saveData != null && row.State != null)
-            {
-                saveData.LoadItemData(row.State);
-                saveData.PostLoadItemData();
-            }
-            ItemStateText.FinishContainer(instance);
-            ItemBase itemBase = instance.GetComponent<ItemBase>();
-            if (itemBase == null || !item.TakeUpFromData(netId))
-                throw new InvalidOperationException("couldn't take up its net id");
-            ItemIdentity identity = instance.GetComponent<ItemIdentity>() ?? instance.AddComponent<ItemIdentity>();
-            identity.Value = record.PersistentItemId;
-            item.Initialize(itemBase, netId, true);
-            item.FinaliseTrackedValuesAutomatically();
-            ColdInventories.Remove(record.PersistentItemId);
-            if (LiveItems.TryCreateCorrectionSnapshot(item, out ItemUpdate snapshot))
-                item.ApplyServerCanonicalSnapshot(snapshot);
-            ServerItemManager.Instance?.RegisterHostWorldItem(item);
-            uint tick = NetworkLifecycle.Instance?.Tick ?? 0;
-            if (knownBy.TryGetValue(netId, out byte[] knowers))
-                foreach (byte playerId in knowers)
-                    if (NetworkServer.Instance.TryGetServerPlayer(playerId, out ServerPlayer knower))
-                        knower.KnownItems[item] = tick;
-            knownBy.Remove(netId);
-            item.CompleteColdMaterialization();
-            result = item;
+            result = TakeUpObject(record, row, item, null);
         }
         catch (Exception exception)
         {
@@ -291,6 +264,97 @@ internal static partial class PlayerItems
         }
         done(result);
     }
+
+    /// <summary>
+    /// The server's object for an item kept as data, made in this frame with its state (the host's
+    /// own take-out, D14), under its NetId and parked as a stashed item is: not placed anywhere, for
+    /// the caller to put in the slot. Null if it couldn't be made.
+    /// </summary>
+    internal static NetworkedItem MakeNow(ushort netId, ServerPlayer holder)
+    {
+        if (materializing.Contains(netId) || NetworkedItem.TryGet(netId, out NetworkedItem existing) && existing != null ||
+            !LiveItems.TryGet(netId, out LiveItems.LiveItem record) ||
+            !ColdInventories.TryGet(record.PersistentItemId, out SavedItemRow row))
+            return null;
+        GameObject instance = InstantiateFromRow(netId, row, out NetworkedItem item);
+        if (instance == null)
+            return null;
+        try
+        {
+            return TakeUpObject(record, row, item, holder);
+        }
+        catch (Exception exception)
+        {
+            item.AbortColdMaterialization();
+            Object.Destroy(instance);
+            Multiplayer.LogWarning($"Inventory: couldn't make {row.PrefabName} (netId {netId}) from its data: {exception.Message}");
+            return null;
+        }
+        finally
+        {
+            materializing.Remove(netId);
+        }
+    }
+
+    // Its prefab made at DV's safety position, as a cold item being made: nothing observes it yet.
+    private static GameObject InstantiateFromRow(ushort netId, SavedItemRow row, out NetworkedItem item)
+    {
+        item = null;
+        InventoryItemSpec spec = Globals.G?.Items?.items?.FirstOrDefault(candidate => candidate != null &&
+            string.Equals(candidate.ItemPrefabName, row.PrefabName, StringComparison.Ordinal));
+        if (spec == null)
+        {
+            Multiplayer.LogWarning($"Inventory: no item called {row.PrefabName}; netId {netId} stays data");
+            return null;
+        }
+        materializing.Add(netId);
+        GameObject instance = ItemStateText.Instantiate(spec.gameObject,
+            StartingItemsController.ITEM_INSTANTIATION_SAFETY_POSITION, Quaternion.identity);
+        instance.name = row.PrefabName;
+        InventoryItemSpec placed = instance.GetComponent<InventoryItemSpec>();
+        if (placed != null && row.OwnerIdentity != Guid.Empty)
+            placed.BelongsToPlayer = true;
+        item = instance.GetOrAddComponent<NetworkedItem>();
+        item.BeginColdMaterialization();
+        return instance;
+    }
+
+    // Its state loaded and its NetId taken up; its row goes and whoever knew it knows the object.
+    // A remote holder's is placed as the server keeps it; the host's own (holder) is left parked,
+    // its record's metadata on it, for the host's slot.
+    private static NetworkedItem TakeUpObject(LiveItems.LiveItem record, SavedItemRow row, NetworkedItem item,
+        ServerPlayer holder)
+    {
+        GameObject instance = item.gameObject;
+        ushort netId = record.NetId;
+        ItemStateText.LoadNowOrSoon(instance, row.State, $"{row.PrefabName} (netId {netId})");
+        ItemBase itemBase = instance.GetComponent<ItemBase>();
+        if (itemBase == null || !item.TakeUpFromData(netId))
+            throw new InvalidOperationException("couldn't take up its net id");
+        ItemIdentity identity = instance.GetComponent<ItemIdentity>() ?? instance.AddComponent<ItemIdentity>();
+        identity.Value = record.PersistentItemId;
+        item.Initialize(itemBase, netId, true);
+        item.FinaliseTrackedValuesAutomatically();
+        ColdInventories.Remove(record.PersistentItemId);
+        if (LiveItems.TryCreateCorrectionSnapshot(item, out ItemUpdate snapshot))
+        {
+            if (holder != null)
+                item.ApplyHostLocalCanonicalTransition(snapshot, holder);
+            else
+                item.ApplyServerCanonicalSnapshot(snapshot);
+        }
+        if (holder == null)
+            ServerItemManager.Instance?.RegisterHostWorldItem(item);
+        uint tick = NetworkLifecycle.Instance?.Tick ?? 0;
+        if (knownBy.TryGetValue(netId, out byte[] knowers))
+            foreach (byte playerId in knowers)
+                if (NetworkServer.Instance.TryGetServerPlayer(playerId, out ServerPlayer knower))
+                    knower.KnownItems[item] = tick;
+        knownBy.Remove(netId);
+        item.CompleteColdMaterialization();
+        return item;
+    }
+
 
     // A data-only item's holder left: it is cold as it is. Whoever still has it (an owner's
     // silhouette) is told, and its record and NetId go.

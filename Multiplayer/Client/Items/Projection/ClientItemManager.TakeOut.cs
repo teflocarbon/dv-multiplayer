@@ -37,7 +37,7 @@ internal sealed partial class ClientItemManager
     /// Takes a stand-in's item out: its object is made from the row, parked, and put where vanilla
     /// had the stand-in, which goes. The object, or null if it couldn't be made (the stand-in stays).
     /// </summary>
-    internal NetworkedItem TakeOut(InventoryStandIn standIn, string reason)
+    public NetworkedItem TakeOut(InventoryStandIn standIn, string reason)
     {
         DV.InventorySystem.Inventory inventory = DV.InventorySystem.Inventory.Instance;
         if (inventory == null || standIn == null || !standIn.Known)
@@ -97,9 +97,9 @@ internal sealed partial class ClientItemManager
     }
 
     /// <summary>An object vanilla has stored in a slot (moved off the VR belt) becomes its stand-in there; the move was the request.</summary>
-    internal void StowWithoutRequest(NetworkedItem item)
+    public void StowWithoutRequest(NetworkedItem item)
     {
-        InventoryStandIn standIn = StandInFor(item);
+        InventoryStandIn standIn = InventoryStandIn.ForObject(item);
         VanillaInventorySlots.Rebind(DV.InventorySystem.Inventory.Instance, item.gameObject, standIn.gameObject);
         item.BeginColdStorageRetirement();
         RetireClientProjection(item, "stored-off-vr-belt");

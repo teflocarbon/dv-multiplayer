@@ -75,13 +75,13 @@ internal sealed partial class ClientItemManager
         item.gameObject.SetActive(true);
         try
         {
-            ItemStateText.Load(gameObject, state);
+            ItemStateText.LoadNowOrSoon(gameObject, state, $"{row.PrefabName} (netId {row.ItemNetId})");
         }
         catch (Exception exception)
         {
             Multiplayer.LogWarning($"Inventory: {row.PrefabName} (netId {row.ItemNetId})'s saved state didn't load: {exception.Message}");
+            ItemStateText.FinishContainer(gameObject);
         }
-        ItemStateText.FinishContainer(gameObject);
         NetworkedItemManager.TraceItem("item.made-from-row", item, new() { ["prefabName"] = row.PrefabName });
         return item;
     }

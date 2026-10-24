@@ -234,18 +234,18 @@ internal static partial class PlayerItems
     }
 
     /// <summary>
-    /// Host: a player joined. The host's own player's cold rows are made again here, in their exact
-    /// slots: its game is the server's. A remote player's go live as rows once their game is ready
-    /// for items (<see cref="SendRows"/>, OI-COLD-03). The host's own player is admitted before the
-    /// load, when it has no rows yet: the load joins it.
+    /// Host: a player joined. The host's own player's cold rows go live here as data, in their
+    /// exact slots, and are drawn as stand-ins in its game (D14, <see cref="JoinHost"/>). A remote
+    /// player's go live as rows once their game is ready for items (<see cref="SendRows"/>,
+    /// OI-COLD-03). The host's own player is admitted before the load, when it has no rows yet: the
+    /// load joins it.
     /// </summary>
     public static void Join(ServerPlayer player)
     {
         if (player == null || player.Guid == Guid.Empty || NetworkLifecycle.Instance?.IsHost() != true ||
             player != NetworkServer.Instance.LocalPlayer || !ServerLedger.Loaded)
             return;
-        foreach (SavedItemRow row in ColdInventories.Of(player.Guid))
-            CoroutineManager.Instance.StartCoroutine(GoLive(player, row));
+        CoroutineManager.Instance.StartCoroutine(JoinHost(player));
     }
 
     // As a cold-container withdrawal makes an item (ContainerServer.Withdraw): made at DV's safety

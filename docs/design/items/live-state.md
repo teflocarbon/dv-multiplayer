@@ -199,6 +199,11 @@ Each game adds its part:
 - `ItemSnapshotApplicationPolicy` keeps a client from applying the echo of its own throw, VR release,
   hold or object state a second time; `ItemStateObservationPolicy` keeps a remote player's placement
   from being recomputed through the local inventory.
+- The server's copy of an item another player holds or carries reports only its server-authoritative
+  values (`TrackedStateComposer.HostReportsForRemoteHolder`); a change of its copy with none of those
+  isn't a change at all (`ProcessChanged` keeps its `LastDirtyTick`), or the players who knew it were
+  sent the copy whole (a FullSync) and its drift overwrote the holder's (a lantern's wick swinging in
+  their projected hand, after a take-out made the copy afresh).
 
 ## Data-only records
 
