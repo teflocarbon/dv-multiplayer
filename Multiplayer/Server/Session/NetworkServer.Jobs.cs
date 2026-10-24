@@ -19,12 +19,14 @@ namespace Multiplayer.Server.Session;
 // NetworkServer's jobs handlers and sends (see docs/design/code-layout.md).
 public partial class NetworkServer : IJobServer
 {
-    // A job that's over takes its booklets with it, wherever they are; the players hear of it as
-    // item removals.
+    // A job that's over takes its booklets with it, wherever they are, rows in inventories too (and
+    // an expired job's overview); the players hear of it as item removals.
     void IJobServer.OnJobEnded(NetworkedJob job)
     {
-        if (IsRunning)
-            job.DestroyJobBooklets();
+        if (!IsRunning)
+            return;
+        JobPaperRows.OnJobEnded(job);
+        job.DestroyJobBooklets();
     }
 
     partial void RegisterLocalJobs()

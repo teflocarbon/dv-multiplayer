@@ -7,6 +7,8 @@ using Multiplayer.Shared.Items.LiveState;
 using Multiplayer.Shared.Protocol.Data.Items;
 using Multiplayer.Shared.Utils;
 using Multiplayer.Shared.Items.Inventory;
+using Multiplayer.Shared.Jobs;
+using Newtonsoft.Json.Linq;
 using UnityEngine;
 using Object = UnityEngine.Object;
 
@@ -62,6 +64,8 @@ internal sealed partial class ClientItemManager
             return null;
         if (NetworkedItem.TryGet(row.ItemNetId, out NetworkedItem existing) && existing != null)
             RetireClientProjection(existing, "inventory-row-replaced-existing-projection");
+        if (JobPapers.IsPaper(row.PrefabName))
+            return MakePaperFromRow(row, state);
         if (!shell.TryGetItemPrefab(row.PrefabName, out GameObject prefab))
         {
             Multiplayer.LogError($"Inventory: no prefab called {row.PrefabName} for netId {row.ItemNetId}");
@@ -83,6 +87,36 @@ internal sealed partial class ClientItemManager
             ItemStateText.FinishContainer(gameObject);
         }
         NetworkedItemManager.TraceItem("item.made-from-row", item, new() { ["prefabName"] = row.PrefabName });
+        return item;
+    }
+
+    // A job paper is the job system's: made from its job here (a report from its recipe), as the
+    // job's own copy under the row's NetId (JobPapers; OI-COLD-07). Null if its job isn't known here.
+    private NetworkedItem MakePaperFromRow(ItemUpdate row, string state)
+    {
+        JObject parsed = null;
+        if (!string.IsNullOrEmpty(state))
+        {
+            try
+            {
+                parsed = JObject.Parse(state);
+            }
+            catch (Newtonsoft.Json.JsonException)
+            {
+            }
+        }
+        Component paper = JobPapers.Make(row.PrefabName, parsed,
+            StartingItemsController.ITEM_INSTANTIATION_SAFETY_POSITION, Quaternion.identity);
+        if (paper == null)
+        {
+            Multiplayer.LogError($"Inventory: {row.PrefabName} (netId {row.ItemNetId}) has no job here to be made from");
+            return null;
+        }
+        NetworkedItem item = paper.GetOrAddComponent<NetworkedItem>();
+        JobPapers.Track(item, paper, row.ItemNetId, false, parsed);
+        item.Client()?.SetNetworkBinding(true);
+        item.gameObject.SetActive(true);
+        NetworkedItemManager.TraceItem("item.made-from-row", item, new() { ["prefabName"] = row.PrefabName, ["jobPaper"] = true });
         return item;
     }
 }

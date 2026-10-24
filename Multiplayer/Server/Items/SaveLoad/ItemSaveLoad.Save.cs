@@ -11,6 +11,7 @@ using Multiplayer.Server.Items.LiveState;
 using Multiplayer.Server.Items.LostAndFound;
 using Multiplayer.Server.Players;
 using Multiplayer.Shared.Items.LiveState;
+using Multiplayer.Shared.Jobs;
 using Multiplayer.Shared.Items.WorldItems;
 using Multiplayer.Shared.Protocol.Data.Items;
 using Multiplayer.Shared.Session;
@@ -85,8 +86,9 @@ internal static partial class ItemSaveLoad
         foreach (LedgerEntry entry in ServerLedger.Ledger.All())
         {
             // The job system saves its jobs and prints their paperwork again at the load; a booklet
-            // saved as well came back beside the reprint, one more each load.
-            if (IsJobSystemDocument(entry.Prefab))
+            // saved as well came back beside the reprint, one more each load. A player's own is
+            // theirs (OI-COLD-15), and the reprint waits for it (JobBookletRecoveryPatch).
+            if (IsUnsavedJobPaper(entry))
                 continue;
             if (!entry.IsLive)
             {
@@ -282,7 +284,7 @@ internal static partial class ItemSaveLoad
     {
         try
         {
-            return item.GetComponent<ItemSaveData>()?.SaveItemData();
+            return JobPapers.Complete(item.gameObject, item.GetComponent<ItemSaveData>()?.SaveItemData());
         }
         catch (Exception ex)
         {
@@ -296,10 +298,12 @@ internal static partial class ItemSaveLoad
     // carries is saved with them, as vanilla's inventory keeps everything in it.
     private static bool ShouldPersistUnowned(LiveItems.LiveItem record, NetworkedItem item)
     {
-        if (record.PersistentItemId == Guid.Empty || IsJobSystemDocument(record.PrefabName))
+        if (record.PersistentItemId == Guid.Empty)
             return false;
         if (IsPlayerPossession(record))
             return true;
+        if (IsJobSystemDocument(record.PrefabName))
+            return false;
         return item.Item?.InventorySpecs?.BelongsToPlayer == true &&
                record.Placement is ItemPlacementKind.World or ItemPlacementKind.TrainInterior or
                    ItemPlacementKind.StaticParent or ItemPlacementKind.Attached or ItemPlacementKind.SnappedAttachment;

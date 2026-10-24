@@ -2,6 +2,7 @@ using DV.Booklets;
 using DV.Logic.Job;
 using DV.ThingTypes;
 using Multiplayer.Shared.Debugging;
+using Multiplayer.Shared.Items.Inventory;
 using Multiplayer.Shared.Items.LiveState;
 using Multiplayer.Shared.Jobs;
 using Multiplayer.Shared.Protocol.Data.Items;
@@ -348,6 +349,12 @@ public static class ClientStationJobs
     private static void GenerateOverview(NetworkedStationController station, NetworkedJob networkedJob, ushort itemNetId, ItemPositionData posData)
     {
         Multiplayer.Log($"GenerateOverview([{networkedJob.Job.ID},{networkedJob.Job.jobType}], {itemNetId}) Position: {posData.Position}, Less currentMove: {posData.Position + WorldMover.currentMove}");
+        // This player's own, stashed: a stand-in in its slot, made from its row when taken out (OI-COLD-07).
+        if (InventoryStandIn.TryGet(itemNetId, out _))
+        {
+            networkedJob.SetOverviewRow(itemNetId);
+            return;
+        }
         JobOverview jobOverview = BookletCreator_JobOverview.Create(networkedJob.Job, posData.Position + WorldMover.currentMove, posData.Rotation, WorldMover.OriginShiftParent);
 
         NetworkedItem netItem = jobOverview.GetOrAddComponent<NetworkedItem>();
@@ -394,6 +401,12 @@ public static class ClientStationJobs
         if (networkedJob == null || itemNetId == 0 ||
             networkedJob.TryGetJobBooklet(itemNetId, out _))
             return;
+        // This player's own, stashed: a stand-in in its slot, made from its row when taken out (OI-COLD-07).
+        if (InventoryStandIn.TryGet(itemNetId, out _))
+        {
+            networkedJob.RegisterBookletRow(itemNetId, issuedToPlayerId);
+            return;
+        }
         JobBooklet booklet = BookletCreator.CreateJobBooklet(networkedJob.Job,
             posData.Position + WorldMover.currentMove, posData.Rotation,
             WorldMover.OriginShiftParent, true);

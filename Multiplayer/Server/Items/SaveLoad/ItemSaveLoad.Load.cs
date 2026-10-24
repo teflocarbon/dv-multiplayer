@@ -10,6 +10,7 @@ using Multiplayer.Server.Items.Inventory;
 using Multiplayer.Server.Items.Ledger;
 using Multiplayer.Server.Session;
 using Multiplayer.Shared.Debugging;
+using Multiplayer.Shared.Jobs;
 using Multiplayer.Shared.Items.WorldItems;
 using Multiplayer.Shared.Protocol.Data.Items;
 using Multiplayer.Debugging.Protocol;
@@ -81,14 +82,15 @@ internal static partial class ItemSaveLoad
         if (items.UnreadableCount > 0)
             Multiplayer.LogError($"Items: {items.UnreadableCount} saved row(s) can't be read; they are kept as they are");
 
-        // Job paperwork is the job system's to make (an R4 save before this wrote a claimed booklet).
-        items.Ledger.RemoveAll(entry => IsJobSystemDocument(entry.Prefab));
+        // Job paperwork is the job system's to make (an R4 save before this wrote a claimed booklet),
+        // except what a player carries, which is theirs (OI-COLD-15).
+        items.Ledger.RemoveAll(IsUnsavedJobPaper);
         // An item whose prefab is gone holds no place from the start (D9): its saved row names the
         // slot it had, which an item made since may have taken, and the made item keeps it.
         for (int i = 0; i < items.Ledger.Count; i++)
         {
             LedgerEntry entry = items.Ledger[i];
-            if (entry.IsLive && entry.Home.Kind != HomeKind.Installed && FindSpec(entry.Prefab) == null)
+            if (entry.IsLive && entry.Home.Kind != HomeKind.Installed && !PrefabKnown(entry.Prefab))
                 items.Ledger[i] = WithHome(entry, Home.Unloadable);
         }
         ServerLedger.LoadEntries(items.Ledger, items.StarterKits);
@@ -96,7 +98,7 @@ internal static partial class ItemSaveLoad
             .Where(car => car != null && !string.IsNullOrEmpty(car.CarGUID)).Select(car => car.CarGUID));
         LoadWorld world = new()
         {
-            PrefabExists = prefab => FindSpec(prefab) != null,
+            PrefabExists = PrefabKnown,
             CarExists = car => !string.IsNullOrEmpty(car) && cars.Contains(car)
         };
 
@@ -340,10 +342,11 @@ internal static partial class ItemSaveLoad
     private static bool LoadUnowned(JToken token, LoadContext context)
     {
         SavedItemRow row = SavedItemRow.FromJson((JObject)token);
-        // Saves from earlier builds have job paperwork the job system makes by itself.
-        if (IsJobSystemDocument(row.PrefabName))
+        // Saves from earlier builds have job paperwork the job system makes by itself; what a player
+        // carries is theirs (OI-COLD-15), and is made from its job, not from a prefab.
+        if (IsUnsavedJobPaper(row.PrefabName, row.Placement))
             return true;
-        if (FindSpec(row.PrefabName) == null)
+        if (FindSpec(row.PrefabName) == null && !JobPapers.IsPaper(row.PrefabName))
         {
             Multiplayer.LogWarning($"Items: no item called {row.PrefabName}; its row is kept and tried again at the next load");
             return false;

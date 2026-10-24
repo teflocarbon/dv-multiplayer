@@ -1,3 +1,4 @@
+using Multiplayer.Core.Items.Ledger;
 using Multiplayer.Server.Career;
 using Multiplayer.Server.Items.LiveState;
 using Multiplayer.Shared.Items.LiveState;
@@ -148,6 +149,17 @@ internal static partial class ItemSaveLoad
     /// </summary>
     internal static bool IsJobSystemDocument(string prefabName) =>
         prefabName is "JobOverview" or "JobBooklet";
+
+    /// <summary>
+    /// Job papers not saved as items: a board's overview and a booklet lying about, which the job
+    /// system makes again. One a player carries is theirs and is saved with them, as any item is,
+    /// so it's back in its slot after a restart (D14, OI-COLD-07, OI-COLD-15).
+    /// </summary>
+    internal static bool IsUnsavedJobPaper(string prefabName, ItemPlacementKind placement) =>
+        IsJobSystemDocument(prefabName) && placement is not (ItemPlacementKind.PlayerInventory or ItemPlacementKind.PlayerHand);
+
+    internal static bool IsUnsavedJobPaper(LedgerEntry entry) =>
+        IsJobSystemDocument(entry.Prefab) && entry.Home.Kind is not (HomeKind.Slot or HomeKind.Hand);
 
     /// <summary>An item in a player's inventory or hand, connected or not, the host's own player included.</summary>
     internal static bool IsPlayerPossession(LiveItems.LiveItem record) =>

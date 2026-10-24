@@ -3,6 +3,7 @@ using Multiplayer.Client.Items.LiveState;
 using Multiplayer.Core.Items.Ledger;
 using Multiplayer.Shared.Items.Inventory;
 using Multiplayer.Shared.Items.LiveState;
+using Multiplayer.Shared.Jobs;
 using Multiplayer.Shared.Protocol.Data.Items;
 using Multiplayer.Shared.Session;
 using UnityEngine;
@@ -18,7 +19,8 @@ internal sealed partial class ClientItemManager
     // from the row, with its state, and the stand-in goes. A put-away by the player
     // (InventoryPutAwayPatch) swaps the object for its stand-in before vanilla adds it, asks the
     // server, and the object goes. The host's own player is the server's (HostInventory); VR belt
-    // items (OI-COLD-14), job papers (C7) and items with no prefab here stay objects.
+    // items (OI-COLD-14) and items with no prefab here stay objects; job papers are stand-ins too,
+    // made again from their job (JobPapers, OI-COLD-07).
 
     /// <summary>Whether this game's own inventory is stand-ins: a remote client's, in a session.</summary>
     internal static bool StandInsActive => NetworkRole.IsRemoteClient && NetworkRole.LocalPlayerId != 0 &&
@@ -30,7 +32,8 @@ internal sealed partial class ClientItemManager
 
     /// <summary>Whether this object goes into the inventory as a stand-in when the player puts it away.</summary>
     public bool PutsAwayAsStandIn(NetworkedItem item) =>
-        StandInsActive && item != null && item.NetId != 0 && item.Item != null && !shell.DoNotCreateItem(item) &&
+        StandInsActive && item != null && item.NetId != 0 && item.Item != null &&
+        (!shell.DoNotCreateItem(item) || JobPapers.CanBeRow(item.gameObject)) &&
         InventoryStandIn.CanStandIn(item.gameObject) &&
         !DV.InventorySystem.Inventory.Instance.IsDestroyedOnAddedToInventory(item.gameObject);
 

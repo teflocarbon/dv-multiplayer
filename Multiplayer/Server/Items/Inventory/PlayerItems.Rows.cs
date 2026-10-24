@@ -9,9 +9,11 @@ using Multiplayer.Server.Items.ChangeCauses;
 using Multiplayer.Server.Items.Ledger;
 using Multiplayer.Server.Items.LiveState;
 using Multiplayer.Server.Items.SaveLoad;
+using Multiplayer.Server.Jobs;
 using Multiplayer.Server.Session;
 using Multiplayer.Shared.Items.Inventory;
 using Multiplayer.Shared.Items.LiveState;
+using Multiplayer.Shared.Jobs;
 using Multiplayer.Shared.Protocol.Data.Items;
 using Multiplayer.Shared.Session;
 using Newtonsoft.Json;
@@ -76,15 +78,30 @@ internal static partial class PlayerItems
                 yield return row;
     }
 
-    // One row goes live as data: a record in its slot under a reserved NetId, its row kept. Job
-    // papers (their job's objects, OI-COLD-07), an item the ledger moved to Lost and Found, and one
-    // with no free slot are made as objects instead (GoLive), as before. Returns its Create, or null.
+    // One row goes live as data: a record in its slot under a reserved NetId, its row kept. An item
+    // the ledger moved to Lost and Found, and one with no free slot, are made as objects instead
+    // (GoLive), as before. A job paper joins its job, or goes if its job is over (OI-COLD-07).
+    // Returns its Create, or null.
     private static ItemUpdate TakeUp(ServerPlayer player, SavedItemRow row)
     {
         bool lost = ServerLedger.Ledger.TryGetHome(row.PersistentItemId, out Home home) && home.Kind == HomeKind.LostAndFound;
         int slot = lost ? -1
             : ServerLedger.FreeSlot(row.PersistentItemId, row.OwnerIdentity, row.ClaimSlot, player.Guid, row.Slot, row.ClaimSlot);
-        if (ItemSaveLoad.IsJobSystemDocument(row.PrefabName) || slot < 0 || ItemSaveLoad.FindSpec(row.PrefabName) == null)
+        // A job paper is one while its job wants it (OI-COLD-07): a booklet of a job over since the
+        // save goes, as vanilla's load destroys the booklets no job claims.
+        NetworkedJob job = null;
+        bool paper = JobPapers.IsPaper(row.PrefabName);
+        if (paper && !JobPaperRows.Wanted(row, out job))
+        {
+            JobPaperRows.Drop(row, "its job is over or has another");
+            return null;
+        }
+        if (paper && slot < 0)
+        {
+            JobPaperRows.Drop(row, "no slot for it");
+            return null;
+        }
+        if (slot < 0 || !ItemSaveLoad.PrefabKnown(row.PrefabName))
         {
             CoroutineManager.Instance.StartCoroutine(GoLive(player, row));
             return null;
@@ -107,6 +124,8 @@ internal static partial class PlayerItems
         row.Slot = record.Slot;
         row.PlacementPlayerIdentity = player.Guid;
         knownBy[netId] = new[] { player.PlayerId };
+        if (paper)
+            JobPaperRows.Admit(record, row.PrefabName, player, job);
         ItemUpdate create = CreateOf(record);
         create.MoveCause = cause;
         return create;

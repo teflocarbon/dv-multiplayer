@@ -162,7 +162,7 @@ public class ServerStationController : MonoBehaviour
 
     private void BindExistingJobOverview(NetworkedJob networkedJob)
     {
-        if (networkedJob?.Job == null || networkedJob.JobOverview != null)
+        if (networkedJob?.Job == null || networkedJob.JobOverviewNetId != 0)
             return;
         JobOverview overview = station.StationController.spawnedJobOverviews?
             .LastOrDefault(candidate => candidate != null && ReferenceEquals(candidate.job, networkedJob.Job));
