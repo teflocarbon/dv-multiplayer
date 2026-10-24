@@ -289,6 +289,15 @@ public static class LiveItems
             PublishRejected(item, record, actor, snapshot, rejectionReason);
             return false;
         }
+        // Out of a tool another player holds to anywhere but a hand (an eject, a drop): theirs to do (H1).
+        if (actor != null && appliesPlacement && record.Placement == ItemPlacementKind.Magazine &&
+            requestedPlacement is not (ItemPlacementKind.Magazine or ItemPlacementKind.PlayerHand or ItemPlacementKind.PlayerInventory) &&
+            ToolHeldByOther(record.MagazineNetId, actor.Guid))
+        {
+            rejectionReason = "magazine-tool-foreign";
+            PublishRejected(item, record, actor, snapshot, rejectionReason);
+            return false;
+        }
         if (appliesPlacement && requestedPlacement == ItemPlacementKind.Magazine &&
             MagazineRefusal(item, snapshot, actor) is { Length: > 0 } magazineRefusal)
         {
@@ -433,8 +442,7 @@ public static class LiveItems
             !records.TryGetValue(tool.NetId, out LiveItem toolRecord) ||
             toolRecord.Placement is ItemPlacementKind.Destroyed or ItemPlacementKind.LostAndFound or ItemPlacementKind.Magazine)
             return "magazine-tool-unknown";
-        if (actor != null && toolRecord.Holder != Guid.Empty && toolRecord.Holder != actor.Guid &&
-            toolRecord.Placement is ItemPlacementKind.PlayerHand or ItemPlacementKind.PlayerInventory)
+        if (actor != null && ToolHeldByOther(tool.NetId, actor.Guid))
             return "magazine-tool-foreign";
         DV.Items.ItemMagazine magazine = tool.GetComponentInChildren<DV.Items.ItemMagazine>(true);
         if (magazine == null || snapshot.MagazineSlot < 0 || snapshot.MagazineSlot >= magazine.Capacity)
@@ -447,6 +455,11 @@ public static class LiveItems
         return string.Empty;
     }
 
+    // A tool in another player's hands or inventory: what's in its magazine is theirs to load and take out.
+    private static bool ToolHeldByOther(ushort toolNetId, Guid actor) =>
+        records.TryGetValue(toolNetId, out LiveItem tool) && tool.Holder != Guid.Empty && tool.Holder != actor &&
+        tool.Placement is ItemPlacementKind.PlayerHand or ItemPlacementKind.PlayerInventory;
+
     private static Guid ToolIdOf(ushort toolNetId) =>
         toolNetId != 0 && records.TryGetValue(toolNetId, out LiveItem tool) ? tool.PersistentItemId : Guid.Empty;
 
@@ -456,10 +469,13 @@ public static class LiveItems
         : records.Values.Where(record => record.Placement == ItemPlacementKind.Magazine && record.MagazineNetId == toolNetId).ToArray();
 
     // What taking it into this player's hands is: from the world, from another player, or neither.
+    // Ammo is taken from wherever its tool is: out of a tool another player holds or has stashed,
+    // it's a take from that player (H1).
     private static ItemAccessAction? TakeAction(LiveItem record, Guid taker) => record.Placement switch
     {
         ItemPlacementKind.PlayerHand or ItemPlacementKind.PlayerInventory =>
             record.Holder != Guid.Empty && record.Holder != taker ? ItemAccessAction.TakeFromPlayer : null,
+        ItemPlacementKind.Magazine when ToolHeldByOther(record.MagazineNetId, taker) => ItemAccessAction.TakeFromPlayer,
         ItemPlacementKind.World or ItemPlacementKind.TrainInterior or ItemPlacementKind.StaticParent or
             ItemPlacementKind.Attached or ItemPlacementKind.SnappedAttachment or ItemPlacementKind.Magazine => ItemAccessAction.TakeFromWorld,
         _ => null
