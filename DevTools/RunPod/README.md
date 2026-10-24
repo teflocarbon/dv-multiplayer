@@ -20,9 +20,26 @@ launcher files, with no `Mods`. `boot.sh` extracts the newest one (or `DV_ARCHIV
 about 26 s for 4.8 GB. Never run the game from the volume: it's object storage, small-file reads
 run at 3–7 MB/s, and the game sits on a black window for minutes.
 
+## Building the image
+
+Any Docker works; on Windows, WSL's. From `DevTools/RunPod`:
+
+```bash
+docker build -t dvmp-pod:dev .
+docker tag dvmp-pod:dev <registry>/<owner>/dvmp-pod:dev
+docker push <registry>/<owner>/dvmp-pod:dev
+```
+
+- Push it to a **private** registry (for example GHCR). The image holds no game files and no
+  secrets, but there's no reason to publish it. For GHCR, log in with a token that has
+  `write:packages`, piped to `docker login --password-stdin`, and `docker logout` afterwards.
+- RunPod pulls it with a **container registry auth** holding a read-only token (for GHCR, a classic
+  token with only `read:packages`). Make a private **template** with the image, that registry auth,
+  `22/tcp` and a 40 GB container disk, and create pods from it.
+
 ## A pod
 
-- Image: this one, from the registry it's pushed to. GPU: any with 8+ GB; size by vCPU (below).
+- Image: this one, through the template. GPU: about 8 GB of VRAM per pair (Sizing, below).
 - Mount the global volume at `/workspace` (`mounts.global: [{volumeId, path: "/workspace"}]` in the
   v2 pod API). Expose `22/tcp` (direct SSH; RunPod's ssh.runpod.io proxy is PTY-only).
 - The RunPod account's SSH public key reaches the pod in `PUBLIC_KEY`; log in as `dvmp`.
@@ -46,8 +63,11 @@ To watch the games: `ssh -L 6901:localhost:6901 ...` and open http://localhost:6
 - Two pairs on a 20 GB pod with 15.3 vCPU passed `recall` at once (2026-10-25): four games at the
   20 fps background cap took about 7.2 cores and 15.4 GB VRAM. So VRAM decides how many pairs
   fit: about one pair per 8 GB.
-- That relies on harness mode's 4 job workers. Unity starts a worker per core it sees, and under
-  Wine it sees the whole machine (47 workers on a 48-core host), which held games at 18 fps.
+- That relies on `DVMP_JOB_WORKERS=4`, which `env.sh` exports and harness mode reads. Unity starts
+  a worker per core it sees, and under Wine it sees the whole machine (47 workers on a 48-core host),
+  which held games at 18 fps.
+- Four pairs on an RTX PRO 4500 SE (32 GB, 13.6 vCPU) passed `recall` at once: 31.3 GB of VRAM,
+  so that's the most a 32 GB card holds; about 8–9 cores.
 - Create pods from the RunPod console with the `dvmp-pod` template: the API's create has refused
   GPUs the console offered. Attach the global volume when creating the pod; it can't be added later.
 

@@ -34,15 +34,24 @@ su dvmp -c 'websockify --web /usr/share/novnc 127.0.0.1:6901 127.0.0.1:5901 >/tm
 
 # The game: one archive on the global volume (DV_ARCHIVE, else the newest DerailValley-*.tar.zst
 # in /workspace), extracted to local disk. Never run it from the volume: its small-file reads are
-# 3-7 MB/s, against 100+ MB/s for one big file. Skipped when this archive is already extracted.
+# 3-7 MB/s, against 100+ MB/s for one big file. Skipped when this archive is already extracted; a
+# different one replaces the old game (Mods stays: push.sh puts it there).
+# dvmp/ready is written only when the game is in place; otherwise dvmp/boot-error says why, and
+# push.sh prints it.
+rm -f $home/dvmp/ready $home/dvmp/boot-error
+fail() { log "$1"; echo "$1" > $home/dvmp/boot-error; chown dvmp: $home/dvmp/boot-error; exec sleep infinity; }
 archive=${DV_ARCHIVE:-$(ls -t /workspace/DerailValley-*.tar.zst 2>/dev/null | head -1)}
 if [ -z "$archive" ] || [ ! -f "$archive" ]; then
-    log "no game archive (DV_ARCHIVE, or /workspace/DerailValley-*.tar.zst)"
+    fail "no game archive: attach the global volume at /workspace (or set DV_ARCHIVE)"
 elif [ "$(cat "$game/.archive" 2>/dev/null)" != "$(basename "$archive")" ]; then
     log "extracting $archive"
     t0=$(date +%s)
-    su dvmp -c "mkdir -p '$game' && zstd -dc -T0 '$archive' | tar -x -C '$game' && echo '$(basename "$archive")' > '$game/.archive'" \
-        && log "extracted in $(( $(date +%s) - t0 ))s" || log "extracting failed"
+    # Read as root (whatever the archive's permissions), written as dvmp.
+    su dvmp -c "mkdir -p '$game' && find '$game' -mindepth 1 -maxdepth 1 ! -name Mods -exec rm -rf {} +" \
+        && zstd -dc -T0 "$archive" | su dvmp -c "tar -x -C '$game'" \
+        && su dvmp -c "echo '$(basename "$archive")' > '$game/.archive'" \
+        || fail "extracting $archive failed"
+    log "extracted in $(( $(date +%s) - t0 ))s"
 fi
 
 echo "$(date -u +%FT%TZ)" > $home/dvmp/ready

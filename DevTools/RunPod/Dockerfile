@@ -2,10 +2,12 @@
 # GPU, with no Steam. Holds no game files and no secrets: the game comes from an archive on the
 # global volume at boot (boot.sh), the mod, dev tools and dvmp come from the PC (push.sh), and
 # sshd takes the key RunPod passes in PUBLIC_KEY. See README.md.
-FROM ubuntu:22.04
+FROM ubuntu:22.04@sha256:0a9887931b0e38af2e3487ed39e29436b0535c4f3f52e57745baaf79d1898956
 
-# Tested on the trial pod (2026-10-24). GE-Proton11 also needs only glibc 2.34; bump and retest.
+# Tested on pods (2026-10-24/25). GE-Proton11 also needs only glibc 2.34; to bump it, set both
+# from the release's .sha512sum file and retest.
 ARG GE_PROTON=GE-Proton10-34
+ARG GE_PROTON_SHA512=9fd0b2cfbd501c0b5c892239c392c7283a029b5e5d5a77d3f85b0ce190d555456241a18eebca16b53f094b403499201c13550a3f0b9b365e1a5eb5737cbb7303
 
 ENV DEBIAN_FRONTEND=noninteractive \
     NVIDIA_VISIBLE_DEVICES=all \
@@ -26,10 +28,9 @@ RUN dpkg --add-architecture i386 && apt-get update && apt-get install -y --no-in
     && rm -rf /var/lib/apt/lists/*
 
 RUN curl -fsSL -o /tmp/p.tar.gz https://github.com/GloriousEggroll/proton-ge-custom/releases/download/${GE_PROTON}/${GE_PROTON}.tar.gz \
-    && curl -fsSL -o /tmp/p.sha512sum https://github.com/GloriousEggroll/proton-ge-custom/releases/download/${GE_PROTON}/${GE_PROTON}.sha512sum \
-    && echo "$(cut -d' ' -f1 /tmp/p.sha512sum)  /tmp/p.tar.gz" | sha512sum -c - \
+    && echo "${GE_PROTON_SHA512}  /tmp/p.tar.gz" | sha512sum -c - \
     && mkdir -p /opt/proton && tar -xzf /tmp/p.tar.gz -C /opt/proton --strip-components=1 \
-    && rm /tmp/p.tar.gz /tmp/p.sha512sum
+    && rm /tmp/p.tar.gz
 
 # sshd reads keys from /etc/ssh/keys/<user>: RunPod's home folders can be world-writable, which
 # StrictModes rejects for ~/.ssh.
@@ -41,7 +42,8 @@ RUN useradd -m -s /bin/bash dvmp && echo 'dvmp ALL=(ALL) NOPASSWD:ALL' > /etc/su
 
 COPY env.sh /opt/dvmp/env.sh
 COPY dvmp boot.sh /opt/dvmp/bin/
-RUN chmod 755 /opt/dvmp/bin/* && ln -s /opt/dvmp/bin/dvmp /usr/local/bin/dvmp
+RUN chmod 755 /opt/dvmp/bin/* && ln -s /opt/dvmp/bin/dvmp /usr/local/bin/dvmp \
+    && echo '[ "$(id -un)" = dvmp ] && . /opt/dvmp/env.sh' > /etc/profile.d/dvmp.sh
 
 # The Wine prefix, made at build time so a pod boots ready: Proton's own Wine Mono (for the
 # scenario runner) installs from /opt/proton/files/share/wine/mono, and DXVK's DLLs go in.

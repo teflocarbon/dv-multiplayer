@@ -18,7 +18,11 @@ published=$(cygpath -u "${DVMP_POD_DVMP:-$LOCALAPPDATA\\dvmp\\pod-dvmp}")
 profile=$(cygpath -u "${DVMP_DV_PROFILE:-$USERPROFILE\\AppData\\LocalLow\\Altfuture\\Derail Valley}")
 key=${SSH_KEY:-$HOME/.ssh/runpod_dvmp}
 
-pod() { ssh -i "$key" -p "$port" -o BatchMode=yes -o StrictHostKeyChecking=accept-new "dvmp@$host" "$@"; }
+# Each pod makes new host keys and RunPod reuses addresses, so a pod's key is remembered per
+# host:port, in its own file: delete it (the path is printed on a mismatch) after the pod goes.
+known=$HOME/.ssh/dvmp-pods/$host-$port
+mkdir -p "$(dirname "$known")"
+pod() { ssh -i "$key" -p "$port" -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile="$known" "dvmp@$host" "$@"; }
 # send FROM TO NAME...: copies FROM/NAME... into ~/TO on the pod (-h: the test install's big
 # folders are junctions to the real game, whose UMM Log.txt a running game may be writing).
 send() {
@@ -31,7 +35,15 @@ for need in "$install/Mods/Multiplayer" "$install/Mods/MultiplayerDevTools" "$pu
     "$repo/DevTools/DvmpScenarios/bin/Debug/net48/DvmpScenarios.exe" "$profile/Users"; do
     [ -e "$need" ] || { echo "missing $need (see README.md, 'Each build')" >&2; exit 1; }
 done
-pod 'test -f dvmp/ready' || { echo "the pod isn't ready yet (its boot script is still running)" >&2; exit 1; }
+if ! state=$(pod 'if [ -f dvmp/ready ]; then echo ready; elif [ -f dvmp/boot-error ]; then cat dvmp/boot-error; else echo booting; fi'); then
+    echo "can't reach dvmp@$host:$port. If the host key changed (a new pod on a reused address), delete $known" >&2
+    exit 1
+fi
+case "$state" in
+    ready) ;;
+    booting) echo "the pod isn't ready yet (its boot script is still running)" >&2; exit 1 ;;
+    *) echo "the pod's boot failed: $state" >&2; exit 1 ;;
+esac
 
 echo "sending to $host:$port"
 pod 'rm -rf dvmp/game/Mods/Multiplayer dvmp/game/Mods/MultiplayerDevTools dvmp/repo/DevTools/Dvmp/bin/pod dvmp/repo/DevTools/DvmpScenarios/bin'
@@ -43,4 +55,4 @@ send "$repo/DevTools/Dvmp" dvmp/repo/DevTools/Dvmp Dvmp.csproj Probes
 send "$repo/DevTools/DvmpScenarios/bin/Debug" dvmp/repo/DevTools/DvmpScenarios/bin/Debug net48
 send "$repo/DevTools" dvmp/repo/DevTools Scenarios
 send "$profile" dvmp/profile Users Preferences
-echo "done: ssh -i $key -p $port dvmp@$host, then dvmp up --session NAME --transport gns"
+echo "done: ssh -i $key -o UserKnownHostsFile=$known -p $port dvmp@$host, then dvmp up --session NAME --transport gns"
