@@ -4,11 +4,13 @@ using System.Linq;
 using Multiplayer.Core.Items.ChangeCauses;
 using Multiplayer.Core.Items.Containers;
 using Multiplayer.Core.Items.Ledger;
+using Multiplayer.Core.Items.LostAndFound;
 using Multiplayer.Core.Items.VanillaStorage;
 using Multiplayer.Server.Items.ChangeCauses;
 using Multiplayer.Server.Items.Containers;
 using Multiplayer.Server.Items.Ledger;
 using Multiplayer.Server.Items.LiveState;
+using Multiplayer.Server.Items.LostAndFound;
 using Multiplayer.Server.Items.Projection;
 using Multiplayer.Server.Items.SaveLoad;
 using Multiplayer.Server.Session;
@@ -221,7 +223,7 @@ internal static partial class PlayerItems
                 ServerLedger.CommitStored(id, record.PrefabName, stowed, loaded,
                     ItemChangeLog.Move(ItemMoveReason.HostCorrection, detail: "not stowed with its tool: " + refused));
             if (refused.Length > 0)
-                Multiplayer.LogError($"Inventory: {record.PrefabName} ({id:D}) in {tool.PrefabName} couldn't go cold with it: {refused}");
+                Multiplayer.LogError($"Inventory: {record.PrefabName} ({id:D}) in {tool.PrefabName} couldn't go cold with it: {refused}; it is left where its holder was");
 
             ItemUpdate destroy = new()
             {
@@ -238,7 +240,37 @@ internal static partial class PlayerItems
             knownBy.Remove(record.NetId);
             LiveItems.Remove(record.NetId);
             NetworkedItem.FreeDataNetId(record.NetId);
+            if (refused.Length > 0)
+                AmmoLeftBehind(row, id, record.PrefabName, loaded, leaver, refused);
         }
+    }
+
+    // Ammo that couldn't go cold with its tool isn't lost: its object is made where its holder was,
+    // and an owned item goes on to its owner's Lost and Found, as a destroyed tool's ammo does
+    // (MagazineServer.Release).
+    private static void AmmoLeftBehind(SavedItemRow row, Guid id, string prefabName, Home loaded, ServerPlayer leaver, string why)
+    {
+        bool owned = ServerLedger.Ledger.IsLive(id);
+        row.Placement = ItemPlacementKind.World;
+        row.WorldParentKind = ItemWorldParentKind.World;
+        row.Position = (leaver != null ? leaver.AbsoluteWorldPosition : ContainerServer.SafetyPosition) + Vector3.up * 0.3f;
+        row.Rotation = Quaternion.identity;
+        row.ContainerId = Guid.Empty;
+        row.Slot = -1;
+        if (owned && ServerLedger.CommitStored(id, prefabName, loaded, Home.World,
+                ItemChangeLog.Move(ItemMoveReason.UnloadedFromMagazine, leaver, "its tool couldn't keep it: " + why)) is { Length: > 0 } refused)
+        {
+            Multiplayer.LogError($"Inventory: {prefabName} ({id:D}) couldn't be left where its holder was: the ledger refused, {refused}");
+            return;
+        }
+        if (!ItemSaveLoad.MakeLive(row, owned, out LiveItems.LiveItem made) ||
+            !NetworkedItem.TryGet(made.NetId, out NetworkedItem item) || item == null)
+        {
+            Multiplayer.LogError($"Inventory: {prefabName} ({id:D}) couldn't be made where its holder was");
+            return;
+        }
+        if (owned)
+            LostAndFoundServer.Collect(item, LostItemReason.ContainerCleared, "its tool went cold without it");
     }
 
     // TakeUp: a tool's row goes live as data (a join), and the ammo rows of its container go with it,

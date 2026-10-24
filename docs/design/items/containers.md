@@ -182,6 +182,8 @@ tool. Its ammo has a home in each of the tool's forms (CN1 and OI-CON-16; R5 C7 
     the host's own take-out in that frame. A request that names the ammo makes its tool.
   - **The holder leaves:** the ammo becomes rows of the tool's container (`AmmoGoesCold`), and at
     their next join it is data again with fresh NetIds, nested in the tool's row (`AmmoFromRows`).
+    Ammo the tool's container or the graph refuses is made where its holder was, and an owned item
+    goes on to its owner's Lost and Found (`AmmoLeftBehind`), as a destroyed tool's ammo does.
   - **Saved:** an ammo row as data saves as any loaded ammo, and loads into the tool's container
     (the tool is a row then).
 
