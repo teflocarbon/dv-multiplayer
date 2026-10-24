@@ -79,9 +79,9 @@ internal static partial class PlayerItems
     }
 
     // One row goes live as data: a record in its slot under a reserved NetId, its row kept. An item
-    // the ledger moved to Lost and Found, and one with no free slot, are made as objects instead
-    // (GoLive), as before. A job paper joins its job, or goes if its job is over (OI-COLD-07).
-    // Returns its Create, or null.
+    // the ledger moved to Lost and Found, one with no free slot, and one that can't be a stand-in
+    // (InventoryStandIn.CanStandIn) are made as objects instead (GoLive), as before. A job paper
+    // joins its job, or goes if its job is over (OI-COLD-07). Returns its Create, or null.
     private static ItemUpdate TakeUp(ServerPlayer player, SavedItemRow row)
     {
         bool lost = ServerLedger.Ledger.TryGetHome(row.PersistentItemId, out Home home) && home.Kind == HomeKind.LostAndFound;
@@ -110,7 +110,7 @@ internal static partial class PlayerItems
             JobPaperRows.Drop(row, "no slot for it");
             return null;
         }
-        if (slot < 0 || !ItemSaveLoad.PrefabKnown(row.PrefabName))
+        if (slot < 0 || !ItemSaveLoad.PrefabKnown(row.PrefabName) || !InventoryStandIn.CanStandIn(row.PrefabName))
         {
             CoroutineManager.Instance.StartCoroutine(GoLive(player, row));
             return null;

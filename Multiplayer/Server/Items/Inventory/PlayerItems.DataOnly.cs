@@ -149,15 +149,17 @@ internal static partial class PlayerItems
     }
 
     // One item the server put in an inventory: its object goes to data now. True to wait a frame
-    // (it's being made, or restored, or its holder's game isn't ready for items). Left an object: a
-    // loaded magazine (its ammo is an object inside it; OI-CON-16). Job papers go too: their job
-    // keeps them by NetId, and they're made again from it (JobPapers; OI-COLD-07).
+    // (it's being made, or restored, or its holder's game isn't ready for items). Left an object: one
+    // that can't be a stand-in, as in its holder's game: a loaded magazine (its ammo is an object
+    // inside it; OI-CON-16), an expired or missing-licence report (no recipe to make it again from).
+    // Job papers go too: their job keeps them by NetId, and they're made again from it (JobPapers;
+    // OI-COLD-07).
     private static bool ToData(ushort netId, bool sendRow)
     {
         if (!LiveItems.TryGet(netId, out LiveItems.LiveItem record) || record.Placement != ItemPlacementKind.PlayerInventory ||
             record.Slot < 0 ||
             !NetworkedItem.TryGet(netId, out NetworkedItem item) || item == null || item.Item == null ||
-            item.ColdStorageRetirement || InventoryStandIn.HoldsAmmo(item.gameObject))
+            item.ColdStorageRetirement || !InventoryStandIn.CanStandIn(item.gameObject))
         {
             // It stays an object (or has gone): its object's state is the item's, not a stash's.
             stashedStates.Remove(netId);

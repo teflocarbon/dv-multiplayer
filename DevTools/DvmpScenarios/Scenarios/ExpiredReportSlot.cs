@@ -15,7 +15,8 @@ namespace Dvmp.Scenarios
     /// It has no recipe a row could make it from, so a stand-in for one was made again at a take-out
     /// as a blank generic copy, with no job on it. The host prints one (BookletCreator, as the
     /// validator does for an expired job's booklet) beside the client, which stashes it: it stays an
-    /// object in the slot, not a stand-in, and taken out it names the same job as before. On a player
+    /// object in the slot, not a stand-in, the server keeps its own copy an object naming the job
+    /// (not data, which came back blank), and taken out it names the same job as before. On a player
     /// host, the host's own player does the same with another.
     /// </summary>
     [Scenario("expired-report-slot", "An expired-job report stays an object in a slot, on a client and a player host, and names its job after a take-out")]
@@ -31,7 +32,13 @@ namespace Dvmp.Scenarios
             {
                 Printed report = await pair.Host.Run<Printed>(s => InGame.Print(s, "expired", who.Name));
                 Report.Note($"an expired report {report.NetId} for {report.JobId} beside the {who.Name}");
-                Kept k = await who.Run<Kept>(s => InGame.StashAndTakeOut(s, report.NetId), 90);
+                Kept k = await who.Run<Kept>(s => InGame.Stash(s, report.NetId), 90);
+                // The server's copy stays an object too (C9 review 3): one gone to data came back blank.
+                ServerCopy server = await pair.Host.Run<ServerCopy>(() => InGame.Server(report.NetId));
+                Report.Note($"server, with it in the {who.Name}'s slot: {server}");
+                Expect.That(!server.DataOnly, $"the server keeps the {who.Name}'s expired report an object, not data");
+                Expect.Equal(report.JobId, server.JobId, $"the job the server's copy of the {who.Name}'s expired report names");
+                k.After = await who.Run<string>(s => InGame.TakeOutAndDrop(s, report.NetId), 60);
                 Report.Note($"{who.Name}: {k}");
                 Expect.That(k.Slot >= 0, $"{who.Name}: the expired report went into a slot");
                 Expect.That(!k.StandIn, $"{who.Name}: the expired report is no stand-in in its slot (A8)");
@@ -46,6 +53,13 @@ namespace Dvmp.Scenarios
         {
             public ushort NetId;
             public string JobId = "";
+        }
+
+        public sealed class ServerCopy
+        {
+            public bool DataOnly;
+            public string JobId = "";
+            public override string ToString() => $"{(DataOnly ? "data only" : "an object")}, names '{JobId}'";
         }
 
         public sealed class Kept
@@ -89,13 +103,21 @@ namespace Dvmp.Scenarios
                 step.Result = new Printed { NetId = item.NetId, JobId = job.Job.ID };
             }
 
+            /// <summary>Host: whether the server keeps the item as data only, and the job its object names.</summary>
+            [Step]
+            public static ServerCopy Server(ushort id) => new ServerCopy
+            {
+                DataOnly = Multiplayer.Server.Items.Inventory.PlayerItems.IsDataOnly(id),
+                JobId = NetworkedItem.TryGet(id, out NetworkedItem item) && item != null
+                    ? item.GetComponent<JobExpiredReport>()?.jobId ?? "" : "(no object)"
+            };
+
             /// <summary>
-            /// This player: picks the expired report up and stashes it, and reads it in its slot; then
-            /// takes it out and drops it. Result: its slot, what it is there, and the job it names
-            /// before and after.
+            /// This player: picks the expired report up and stashes it, and reads it in its slot.
+            /// Result: its slot, what it is there, and the job it names.
             /// </summary>
             [Step]
-            public static IEnumerator StashAndTakeOut(Step<Kept> step, ushort id)
+            public static IEnumerator Stash(Step<Kept> step, ushort id)
             {
                 var kept = new Kept();
                 step.Result = kept;
@@ -111,9 +133,15 @@ namespace Dvmp.Scenarios
                 kept.Slot = PlayerInventory.Slot(id);
                 kept.StandIn = PlayerInventory.IsStandIn(id);
                 kept.Object = NetworkedItem.TryGet(id, out NetworkedItem stored) && stored != null;
+            }
+
+            /// <summary>This player: takes the expired report out and drops it. Result: the job it names.</summary>
+            [Step]
+            public static IEnumerator TakeOutAndDrop(Step<string> step, ushort id)
+            {
                 yield return PlayerInventory.TakeOut(id);
                 for (int i = 0; i < 30; i++) yield return null;
-                kept.After = NetworkedItem.TryGet(id, out NetworkedItem taken) && taken != null
+                step.Result = NetworkedItem.TryGet(id, out NetworkedItem taken) && taken != null
                     ? taken.GetComponent<JobExpiredReport>()?.jobId ?? "" : "(no object)";
                 yield return Hands.Drop();
                 Hands.ReleaseControl();
