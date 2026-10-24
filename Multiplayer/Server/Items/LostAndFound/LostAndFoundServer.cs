@@ -9,10 +9,12 @@ using Multiplayer.Core.Items.LostAndFound;
 using Multiplayer.Core.Items.VanillaStorage;
 using Multiplayer.Server.Items.Access;
 using Multiplayer.Server.Items.ChangeCauses;
+using Multiplayer.Server.Items.Inventory;
 using Multiplayer.Server.Items.Ledger;
 using Multiplayer.Server.Items.LiveState;
 using Multiplayer.Server.Items.Projection;
 using Multiplayer.Server.Items.SaveLoad;
+using Multiplayer.Server.Jobs;
 using Multiplayer.Server.Session;
 using Multiplayer.Shared.Debugging;
 using Multiplayer.Shared.Items.ChangeCauses;
@@ -20,6 +22,7 @@ using Multiplayer.Shared.Items.Inventory;
 using Multiplayer.Shared.Items.LiveState;
 using Multiplayer.Shared.Items.VanillaStorage;
 using Multiplayer.Shared.Items.WorldItems;
+using Multiplayer.Shared.Jobs;
 using Multiplayer.Shared.Protocol.Data;
 using Multiplayer.Shared.Protocol.Data.Items;
 using Multiplayer.Shared.Session;
@@ -33,12 +36,19 @@ using UnityEngine;
 
 namespace Multiplayer.Server.Items.LostAndFound;
 
-/// <summary>Host-authoritative virtual Lost and Found. Vanilla storage is an inert projection.</summary>
+/// <summary>
+/// Host-authoritative virtual Lost and Found. An entry is data on the server (OI-COLD-08): its object
+/// goes once it can, and its state is a row here, made again only for a retrieval or a recall.
+/// </summary>
 public static class LostAndFoundServer
 {
     private const uint ScanIntervalTicks = 24;
     private static uint lastScanTick; // the tick can advance by more than one a frame
     private static readonly LostItemRegistry registry = new();
+    // The entries kept as data, by item id: each one's state (OI-COLD-08).
+    private static readonly Dictionary<Guid, SavedItemRow> rows = new();
+    // The owners sent the silhouette of an essential of theirs kept as data, by its NetId.
+    private static readonly Dictionary<ushort, HashSet<ServerPlayer>> dataSentTo = new();
     private static readonly Dictionary<ushort, float> eligibleSince = new();
     private static readonly Dictionary<ushort, Dictionary<string, object>> lastEvaluations = new();
     private static uint generation;
@@ -53,6 +63,91 @@ public static class LostAndFoundServer
     /// <summary>Whose entry an item's is: its owner, or the player a booklet was issued to (OI-LF-17).</summary>
     public static Guid KeeperOf(ushort itemNetId) =>
         registry.TryGet(itemNetId, out LostItemRecord lost) ? OwnerOf(lost) : Guid.Empty;
+
+    /// <summary>An entry kept as data: its row (OI-COLD-08).</summary>
+    internal static bool TryGetDataRow(Guid itemId, out SavedItemRow row) => rows.TryGetValue(itemId, out row);
+
+    internal static IEnumerable<SavedItemRow> DataRows() => rows.Values;
+
+    /// <summary>Whether an item is in Lost and Found as data, with no object.</summary>
+    internal static bool IsData(ushort itemNetId) =>
+        registry.TryGet(itemNetId, out LostItemRecord lost) && rows.ContainsKey(lost.PersistentItemId) &&
+        !(NetworkedItem.TryGet(itemNetId, out NetworkedItem item) && item != null);
+
+    /// <summary>
+    /// The object of an item in Lost and Found: the one there is, or made again from its row under
+    /// its NetId, inert in Lost and Found as it went (OI-COLD-08). Null when there is neither. One
+    /// made for a request that is then refused goes back to data at the next scan.
+    /// </summary>
+    internal static NetworkedItem ObjectOf(ushort itemNetId)
+    {
+        if (NetworkedItem.TryGet(itemNetId, out NetworkedItem item) && item != null)
+            return item;
+        if (!registry.TryGet(itemNetId, out LostItemRecord lost) ||
+            !rows.TryGetValue(lost.PersistentItemId, out SavedItemRow row) ||
+            !LiveItems.TryGet(itemNetId, out LiveItems.LiveItem record))
+            return null;
+        item = PlayerItems.FromLostData(record, row);
+        if (item == null)
+            return null;
+        rows.Remove(lost.PersistentItemId);
+        dataSentTo.Remove(itemNetId);
+        ProjectToInertStorage(item);
+        return item;
+    }
+
+    // An entry's object goes to data once it can (OI-COLD-08): its state loaded, its ammo able to go with it.
+    private static void ToData(NetworkedItem item, LostItemRecord lost)
+    {
+        if (!ServerLedger.Loaded || !LiveItems.TryGet(item.NetId, out LiveItems.LiveItem record) ||
+            record.Placement != ItemPlacementKind.LostAndFound)
+            return;
+        SavedItemRow row = PlayerItems.ToLostData(record, item);
+        if (row != null)
+            rows[lost.PersistentItemId] = row;
+    }
+
+    /// <summary>
+    /// An owner's essential kept as data here keeps their red silhouette, their recall: they are sent
+    /// it once, a Create and its tombstone made from its record, as the scan sends an object's.
+    /// </summary>
+    internal static void SendDataEssentials(ServerPlayer player)
+    {
+        if (rows.Count == 0 || player == null || player.Peer == NetworkServer.Instance.SelfPeer)
+            return;
+        foreach (LostItemRecord lost in registry.GetForOwner(player.Guid.ToString("D")))
+        {
+            if (!rows.ContainsKey(lost.PersistentItemId) || !LiveItems.TryGet(lost.NetId, out LiveItems.LiveItem record) ||
+                record.InventoryClaimSlot < 0 ||
+                (record.InventoryClaimFlags & (ItemInventoryClaimFlags.Reserved | ItemInventoryClaimFlags.Locked)) == 0 ||
+                ItemSaveLoad.FindSpec(record.PrefabName)?.IsEssential != true)
+                continue;
+            if (!dataSentTo.TryGetValue(lost.NetId, out HashSet<ServerPlayer> sent))
+                dataSentTo[lost.NetId] = sent = new HashSet<ServerPlayer>();
+            if (!sent.Add(player))
+                continue;
+            ItemUpdate create = new()
+            {
+                UpdateType = ItemUpdate.ItemUpdateType.Create,
+                ItemNetId = lost.NetId,
+                PrefabName = record.PrefabName,
+                ItemState = ItemState.Dropped,
+                BelongsToPlayer = true
+            };
+            LiveItems.WriteToSnapshot(record, create, record.LastReason);
+            ItemUpdate tombstone = new()
+            {
+                UpdateType = ItemUpdate.ItemUpdateType.Destroy,
+                ItemNetId = lost.NetId,
+                PrefabName = record.PrefabName
+            };
+            LiveItems.WriteToSnapshot(record, tombstone, ItemTransitionReason.LostAndFoundCollection);
+            tombstone.AuthorityRevision = lost.Revision;
+            tombstone.RemovalCause = CollectionCause(lost.Reason, OwnerOf(lost), null);
+            NetworkServer.Instance.SendItemUpdate(create, player);
+            NetworkServer.Instance.SendItemUpdate(tombstone, player);
+        }
+    }
 
     public static bool TryCreateCollectionProjection(NetworkedItem item,
         out ItemUpdate snapshot)
@@ -192,7 +287,15 @@ public static class LostAndFoundServer
         global::Multiplayer.Multiplayer.Log($"[LostAndFound Recall] Retrieval plan accepted: " +
             $"netId={itemNetId}, targetSlot={plan.TargetSlot}, storedRevision={lost.Revision}, " +
             $"owner={lost.OwnerIdentity}");
-        if (!NetworkedItem.TryGet(itemNetId, out NetworkedItem item) || item == null)
+        NetworkedItem item = ObjectOf(itemNetId);
+        if (item == null && rows.ContainsKey(lost.PersistentItemId))
+        {
+            // Kept as data and couldn't be made again (its prefab gone): the entry stays, for a later try.
+            rejectionReason = "lost-item-not-made";
+            TraceRecallRejection(itemNetId, rejectionReason);
+            return false;
+        }
+        if (item == null)
         {
             // Nothing is left to retrieve: drop the entry so the owner's list stops offering it.
             RemoveStaleEntry(itemNetId, "canonical-item-destroyed");
@@ -444,6 +547,8 @@ public static class LostAndFoundServer
     public static void Clear()
     {
         registry.Clear();
+        rows.Clear();
+        dataSentTo.Clear();
         eligibleSince.Clear();
         lastEvaluations.Clear();
         generation = 0;
@@ -631,16 +736,27 @@ public static class LostAndFoundServer
         foreach (LostItemRecord lost in registry.GetAll())
         {
             bool itemPresent = NetworkedItem.TryGet(lost.NetId, out NetworkedItem item) && item != null;
+            SavedItemRow row = null;
+            bool data = !itemPresent && rows.TryGetValue(lost.PersistentItemId, out row);
+            // A booklet kept as data goes when its job ends, as its object would (OI-COLD-08).
+            if (data && JobPapers.IsPaper(lost.PrefabName) && !JobPaperRows.Wanted(row, out _))
+            {
+                RemoveStaleEntry(lost.NetId, "canonical-item-destroyed");
+                continue;
+            }
             LivePlacement? placement = LiveItems.TryGet(lost.NetId,
                 out LiveItems.LiveItem authority)
                 ? (LivePlacement)(byte)authority.Placement : null;
-            switch (LostItemEntryReconciler.Classify(itemPresent, placement))
+            switch (LostItemEntryReconciler.Classify(itemPresent || data, placement))
             {
                 case LostItemEntryStatus.Stored:
+                    if (data)
+                        break;
                     // Entries restored from a save bound to items the load left active where they
                     // were dropped: in Lost and Found and lying in the world at once. Keep them inert.
                     if (item.gameObject.activeSelf)
                         ProjectToInertStorage(item);
+                    ToData(item, lost);
                     break;
                 case LostItemEntryStatus.PlacementChanged:
                     RemoveStaleEntry(lost.NetId, "canonical-placement-changed");
@@ -662,6 +778,9 @@ public static class LostAndFoundServer
         if (registry.RemoveStale(itemNetId, out LostItemRecord removed) !=
             LostItemRegistryResult.Removed)
             return;
+        dataSentTo.Remove(itemNetId);
+        if (rows.Remove(removed.PersistentItemId) && LiveItems.TryGet(itemNetId, out LiveItems.LiveItem gone))
+            PlayerItems.LostDataGone(gone);
         generation++;
         eligibleSince.Remove(itemNetId);
         Multiplayer.Log($"[LostAndFound] Removed entry handle={removed.Handle}, netId={itemNetId}, " +
@@ -694,6 +813,8 @@ public static class LostAndFoundServer
     internal static int RekeyOwner(Guid from, Guid to)
     {
         int changed = registry.RekeyOwner(from.ToString("D"), to.ToString("D"));
+        foreach (SavedItemRow row in rows.Values.Where(row => row.OwnerIdentity == from))
+            row.OwnerIdentity = to;
         if (changed > 0)
             generation++;
         return changed;

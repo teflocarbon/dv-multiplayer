@@ -132,7 +132,7 @@ internal static partial class PlayerItems
 
     // GoData: the tool goes to data, and its ammo with it. Whoever keeps the tool (its holder, an
     // owner's silhouette) keeps the ammo; anyone else who was shown it is told it's gone.
-    private static void AmmoGoesData(NetworkedItem tool, ServerPlayer holder, IReadOnlyCollection<byte> keeping)
+    private static void AmmoGoesData(NetworkedItem tool, string where, IReadOnlyCollection<byte> keeping)
     {
         StandInAmmo.RetireLoaded(tool.gameObject, ammo =>
         {
@@ -159,7 +159,7 @@ internal static partial class PlayerItems
                     continue;
                 LiveItems.WriteToSnapshot(record, destroy, ItemTransitionReason.WentCold);
                 destroy.RemovalCause = ItemChangeLog.Removal(ItemRemovalReason.WentCold,
-                    detail: $"in {tool.name}, in {holder.Username}'s inventory, kept as data on the server");
+                    detail: $"in {tool.name}, in {where}, kept as data on the server");
                 NetworkServer.Instance.SendItemUpdate(destroy, player);
             }
             knownBy[record.NetId] = keeping.ToArray();

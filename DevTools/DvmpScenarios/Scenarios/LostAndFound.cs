@@ -15,7 +15,8 @@ namespace Dvmp.Scenarios
 {
     /// <summary>
     /// Lost and Found round trip: the client claims a personal item, drops it and walks away; the
-    /// host collects it into Lost and Found; the client retrieves it into their inventory. The
+    /// host collects it into Lost and Found, where the server keeps it as data with no object
+    /// (OI-COLD-08); the client retrieves it into their inventory. The
     /// policy is tightened for the run (owner distance 50 m, grace 1 s) and restored afterwards.
     /// While it is tightened, other personal items both players walk away from are collected too.
     /// WHO=host: the host's own player does it instead, through its own Lost and Found requests,
@@ -51,6 +52,9 @@ namespace Dvmp.Scenarios
             if (!pair.Dedicated) await pair.Host.Run<Abs>(s => Walk.Away(s, 300, 20));
             r = await Until.Value(() => pair.Host.Run(() => Items.Record(item)), v => v.Lost, 30, "the host collects the item into Lost and Found");
             Report.Note($"collected: placement {r.Placement}");
+            // An entry is data on the server: its object goes at the next scan (OI-COLD-08), and the
+            // retrieval below makes it again.
+            await Until.Value(() => pair.Host.Run(() => Items.Record(item)), v => !v.Exists, 10, "the server keeps the entry as data, with no object");
 
             int slot = await owner.Run<int>(s => InGame.Retrieve(s, r.Handle), 60);
             if (o.Who == "host")

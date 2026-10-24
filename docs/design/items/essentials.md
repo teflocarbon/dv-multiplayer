@@ -140,8 +140,9 @@ kept in the owner's game:
 - **In Lost and Found, and after a rejoin** (OI-ESS-08). An owner who joined after the collection has
   no copy of the item for the Lost and Found tombstone to project.
   `ServerItemManager.TryCreateLostEssentialForOwner` sends that owner, and only them, the item's
-  `Create` first; the tombstone after it makes it inert and leaves the silhouette. Lost and Found
-  entries stay objects on the server until R6 (OI-COLD-08, user 2026-10-24).
+  `Create` first; the tombstone after it makes it inert and leaves the silhouette. An entry the server
+  keeps as data (OI-COLD-08) has no object to write them: `LostAndFoundServer.SendDataEssentials`
+  makes both from its record, once per owner's session.
 - **Arriving after an ordinary item** (OI-ESS-09). The server never puts an ordinary item on a
   claimed slot (`slot-reserved`, above). On a client whose items arrive in any order,
   `InventoryIntegration.RestoreClaim` first moves a stale occupant without a claim on that slot to

@@ -215,7 +215,9 @@ it, the object made again takes it up (`TakeUpFromData`), and it's freed only if
 (`FreeDataNetId`). The one-home check reads such an item's row, not an object. A request that names
 it has the object made first (`PlayerItems.WithObject`), so everything on this page runs on an object.
 
-Lost and Found entries stay objects on the server until R6 (OI-COLD-08, user 2026-10-24).
+A Lost and Found entry is kept as data the same way, under its record and NetId, its row kept by
+Lost and Found (OI-COLD-08); `PlayerItems.WithObject` makes its object again there
+([lost-and-found.md](lost-and-found.md#kept-as-data)).
 
 ## Not on this page
 

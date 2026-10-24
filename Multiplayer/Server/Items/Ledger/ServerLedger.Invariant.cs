@@ -108,8 +108,8 @@ public static partial class ServerLedger
                 record.PersistentItemId == Guid.Empty &&
                 record.Placement != ItemPlacementKind.PlayerInventory)
                 continue;
-            // Kept as data on the server: its row is the copy (ColdRows).
-            if (PlayerItems.IsDataOnly(record))
+            // Kept as data on the server: its row is the copy (ColdRows, LostRows).
+            if (PlayerItems.IsDataOnly(record) || LostAndFoundServer.IsData(record.NetId))
                 continue;
             ItemBase item = NetworkedItem.TryGet(record.NetId, out NetworkedItem networked) && networked != null
                 ? networked.Item : null;
@@ -131,7 +131,7 @@ public static partial class ServerLedger
                 Lists = lists
             };
         }
-        foreach (ObservedItem cold in ColdRows().Concat(AmmoRows()))
+        foreach (ObservedItem cold in ColdRows().Concat(AmmoRows()).Concat(LostRows()))
             yield return cold;
         foreach (StoredItemRecord row in ContainerServer.Graph.ExportSnapshot().Items)
         {
@@ -146,6 +146,16 @@ public static partial class ServerLedger
             };
         }
     }
+
+    // Lost and Found's entries kept as data (OI-COLD-08).
+    private static IEnumerable<ObservedItem> LostRows() => LostAndFoundServer.DataRows().Select(row => new ObservedItem
+    {
+        Id = row.PersistentItemId,
+        Name = row.PrefabName,
+        Source = ObservedSource.LostAndFoundRow,
+        Home = Home.LostAndFound,
+        StoreOwner = row.OwnerIdentity == Guid.Empty ? OwnerRef.None : OwnerRef.Player(row.OwnerIdentity)
+    });
 
     // Cold inventories' rows (D12), and on the server the items in connected remote players'
     // inventories, kept as data (OI-COLD-06).

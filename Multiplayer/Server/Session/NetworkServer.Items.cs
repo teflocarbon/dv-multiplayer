@@ -568,7 +568,11 @@ public partial class NetworkServer : IItemServer
     // Lost and Found it's a collection into that slot.
     private ClientboundItemResultPacket CarryRecall(ItemRequest request, ServerPlayer player)
     {
-        if (!NetworkedItem.TryGet(request.ItemNetId, out NetworkedItem item) || item == null)
+        // One in Lost and Found may be data only: its object is made again for the recall (OI-COLD-08).
+        NetworkedItem item = LostAndFoundServer.Contains(request.ItemNetId)
+            ? LostAndFoundServer.ObjectOf(request.ItemNetId)
+            : NetworkedItem.TryGet(request.ItemNetId, out NetworkedItem existing) ? existing : null;
+        if (item == null)
             return Refuse(request, "unknown-network-entity");
         bool lost = LostAndFoundServer.Contains(item.NetId);
         bool accepted = lost
