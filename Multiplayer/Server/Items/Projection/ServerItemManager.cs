@@ -63,6 +63,7 @@ internal sealed partial class ServerItemManager : IItemManagerServerPart
         HostSpatial.Update();
         Replenishment.Update();
         PlayerItems.Update();
+        PlayerItems.UpdateAlarms();
     }
 
     public void Tick(uint tick)

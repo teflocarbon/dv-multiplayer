@@ -214,6 +214,46 @@ and ledger homes. How its changes reach the server:
 A dedicated host has no player and no inventory: the server moves items about the world but never
 holds one ([live-state.md](live-state.md#a-change)).
 
+## Stashed items that act
+
+Vanilla keeps a stashed item's object alive, disabled, and a few of them carry on in a pocket. Under
+D14 a stashed item is a row with no object, so the local player's game does what they did from the
+stand-ins' rows (`StashedItems`, OI-COLD-11 and OI-COLD-12), at the player's camera as vanilla's
+stashed sounds are (`ItemPositionHandler`). A silhouette's item is elsewhere, so it does none of
+these: its object does.
+
+- **The HUD clock.** A clock registers itself as the player's when its object starts
+  (`WorldClockController.PlayerHasClock`, read as the player enters a cab). A stand-in of an alarm
+  clock the player owns counts too.
+- **The alarm.** A set alarm clock counts down and rings: vanilla's `AlarmTick` runs on the row's own
+  state (`alarmTime`, `alarmSet`) once a world minute (`AlarmRows`), a turn of its increment and the
+  ring sound from copies of the prefab's own audio sources, and the ring unsets it. The server runs
+  the same tick on its copy of the row (`PlayerItems.UpdateAlarms`, the rows of players here), so a
+  clock made from the row later is the one that rang. Both work its due time out the first time
+  they tick the row, as vanilla's load does, from the minute before that tick, so a time skip
+  right after a stash (sleep, `/time`) rings it as a pocketed clock would. A cold row's clock is as
+  its holder left it.
+- **The boombox.** One left on in radio mode keeps playing its station (`rsIndex`) at its volume
+  (`vol`): vanilla's own radio player on a copy of the boombox's music source, stopped as the item
+  is taken out (its object plays from the same state) or goes. A stashed boombox's interference is
+  paused in vanilla, so the copy has none. One with a cassette stays an object until R5 (OI-CON-16)
+  and plays as vanilla's does.
+- **The tutorials.** A quick tutorial's radio service (a host playing alone) that starts while the
+  comms radio is stashed binds to it once it's taken out (`TutorialRadio`). The tutorial's mode
+  control takes a stashed radio out first, and the modes it turns off are kept with the row as the
+  radio is put away and given back to its next object. The quick tutorials' pointer at a stashed
+  radio has no object to point at, so it isn't drawn.
+- **Items kept near their place** (`ItemLocationForcer`). The forcer follows its item by NetId: a
+  stashed one is where the player's camera is, and once that is too far (or the player fast-travels)
+  it is taken out and put back as vanilla does.
+
+A stand-in is never destroyed as an item (`InventoryStandInPatches.DestroyItem` skips it). Vanilla's
+`Inventory.DestroyItem` callers are money added to the wallet (never a stand-in: money is destroyed
+on add), and spent duct tape, a spent soldering spool and a spent paint can, each in the hand or in a
+live magazine. The other destroy side effects run on an object only, as a put-away destroys through
+the mod's retirement path: a shop's restock (`ShopRestockerRetirementPatch`), a container's contents
+(`BeginColdStorageRetirement`), the container id, a clock's registration. Job papers are C7's.
+
 ## Tests
 
 - `Multiplayer.Core.Tests/Items/Inventory/`: `InventorySlotsTests` (a claim's slot off the belt, the
