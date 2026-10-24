@@ -24,6 +24,16 @@ internal sealed class Agent(AgentInfo info, RemoteInfo? remote = null)
     /// to reuse or quit: a game the user started (their own play, a server for something else) shares the
     /// install and so has the agent too, and must never be taken over or shut down.</summary>
     public bool LaunchedByDvmp => Info.Args != null && Array.IndexOf(Info.Args, "-dvmp-role") >= 0 && FromThisInstall;
+    /// <summary>The transport the game runs on: "gns" when launched with -dvmp-transport gns (a Debug
+    /// build on GameNetworkingSockets, without Steam), else "steam".</summary>
+    public string Transport
+    {
+        get
+        {
+            int at = Info.Args == null ? -1 : Array.IndexOf(Info.Args, "-dvmp-transport");
+            return at >= 0 && at + 1 < Info.Args!.Length && Info.Args[at + 1] == "gns" ? "gns" : "steam";
+        }
+    }
 
     /// <summary>Whether the game runs from the install dvmp is pointed at (DVMP_DV_DIR, else Steam's). A
     /// separate copy (a test install, someone's own server folder) is another install's business.</summary>
