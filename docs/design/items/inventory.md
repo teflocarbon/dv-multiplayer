@@ -171,8 +171,9 @@ Made as objects instead, by `GoLive` (the prefab made, its state loaded a frame 
 in its holder's inventory under its own id by `LiveItems.RegisterMaterializedColdItem`, sent to
 everyone): job papers (OI-COLD-07, R6); a row with no free slot or whose ledger home is `LostAndFound`
 (a re-key clash), which overflows: dropped at the player's feet and sent to their Lost and Found
-(`InventoryOverflow`), or left there if unowned; and the host's own player's rows, made as it is
-admitted (`PlayerItems.Join`). A row whose prefab is unknown stays cold; one whose state won't load
+(`InventoryOverflow`), or left there if unowned; and the host's own player's rows, made once the
+load has run (`PlayerItems.Join`; it is admitted before the load, so the load joins it).
+A row whose prefab is unknown stays cold; one whose state won't load
 comes back fresh in its owner's Lost and Found (D9).
 
 ## The re-key merge
@@ -199,7 +200,7 @@ and ledger homes. How its changes reach the server:
 - Its slot moves and swaps, recalls, collections and container requests are requests through its local
   session (`LocalPlayerSession.Items`), handled in-process by the same handlers as a client's
   (`NetworkServer.RegisterLocalItems`).
-- Its items are never data only, and `PlayerItems.Join` makes its cold rows as objects as it is admitted.
+- Its items are never data only, and `PlayerItems.Join` makes its cold rows as objects once the load has run (the load joins it: it is admitted first).
 
 A dedicated host has no player and no inventory: the server moves items about the world but never
 holds one ([live-state.md](live-state.md#a-change)).
