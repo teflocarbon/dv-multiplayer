@@ -84,6 +84,10 @@ internal static partial class ItemSaveLoad
         int noState = 0;
         foreach (LedgerEntry entry in ServerLedger.Ledger.All())
         {
+            // The job system saves its jobs and prints their paperwork again at the load; a booklet
+            // saved as well came back beside the reprint, one more each load.
+            if (IsJobSystemDocument(entry.Prefab))
+                continue;
             if (!entry.IsLive)
             {
                 items.Ledger.Add(entry);

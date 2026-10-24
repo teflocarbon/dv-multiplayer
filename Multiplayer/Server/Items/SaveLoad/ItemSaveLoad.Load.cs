@@ -81,6 +81,16 @@ internal static partial class ItemSaveLoad
         if (items.UnreadableCount > 0)
             Multiplayer.LogError($"Items: {items.UnreadableCount} saved row(s) can't be read; they are kept as they are");
 
+        // Job paperwork is the job system's to make (an R4 save before this wrote a claimed booklet).
+        items.Ledger.RemoveAll(entry => IsJobSystemDocument(entry.Prefab));
+        // An item whose prefab is gone holds no place from the start (D9): its saved row names the
+        // slot it had, which an item made since may have taken, and the made item keeps it.
+        for (int i = 0; i < items.Ledger.Count; i++)
+        {
+            LedgerEntry entry = items.Ledger[i];
+            if (entry.IsLive && entry.Home.Kind != HomeKind.Installed && FindSpec(entry.Prefab) == null)
+                items.Ledger[i] = WithHome(entry, Home.Unloadable);
+        }
         ServerLedger.LoadEntries(items.Ledger, items.StarterKits);
         HashSet<string> cars = new(Resources.FindObjectsOfTypeAll<TrainCar>()
             .Where(car => car != null && !string.IsNullOrEmpty(car.CarGUID)).Select(car => car.CarGUID));

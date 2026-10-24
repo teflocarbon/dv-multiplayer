@@ -59,7 +59,9 @@ anyone logs in. Until it has run, no item request is served: container operation
 `items-loading` (OI-CON-05), Lost and Found doesn't collect or hand anything back, and the invariant
 check waits (`ServerLedger.Loaded`).
 
-1. The ledger's rows go into the ledger (`ServerLedger.LoadEntries`); unreadable rows are kept.
+1. The ledger's rows go into the ledger (`ServerLedger.LoadEntries`); unreadable rows are kept. Job
+   paperwork's rows are dropped (the job system prints its own), and an entry whose prefab is gone
+   goes in as `Unloadable`, holding no slot, so an item that took its slot since keeps it.
 2. `ItemLoadPlanner.Plan` (Core) gives each live entry one step, from its home and whether it has a row:
 
    | Step | When | What |
@@ -101,7 +103,8 @@ D9, OI-LED-16. Two things can stop an item loading:
 - **Its prefab is gone** (an item mod removed). Its entry's home becomes `Unloadable`, and its ledger
   and state rows (and Lost and Found row) are kept exactly as saved and written back at every save, so
   putting the mod back brings the item back at the next load. It has no object, holds no slot, and the
-  one-home check counts it as home.
+  one-home check counts it as home. Its saved row still names its old slot, and an item put in that
+  slot meanwhile keeps it at the next load.
 - **Its state won't load** (vanilla's `LoadItemData` throws, at load or when a cold row goes live at a
   join). The item is destroyed and made fresh from its prefab, with the same id and owner, in its owner's
   Lost and Found (`SaveRecovery`), and an error with the id is logged. Its own state (a lighter's fuel) is
@@ -127,7 +130,7 @@ goes into `Storage_World` or `Storage_LostAndFound`. A dedicated host has no pla
 empty. `Storage_InstalledGadgets` stays vanilla's: it is how installed gadgets are made.
 
 Because vanilla's inventory starts empty, a job booklet DV reprints at load (it saves none of its own
-in multiplayer) would take the first slot vanilla has free, one the host's own saved item still holds
+in multiplayer: `Multiplayer.Items` skips job paperwork, claimed or not) would take the first slot vanilla has free, one the host's own saved item still holds
 as a row. On a player host the reprint waits until the host's items are back in their slots
 (`JobBookletRecoveryPatch`, at most 20 s); a dedicated host prints none.
 

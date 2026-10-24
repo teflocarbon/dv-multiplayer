@@ -11,8 +11,9 @@ namespace Dvmp.Scenarios
     /// Rows that won't load (D9, OI-LED-16, OI-PER-15; docs/design/items/save-load.md). The client owns
     /// a mug in its inventory and a flashlight on the ground. The host saves with the mug's prefab
     /// renamed to one no item has (an item mod removed) and the flashlight's state made unreadable.
-    /// After a restart the mug is <c>Unloadable</c>, its slot free, and its rows are written back
-    /// exactly as they were, through two saves and restarts; the flashlight comes back fresh, with its
+    /// After a restart the mug is <c>Unloadable</c>, its slot free (a lantern put there keeps it at
+    /// the next load), and its rows are written back exactly as they were, through two saves and
+    /// restarts; the flashlight comes back fresh, with its
     /// id, in the client's Lost and Found (<c>SaveRecovery</c>), with an error logged.
     /// </summary>
     [Scenario("unloadable-item", "A row whose prefab is gone is kept as it was through two saves; a state that won't load comes back fresh in Lost and Found")]
@@ -57,6 +58,14 @@ namespace Dvmp.Scenarios
             Expect.Equal("SaveRecovery", await pair.Host.Run(() => ItemBugContainerSaveRefused.InGame.LostReason(corruptId)), "why the flashlight is there");
             Expect.That((await pair.Host.LogsSince(0, "error")).Any(l => l.Message.Contains(corruptId)), "the unreadable state is logged as an error");
 
+            // Its slot is free: an item put there keeps it at the next load, though the mug's row
+            // still names that slot.
+            ushort taker = await pair.Host.Run<ushort>(s => Items.SpawnPersonal(s, "Lantern", "client"));
+            await pair.Client.Run<int>(s => Items.Stash(s, taker, false), 60);
+            Expect.That(await pair.Client.Run<bool>(s => InventorySlots.InGame.Move(s, taker, goneBefore.Slot)),
+                "the client put a lantern in the mug's old slot", $"slot {goneBefore.Slot}");
+            string takerId = await pair.Host.Run(() => Owned.IdOf(taker));
+
             await pair.Host.Run(() => Saves.Manual());
             string second = await pair.Host.Run(() => InGame.SavedRows(goneId));
             Report.Note("the mug's rows, saved after the load: " + second);
@@ -65,6 +74,9 @@ namespace Dvmp.Scenarios
             await pair.Restart(o.Session);
             await Task.Delay(15000);
             Expect.Equal("Unloadable", (await pair.Host.Run(() => Owned.Entry(goneId))).Place, "the mug after a second restart");
+            LedgerEntry takerAfter = await pair.Host.Run(() => Owned.Entry(takerId));
+            Expect.Equal($"Slot {goneBefore.Holder} slot {goneBefore.Slot}", takerAfter.Where,
+                "the lantern in the mug's old slot, after a second restart");
             await pair.Host.Run(() => Saves.Manual());
             Expect.Equal(second, await pair.Host.Run(() => InGame.SavedRows(goneId)), "the mug's rows after a second save");
         }
