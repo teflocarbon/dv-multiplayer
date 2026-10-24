@@ -8,6 +8,7 @@ using DV.InventorySystem;
 using DV.UI.Inventory;
 using DV.Util;
 using Multiplayer.Shared.Debugging;
+using Multiplayer.Shared.Items.Inventory;
 using Multiplayer.Shared.Items.LiveState;
 using Multiplayer.Shared.Protocol.Data.Items;
 using Multiplayer.Shared.Protocol.Packets.Items;
@@ -177,7 +178,8 @@ internal static class ContainerUi
             : new ItemRequest
             {
                 Action = ItemAction.Deposit,
-                ItemNetId = item.GetComponent<NetworkedItem>()?.NetId ?? 0,
+                // An inventory row's stand-in (D14) names its item as the object would.
+                ItemNetId = item.GetComponent<InventoryStandIn>()?.NetId ?? item.GetComponent<NetworkedItem>()?.NetId ?? 0,
                 ExpectedRevision = ActiveRevision,
                 Container = ActiveHandle,
                 ShellNetId = activeShellNetId,
