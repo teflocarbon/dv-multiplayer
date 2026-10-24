@@ -198,6 +198,9 @@ internal static partial class PlayerItems
             return false;
         }
 
+        // A paper's object goes with no paper patch to tell its job (a bare Destroy).
+        if (Shared.Jobs.JobPapers.IsPaper(record.PrefabName))
+            Jobs.JobPaperRows.Forget(record.NetId);
         Retire(item, record, ItemChangeLog.Removal(ItemRemovalReason.WentCold, leaver, detail), leaver);
         return true;
     }

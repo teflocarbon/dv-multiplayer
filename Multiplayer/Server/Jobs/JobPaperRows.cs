@@ -70,6 +70,23 @@ internal static class JobPaperRows
         Multiplayer.Log($"Job papers: {row.PrefabName} ({row.PersistentItemId:D}) of {ItemChangeLog.PlayerName(row.PlacementPlayerIdentity)} goes: {why}");
     }
 
+    /// <summary>
+    /// A paper's NetId goes (its holder left, and it went cold): its job no longer keeps it by
+    /// that NetId, so its row is wanted again when they're back and no NetId used again later
+    /// stands for it.
+    /// </summary>
+    public static void Forget(ushort netId)
+    {
+        if (netId == 0)
+            return;
+        foreach (NetworkedJob job in NetworkedJob.GetAllJobs())
+        {
+            if (job.JobOverviewNetId == netId)
+                job.SetOverviewRow(0);
+            job.UnregisterJobBooklet(netId);
+        }
+    }
+
     /// <summary>Whether a booklet of the job is kept in any player's inventory, here or not.</summary>
     public static bool HasBookletRow(string jobId) =>
         jobId != null && ColdInventories.All().Any(row => row.PrefabName == nameof(JobBooklet) && JobPapers.JobIdOf(row.State) == jobId);

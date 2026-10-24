@@ -86,7 +86,7 @@ public class NetworkedJob : IdMonoBehaviour<ushort, NetworkedJob>
     /// <summary>The job's overview's object, or null (none, or it's a row in an inventory).</summary>
     public NetworkedItem JobOverview
     {
-        get => ObjectOf(overviewNetId);
+        get => ObjectOf<JobOverview>(overviewNetId);
         set
         {
             if (value != null && value.GetTrackedItem<JobOverview>() == null)
@@ -105,15 +105,17 @@ public class NetworkedJob : IdMonoBehaviour<ushort, NetworkedJob>
     /// <summary>The job's overview is a row in an inventory, under this NetId (it has no object).</summary>
     public void SetOverviewRow(ushort netId) => overviewNetId = netId;
 
-    private static NetworkedItem ObjectOf(ushort netId) =>
-        netId != 0 && NetworkedItem.TryGet(netId, out NetworkedItem item) && item != null ? item : null;
+    // Only a paper of its kind: a NetId kept past its paper's end mustn't stand for another item.
+    private static NetworkedItem ObjectOf<T>(ushort netId) where T : Component =>
+        netId != 0 && NetworkedItem.TryGet(netId, out NetworkedItem item) && item != null &&
+        item.GetTrackedItem<T>() != null ? item : null;
 
     private readonly HashSet<ushort> jobBooklets = [];
     private readonly JobBookletIssuanceIndex issuedBooklets = new();
 
     /// <summary>The booklet copies that are objects; one in an inventory is a row (<see cref="JobBookletNetIds"/>).</summary>
     public IReadOnlyCollection<NetworkedItem> JobBooklets =>
-        jobBooklets.Select(ObjectOf).Where(item => item != null).ToArray();
+        jobBooklets.Select(ObjectOf<JobBooklet>).Where(item => item != null).ToArray();
 
     /// <summary>Every booklet copy's NetId, objects and rows.</summary>
     public IReadOnlyCollection<ushort> JobBookletNetIds => jobBooklets.ToArray();
@@ -149,7 +151,7 @@ public class NetworkedJob : IdMonoBehaviour<ushort, NetworkedJob>
 
     public bool TryGetJobBooklet(ushort itemNetId, out NetworkedItem item)
     {
-        item = jobBooklets.Contains(itemNetId) ? ObjectOf(itemNetId) : null;
+        item = jobBooklets.Contains(itemNetId) ? ObjectOf<JobBooklet>(itemNetId) : null;
         return item != null;
     }
 

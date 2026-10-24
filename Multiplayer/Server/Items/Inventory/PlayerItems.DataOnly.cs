@@ -460,6 +460,8 @@ internal static partial class PlayerItems
                     NetworkServer.Instance.SendItemUpdate(destroy, knower);
         knownBy.Remove(record.NetId);
         pendingData.Remove(record.NetId);
+        if (JobPapers.IsPaper(record.PrefabName))
+            Jobs.JobPaperRows.Forget(record.NetId);
         LiveItems.Remove(record.NetId);
         NetworkedItem.FreeDataNetId(record.NetId);
         Multiplayer.Log($"Item {record.PrefabName} (netId {record.NetId}) removed: {destroy.RemovalCause}");
