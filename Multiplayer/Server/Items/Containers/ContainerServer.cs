@@ -418,6 +418,11 @@ public static class ContainerServer
             // A job paper comes out while its job wants it, made again from its job (OI-COLD-07).
             if (paper && !JobPaperRows.Wanted(row, out paperJob))
                 throw new InvalidOperationException(PaperUnwanted);
+            // The deposit let the job forget this booklet, so a validator may have printed the
+            // withdrawer another since: theirs is that one, and this copy goes (H2).
+            if (paper && record.PrefabName == nameof(JobBooklet) && paperJob != null &&
+                paperJob.TryGetIssuedJobBooklet(actor.PlayerId, out _))
+                throw new InvalidOperationException(PaperCopyIssued);
             row.OwnerIdentity = owner;
             slot = ServerLedger.FreeSlot(row.PersistentItemId, owner, ServerLedger.ClaimOf(row.PersistentItemId),
                 actor.Guid);
@@ -452,8 +457,6 @@ public static class ContainerServer
                 : ItemSaveLoad.MakeLive(row, owner != Guid.Empty, out loose) ? loose : null;
             if (made == null)
                 throw new InvalidOperationException("withdraw-authoritative-registration-failed");
-            if (paper && slot >= 0)
-                JobPaperRows.Admit(made, record.PrefabName, actor, paperJob);
             committed = graph.CommitWithdrawal(operationId);
             if (!committed.Accepted)
             {
@@ -480,6 +483,8 @@ public static class ContainerServer
             // A paper whose job is over goes from the box, as one in an inventory goes.
             if (exception.Message == PaperUnwanted)
                 JobPaperRows.DropStored(record.PersistentItemId, "its job is over or has another");
+            else if (exception.Message == PaperCopyIssued)
+                JobPaperRows.DropStored(record.PersistentItemId, $"its job printed {actor.Username} another copy");
             if (exception.Message != "withdraw-actor-left")
                 Multiplayer.LogException("Cold-container withdrawal failed", exception);
             failed = true;
@@ -492,6 +497,10 @@ public static class ContainerServer
         // Committed: the row is the item in its new home, and nothing after this moves it back.
         try
         {
+            // A paper's job keeps it by its NetId; an overview takes over from the board's copy,
+            // which goes, so only once nothing can roll the withdrawal back (H5).
+            if (paperJob != null && slot >= 0)
+                JobPaperRows.Admit(made, record.PrefabName, actor, paperJob);
             // An owned item with no slot goes on to its owner's Lost and Found; if that refuses it,
             // it stays at the withdrawer's feet.
             if (slot < 0 && owner != Guid.Empty && NetworkedItem.TryGet(made.NetId, out NetworkedItem item) && item != null &&
@@ -515,6 +524,7 @@ public static class ContainerServer
     }
 
     private const string PaperUnwanted = "withdraw-paper-job-over";
+    private const string PaperCopyIssued = "withdraw-paper-copy-issued";
 
     /// <summary>Where an item made only to go into Lost and Found is made: DV's own safety position.</summary>
     internal static Vector3 SafetyPosition => StartingItemsController.ITEM_INSTANTIATION_SAFETY_POSITION - WorldMover.currentMove;
