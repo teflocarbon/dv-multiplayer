@@ -169,7 +169,11 @@ tool. Its ammo has a home in each of the tool's forms (CN1 and OI-CON-16; R5 C7 
     objects before the tool's (vanilla empties a destroyed magazine into the world). The server's
     `GoData` does the same with its copies (`AmmoGoesData`): each becomes a row, and anyone who knew it
     other than the tool's keepers is told it's gone. A tool whose ammo has no record in its magazine
-    stays an object (`AmmoCanGoData`). A boombox playing its cassette stands in too: its music plays
+    stays an object (`AmmoCanGoData`). The server checks what the stash nested against its own
+    magazine: only this tool's ammo there takes its nested state (`SplitStashedAmmo`), and if the
+    holder's stand-in nested anything else, it is sent the server's word, the tool's row as it goes
+    to data, or its state with only the ammo the server has loaded if it stays an object
+    (`NestingDiffers`, `CorrectNesting`). A boombox playing its cassette stands in too: its music plays
     on from its row, where the cassette had got to, and is heard by the players near its holder
     ([inventory.md](inventory.md#stashed-items-that-act), R5 C10).
   - **Taken out:** the holder's game makes the ammo with the tool from the nested rows, under their

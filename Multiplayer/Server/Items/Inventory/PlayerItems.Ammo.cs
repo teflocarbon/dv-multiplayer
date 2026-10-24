@@ -67,13 +67,50 @@ internal static partial class PlayerItems
             record.Placement == ItemPlacementKind.Magazine && record.MagazineNetId == tool.NetId &&
             record.PersistentItemId != Guid.Empty);
 
+    // What each holder's stand-in nested as they put a tool away, by the tool's NetId: checked against
+    // the server's own magazine as the tool goes (or stays), and their stand-in corrected if they differ.
+    private static readonly Dictionary<ushort, HashSet<ushort>> stashedNesting = new();
+
     // The stash's state, the ammo's split off: each item's goes over its own row as its tool's does.
-    private static string SplitStashedAmmo(string state)
+    // Only this tool's ammo here counts: a NetId the server has anywhere else keeps its own state.
+    private static string SplitStashedAmmo(ushort toolNetId, string state)
     {
+        HashSet<ushort> nested = new();
         foreach (StandInAmmo.Entry entry in StandInAmmo.Of(state))
-            if (entry.State != null)
+        {
+            nested.Add(entry.NetId);
+            if (entry.State != null && IsAmmoOf(entry.NetId, toolNetId))
                 stashedStates[entry.NetId] = entry.State;
+        }
+        stashedNesting[toolNetId] = nested;
         return StandInAmmo.Without(state);
+    }
+
+    private static bool IsAmmoOf(ushort ammoNetId, ushort toolNetId) =>
+        LiveItems.TryGet(ammoNetId, out LiveItems.LiveItem record) && record.Placement == ItemPlacementKind.Magazine &&
+        record.MagazineNetId == toolNetId;
+
+    // Whether the holder's stash nested other ammo than <paramref name="server"/>, the NetIds this
+    // magazine holds on the server; false with no stash to go by. Forgets what they nested.
+    private static bool NestingDiffers(ushort toolNetId, IEnumerable<ushort> server)
+    {
+        if (!stashedNesting.TryGetValue(toolNetId, out HashSet<ushort> theirs))
+            return false;
+        stashedNesting.Remove(toolNetId);
+        return !theirs.SetEquals(server);
+    }
+
+    // A loaded tool the holder's game stood in stays an object here (AmmoCanGoData): their stand-in
+    // is given the server's word, the tool's state with only the ammo this magazine has a record of,
+    // so a take-out makes no ammo the server has elsewhere.
+    private static void CorrectNesting(LiveItems.LiveItem record, NetworkedItem tool, ServerPlayer holder)
+    {
+        string captured = StandInAmmo.Capture(tool.gameObject);
+        string state = StandInAmmo.With(StandInAmmo.Without(captured),
+            StandInAmmo.Of(captured).Where(entry => IsAmmoOf(entry.NetId, tool.NetId)));
+        Multiplayer.LogWarning($"Inventory: {holder.Username}'s stand-in of {record.PrefabName} (netId {record.NetId}) nested other ammo " +
+                               "than the server's magazine; it is given the server's");
+        NetworkServer.Instance.SendInventoryRows(holder, new List<ItemUpdate> { CreateOf(record) }, new List<string> { state });
     }
 
     // A row's state as its holder's stand-in keeps it: the item's own, with its tool's data ammo nested.
