@@ -39,6 +39,9 @@ internal static class JobPapers
             reports[netId] = Convert.ToBase64String(artifact.Serialize());
     }
 
+    /// <summary>Whether a report's row has its recipe (one saved before C7 has none, and can't be made).</summary>
+    public static bool HasRecipe(JObject state) => state?[ReportKey] is { Type: JTokenType.String };
+
     /// <summary>The job a paper's row is for, or null.</summary>
     public static string JobIdOf(JObject state) => (string)state?[JobIdKey];
 

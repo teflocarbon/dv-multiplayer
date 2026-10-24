@@ -91,6 +91,15 @@ internal static partial class PlayerItems
         // save goes, as vanilla's load destroys the booklets no job claims.
         NetworkedJob job = null;
         bool paper = JobPapers.IsPaper(row.PrefabName);
+        // A report has no job to print it again, so it's never dropped here: one with no recipe
+        // (saved before C7) can't be made and stays cold, as it did then, and one with no slot (or
+        // in Lost and Found) stays cold until a slot is free when they're back.
+        if (paper && row.PrefabName == nameof(JobReport) && (slot < 0 || !JobPapers.HasRecipe(row.State)))
+        {
+            Multiplayer.LogWarning($"Inventory: {player.Username}'s report ({row.PersistentItemId:D}) stays cold: " +
+                                   (slot < 0 ? "no slot for it" : "it was saved with no recipe to make it from"));
+            return null;
+        }
         if (paper && !JobPaperRows.Wanted(row, out job))
         {
             JobPaperRows.Drop(row, "its job is over or has another");
