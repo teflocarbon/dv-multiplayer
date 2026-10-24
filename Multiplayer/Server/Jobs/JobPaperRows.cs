@@ -1,8 +1,12 @@
+using System;
+using System.Collections.Generic;
 using System.Linq;
 using DV.CabControls;
 using DV.ThingTypes;
 using Multiplayer.Core.Items.ChangeCauses;
+using Multiplayer.Core.Items.Containers;
 using Multiplayer.Server.Items.ChangeCauses;
+using Multiplayer.Server.Items.Containers;
 using Multiplayer.Server.Items.Inventory;
 using Multiplayer.Server.Items.Ledger;
 using Multiplayer.Server.Items.LiveState;
@@ -87,14 +91,33 @@ internal static class JobPaperRows
         }
     }
 
-    /// <summary>Whether a booklet of the job is kept in any player's inventory, here or not.</summary>
+    /// <summary>Whether a booklet of the job is kept in any player's inventory, here or not, or in a box.</summary>
     public static bool HasBookletRow(string jobId) =>
-        jobId != null && ColdInventories.All().Any(row => row.PrefabName == nameof(JobBooklet) && JobPapers.JobIdOf(row.State) == jobId);
+        jobId != null && (ColdInventories.All().Any(row => row.PrefabName == nameof(JobBooklet) && JobPapers.JobIdOf(row.State) == jobId) ||
+                          StoredPapers(jobId).Any(stored => stored.PrefabName == nameof(JobBooklet)));
+
+    // The job's booklets and overview kept in boxes (a folder, a registrator: containers.md).
+    private static IEnumerable<StoredItemRecord> StoredPapers(string jobId) =>
+        ContainerServer.Graph.ExportSnapshot().Items.Where(stored => ItemSaveLoad.IsJobSystemDocument(stored.PrefabName) &&
+                                                                     JobPapers.JobIdOf(ItemSaveLoad.RowOfStored(stored).State) == jobId);
+
+    /// <summary>A paper in a box that isn't wanted goes, from its box and the ledger.</summary>
+    public static void DropStored(Guid id, string why)
+    {
+        StoredItemRecord stored = ContainerServer.Graph.TakeOut(id, out string refused);
+        if (stored == null)
+        {
+            Multiplayer.LogWarning($"Job papers: {id:D} stays in its box: {refused}");
+            return;
+        }
+        ServerLedger.Ledger.End(id, ItemRemovalReason.JobDocumentDestroyed, detail: why);
+        Multiplayer.Log($"Job papers: {stored.PrefabName} ({id:D}) in box {stored.ParentContainerId:D} goes: {why}");
+    }
 
     /// <summary>
     /// A job ended (completed, abandoned, expired): its booklets and overview in inventories go as
     /// its objects do. One a player here holds is made and destroyed, so their game is told; one an
-    /// absent player holds is dropped from the cold store.
+    /// absent player holds is dropped from the cold store. One in a box goes from the box.
     /// </summary>
     public static void OnJobEnded(NetworkedJob job)
     {
@@ -112,6 +135,8 @@ internal static class JobPaperRows
             if (ItemSaveLoad.IsJobSystemDocument(row.PrefabName) && JobPapers.JobIdOf(row.State) == jobId &&
                 !LiveItems.Records.Any(record => record.PersistentItemId == row.PersistentItemId))
                 Drop(row, $"its job {jobId} is over");
+        foreach (StoredItemRecord stored in StoredPapers(jobId).ToArray())
+            DropStored(stored.PersistentItemId, $"its job {jobId} is over");
     }
 
     // Out of its slot first: vanilla's DestroyJobOverview is a bare Destroy, which would leave the

@@ -189,6 +189,22 @@ tool. Its ammo has a home in each of the tool's forms (CN1 and OI-CON-16; R5 C7 
 
 Ammo in a scene tool stays the scene's until a player loads it.
 
+## Job papers in a box
+
+Vanilla's folder and registrator take papers (`ItemType.Paper`), and a box keeps a booklet, an
+overview or a report as a row, as an inventory does ([inventory.md](inventory.md), OI-COLD-07):
+
+- **Deposit:** its row's state names its job (`JobPapers.Complete`; a report carries its recipe),
+  and a paper that couldn't be made again isn't taken (`deposit-paper-cannot-be-row`). Its object
+  goes from every game, as every game had a copy from its job, and its job no longer keeps it by
+  NetId (`JobPaperRows.Forget`).
+- **Withdrawal:** it's made again from its job, a row in the withdrawer's slot that the job keeps by
+  its new NetId (`JobPaperRows.Admit`), or loose at their feet with no slot free. One its job no
+  longer wants (`JobPaperRows.Wanted`) goes from the box instead (`withdraw-paper-job-over`).
+- **Its job ends:** a booklet or overview in a box goes from it (`JobPaperRows.DropStored`); a
+  report outlives its job. A booklet in a box counts as carried, so the load doesn't print another
+  (`JobPaperRows.HasBookletRow`).
+
 ## Moving between boxes
 
 A move from one slot to another, in one box or between a box and one nested in it, needs the keeper
