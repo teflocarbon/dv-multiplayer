@@ -72,14 +72,14 @@ On 2026-10-24, with R3 (#342, #343, #344), R4a (#347) and R4b (#348), after OI-R
 | Containers | 5 | 1 | 0 | 8 | 0 | 1 | 0 |
 | Persistence | 15 | 0 | 5 | 2 | 0 | 0 | 1 |
 | Projection and world sync | 4 | 2 | 0 | 11 | 0 | 4 | 0 |
-| Physics and train wake | 0 | 1 | 0 | 12 | 0 | 3 | 0 |
+| Physics and train wake | 0 | 1 | 1 | 11 | 0 | 3 | 0 |
 | Vanilla paths | 0 | 0 | 0 | 6 | 0 | 0 | 0 |
 | Layout and names | 0 | 0 | 0 | 1 | 0 | 0 | 0 |
 | Shops seam | 1 | 0 | 0 | 0 | 0 | 9 | 0 |
 | Gadgets seam | 3 | 0 | 0 | 1 | 0 | 7 | 1 |
 | Mod items | 0 | 0 | 0 | 0 | 0 | 5 | 0 |
 | Migration | 0 | 0 | 0 | 0 | 0 | 0 | 7 |
-| **All 276** | **123** | **10** | **14** | **69** | **0** | **49** | **11** |
+| **All 276** | **123** | **10** | **15** | **68** | **0** | **49** | **11** |
 
 - **The item refactor** (user, 2026-10-23; the plan is the item-refactor-plan session's
   `docs/design/item-refactor.md`) builds the rows that serve storing items, giving them back and
@@ -455,7 +455,7 @@ An item in a home nobody is using is data only, and every inventory is server da
 | OI-PHY-13 | A scenario for train-item wakes (the Train Item Lab is gone) | train-item-wake.md Not built | `paused: physics and wake fidelity` | Paused for the item refactor (D4, user 2026-10-23); was [ ]. `train-items` checks only that an item stays in a moving cab |
 | OI-PHY-14 | Throwing onto a moving flatcar lands within tolerance on both games | #148; OI §Plan ("not the ledger's") | `paused: physics and wake fidelity` | Paused for the item refactor (D4, user 2026-10-23); was [ ]. `item-release-throw-flatcar` flakes on both host kinds |
 | OI-PHY-15 | Recovery for runaway or never-sleeping motion | item-spatial-physics.md Not built | `paused: physics and wake fidelity` | Paused for the item refactor (D4, user 2026-10-23); was [ ]. Needs research first |
-| OI-PHY-16 | A player who grabs an item again just as it settles keeps it: the server accepts a pickup made against a revision older than that same player's own settle commit (only their commit moved it since) | OI-REF-02 2026-10-24 | `[ ]` | `item-release MODE=regrab-late` failed 1 run in 3: the client's settle commit (r15, `TryCommitSpatialPose`, which ends the object-state run) reached the server 1 ms before its regrab, made against r14 or earlier, and the regrab was refused as `stale-authority-revision` (`ItemStateMachine.Apply`). In R7 unless fixed sooner |
+| OI-PHY-16 | A player who grabs an item again just as it settles keeps it: the server accepts a pickup made against a revision older than that same player's own settle commit (only their commit moved it since) | OI-REF-02 2026-10-24 | `[~] #354 built` | #354 · `ItemPlacementRevision.UnchangedFor` and `SettledAfter`: a settle commit records its simulating player (`SettledBy`, `SettledBase`, `SettledTop`, set in `LiveItems.TryCommitSpatialPose`); `ItemStateMachine.Apply` lets their request made in that window hold · Core `ItemReleaseSyncTests.StateMachine_AcceptsTheSettlersRegrabMadeBeforeItsOwnSettleCommit` and `_SettlersWindowOutlivesObjectStateButNotAMove`; `item-release MODE=regrab-late` ×6 (p) PASS, the other release modes and throws PASS. Found as: `item-release MODE=regrab-late` failed 1 run in 3: the client's settle commit (r15, `TryCommitSpatialPose`, which ends the object-state run) reached the server 1 ms before its regrab, made against r14 or earlier, and the regrab was refused as `stale-authority-revision` (`ItemStateMachine.Apply`). Fixed ahead of R7 |
 
 ## Vanilla paths
 
