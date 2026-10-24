@@ -15,7 +15,8 @@ namespace Dvmp.Scenarios
 {
     /// <summary>
     /// Disconnect and rejoin. The client holds an item and quits: the host must keep every item of
-    /// the departed player, with the held one dropped into the world. The client rejoins and must
+    /// the departed player, as an object or as a cold row (D12), with the held one, if it is an
+    /// object, dropped into the world. The client rejoins and must
     /// get exactly one of each item back, in its inventory. CRASH=1 kills the client instead and
     /// rejoins before the host has noticed (a stale-session reconnect); FRESH=1 restarts both
     /// games first.
@@ -41,13 +42,14 @@ namespace Dvmp.Scenarios
             await pair.Host.Run<ushort>(s => Items.Spawn(s, "Mug", "client"));
             Holding before = await pair.Client.Run<Holding>(s => InGame.Hold(s));
             Report.Note($"holding {before.Item} ({before.Name}); owns {before.Inventory.Length} items");
+            string[] ids = await pair.Host.Run(() => InGame.IdsOf(before.Inventory.Append(before.Item).ToArray()));
 
             if (o.Crash) await pair.Client.Kill();
             else
             {
                 await pair.Client.Quit();
                 await Task.Delay(4000);   // the host notices the departure
-                Expect.Empty(await pair.Host.Run(() => InGame.AfterDisconnect(before.Item, before.Inventory)), "the host keeps every item of the departed player");
+                Expect.Empty(await pair.Host.Run(() => InGame.AfterDisconnect(before.Item, before.Inventory, ids)), "the host keeps every item of the departed player");
             }
 
             await pair.Rejoin();
@@ -103,18 +105,28 @@ namespace Dvmp.Scenarios
                 };
             }
 
-            /// <summary>Host, after the client quit: every item it had still exists and is in the
-            /// authority registry; the held one is recorded and shown dropped in the world, with
-            /// colliders. Result: what's wrong.</summary>
+            /// <summary>Host: the items' ids, while the client is still here.</summary>
             [Step]
-            public static string[] AfterDisconnect(ushort held, ushort[] inventory)
+            public static string[] IdsOf(ushort[] netIds) => netIds.Select(id => Owned.IdOf(id)).ToArray();
+
+            /// <summary>Host, after the client quit: every item it had is kept, as an object in the
+            /// authority registry or as a cold row under its id (D12: a departed player's inventory
+            /// is data on the server, docs/design/items/inventory.md); the held one, if it is still
+            /// an object, is recorded and shown dropped in the world, with colliders. Result: what's
+            /// wrong.</summary>
+            [Step]
+            public static string[] AfterDisconnect(ushort held, ushort[] inventory, string[] ids)
             {
                 var failures = new List<string>();
-                foreach (ushort id in inventory.Append(held))
+                ushort[] all = inventory.Append(held).ToArray();
+                for (int i = 0; i < all.Length; i++)
                 {
-                    var n = Dev.All<NetworkedItem>().FirstOrDefault(i => i != null && i.NetId == id);
-                    if (n == null) failures.Add($"{id} destroyed");
-                    else if (!LiveItems.TryGet(id, out _)) failures.Add($"{id} missing from authority registry");
+                    ushort id = all[i];
+                    var n = Dev.All<NetworkedItem>().FirstOrDefault(x => x != null && x.NetId == id);
+                    bool cold = System.Guid.TryParse(ids[i], out System.Guid persistent) &&
+                                Multiplayer.Server.Items.Inventory.ColdInventories.TryGet(persistent, out _);
+                    if (n == null && !cold) failures.Add($"{id} ({ids[i]}) gone: no object and no cold row");
+                    else if (n != null && !LiveItems.TryGet(id, out _)) failures.Add($"{id} missing from authority registry");
                 }
                 var h = Dev.All<NetworkedItem>().FirstOrDefault(i => i != null && i.NetId == held);
                 if (h != null)
