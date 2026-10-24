@@ -363,6 +363,8 @@ internal static partial class PlayerItems
                 ColdInventories.Add(row);
                 throw new InvalidOperationException("registration failed");
             }
+            // No slot free after all (OI-START-10): at their feet, and on to Lost and Found as an overflow.
+            overflow |= record.Placement != ItemPlacementKind.PlayerInventory;
             if (!overflow && record.Slot != row.Slot && row.Slot >= 0)
                 Multiplayer.LogWarning($"Inventory: {player.Username}'s {row.PrefabName} came back in slot {record.Slot}, not its slot {row.Slot}");
             item.ApplyServerCanonicalSnapshot(snapshot);

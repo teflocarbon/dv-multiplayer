@@ -39,8 +39,11 @@ internal static class StorageControllerAddManagedItemPatch
     [HarmonyPrefix]
     private static bool Prefix(StorageController __instance, StorageBase storage, ItemBase item)
     {
+        // Vanilla takes an item out of its old list before it asks whether the new one takes it, so a
+        // refused move left an unowned item in none (H3, OI-ESS-13): it is asked first, and keeps its list.
         if (!MultiplayerStoragePatchGuard.IsManaged(item, out _))
-            return true;
+            return !(MultiplayerStoragePatchGuard.Active && storage != null && item?.InventorySpecs is { } unowned &&
+                     !unowned.BelongsToPlayer && !storage.acceptsNonEssential);
 
         if (storage == null)
         {

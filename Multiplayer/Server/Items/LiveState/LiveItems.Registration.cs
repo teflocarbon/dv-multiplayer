@@ -68,6 +68,16 @@ public static partial class LiveItems
         // Its own slot: the one the snapshot names, else its claim, else the lowest free one.
         if (!dropped)
             record.Slot = ServerLedger.FreeSlot(record, holder.Guid, snapshot.InventorySlot, snapshot.InventoryClaimSlot);
+        // No slot free after all: at the holder's feet, never in no slot (OI-START-10).
+        if (!dropped && record.Slot < 0)
+        {
+            record.Placement = ItemPlacementKind.World;
+            record.Holder = Guid.Empty;
+            record.Position = snapshot.ItemPosition = holder.AbsoluteWorldPosition + Vector3.up * 0.3f;
+            snapshot.ItemState = ItemState.Dropped;
+            snapshot.InventorySlot = -1;
+            Multiplayer.LogWarning($"Inventory: no free slot for {holder.Username}'s {record.PrefabName} (netId {item.NetId}); it is at their feet");
+        }
         ChangeCause<ItemMoveReason> withdrawn = cause ?? ItemChangeLog.Move(ItemMoveReason.WithdrawnFromContainer, holder,
             ItemChangeCauses.Detail(ItemChangeLog.Describe(
                     new ItemWhereabouts(LivePlacement.Container, Guid.Empty, owner),

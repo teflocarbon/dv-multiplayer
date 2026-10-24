@@ -132,15 +132,15 @@ internal sealed class InventoryStandIn : MonoBehaviour, IInventoryItemSpec
 
     /// <summary>
     /// Into the slot its row has (OI-SLOT-01): an essential in its claim slot through the claim,
-    /// anything else exactly, as an object was placed before D14; the first free slot if that fails.
+    /// anything else exactly, as an object was placed before D14; the first free slot if that fails,
+    /// a refused claim too, reserved or not (OI-START-10).
     /// </summary>
     public void Place(ItemUpdate row)
     {
-        bool reserved = NetworkedItem.HasRetrievalFlag(row.InventoryClaimFlags);
         bool inClaim = row.InventoryClaimSlot >= 0 &&
             (row.InventorySlot < 0 || row.InventorySlot == row.InventoryClaimSlot);
         bool placed = inClaim
-            ? InventoryIntegration.RestoreClaim(gameObject, row.InventoryClaimSlot).Succeeded || reserved
+            ? InventoryIntegration.RestoreClaim(gameObject, row.InventoryClaimSlot).Succeeded
             : row.InventorySlot >= 0 && InventoryIntegration.PlaceAt(gameObject, row.InventorySlot) >= 0;
         if (!placed && InventoryIntegration.AddActive(gameObject) < 0)
             Multiplayer.LogWarning($"Inventory: no slot for {PrefabName} (netId {NetId}), which the server has in slot {row.InventorySlot}");
