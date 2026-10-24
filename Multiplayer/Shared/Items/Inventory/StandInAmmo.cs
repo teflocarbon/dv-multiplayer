@@ -51,18 +51,18 @@ internal static class StandInAmmo
 
     /// <summary>
     /// Whether a loaded tool can be a stand-in: one magazine, and each item in it a networked item
-    /// whose prefab can be a row. Not a boombox playing its cassette, which a stand-in can't play
-    /// (<see cref="StashedItems.PlaysCassette"/>).
+    /// whose prefab can be a row. A boombox playing its cassette plays on from its row
+    /// (<see cref="StashedBoombox"/>).
     /// </summary>
     public static bool CanNest(GameObject tool) =>
-        MagazineOf(tool) != null && !StashedItems.PlaysCassette(tool) && Loaded(tool).All(loaded =>
+        MagazineOf(tool) != null && Loaded(tool).All(loaded =>
             loaded.Ammo.TryGetComponent(out NetworkedItem ammo) && ammo.NetId != 0 && !ammo.ColdStorageRetirement &&
             loaded.Ammo.GetComponent<InventoryItemSpec>() is { } spec && InventoryStandIn.CanStandIn(spec.ItemPrefabName));
 
-    /// <summary>The tool's state as a stand-in keeps it: its own, with its loaded ammo nested.</summary>
+    /// <summary>The tool's state as a stand-in keeps it: its own (a cassette's position too), with its loaded ammo nested.</summary>
     public static string Capture(GameObject tool)
     {
-        string own = ItemStateText.Capture(tool);
+        string own = StashedCassette.WithPosition(tool, ItemStateText.Capture(tool));
         List<Entry> entries = new();
         foreach ((int slot, GameObject loaded) in Loaded(tool))
         {

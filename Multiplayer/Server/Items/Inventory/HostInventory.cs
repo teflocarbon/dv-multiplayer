@@ -139,8 +139,15 @@ internal sealed class HostInventory : IInventoryRowHolder
         standIn.Retire();
     }
 
-    public NetworkedItem TakeOut(InventoryStandIn standIn, string reason) =>
-        standIn != null && standIn.Known && Active ? MakeInSlot(standIn.NetId, reason) : null;
+    public NetworkedItem TakeOut(InventoryStandIn standIn, string reason)
+    {
+        if (standIn == null || !standIn.Known || !Active)
+            return null;
+        // A stashed cassette resumes where it had got to: the row takes its position first.
+        StashedItems.BeforeTakeOut(standIn);
+        PlayerItems.KeepCassettePosition(Player, standIn);
+        return MakeInSlot(standIn.NetId, reason);
+    }
 
     /// <summary>
     /// The object of an item the host's stand-in holds, made from its row in this frame and put in

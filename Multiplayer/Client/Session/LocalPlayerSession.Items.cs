@@ -5,6 +5,7 @@ using Multiplayer.Client.Items.Requests;
 using Multiplayer.Shared.Items.LiveState;
 using Multiplayer.Shared.Protocol.Data.Items;
 using Multiplayer.Shared.Protocol.Packets.Items;
+using Multiplayer.Shared.Protocol.Packets.Clientbound.World;
 using Multiplayer.Shared.Protocol.Packets.Serverbound;
 
 namespace Multiplayer.Client.Session;
@@ -30,6 +31,7 @@ public partial class LocalPlayerSession : IItemClient
             ItemExchange.Receive(packet);
             ItemListReceived?.Invoke(packet);
         });
+        Handle<ClientboundStashedSoundPacket>(global::Multiplayer.Shared.Items.Inventory.HeardStashedSounds.Receive);
     }
 
     public uint SendItemRequest(ItemRequest request)
@@ -67,4 +69,6 @@ public partial class LocalPlayerSession : IItemClient
     void IItemClient.SendItemSpatialSettlement(ItemSpatialStateData state) =>
         Submit(new ServerboundItemSpatialSettlementPacket { State = state });
     void IItemClient.SendItemTrainWakeWitness(ServerboundItemTrainWakeWitnessPacket packet) => Submit(packet);
+    void IItemClient.SendStashedCassette(ushort netId, int track, long seek, bool ended) =>
+        Submit(new ServerboundStashedCassettePacket { NetId = netId, Track = track, Seek = seek, Ended = ended });
 }

@@ -128,6 +128,7 @@ public partial class NetworkClient : NetworkManager, ILocalPlayerSession, IClien
         typeof(CommonPitStopInteractionPacket),
         typeof(CommonPitStopPlugInteractionPacket),
         typeof(ServerboundItemRequestPacket),
+        typeof(ServerboundStashedCassettePacket),
         typeof(ServerboundShopScanPacket),
         typeof(ServerboundShopDepositPacket),
         typeof(ServerboundHazmatIgnitePacket),
@@ -398,6 +399,7 @@ public partial class NetworkClient : NetworkManager, ILocalPlayerSession, IClien
         Handle<ClientboundInventoryRowsPacket>(OnClientboundInventoryRowsPacket);
         Handle<ClientboundItemResultPacket>(OnClientboundItemResultPacket);
         Handle<ClientboundItemListPacket>(OnClientboundItemListPacket);
+        Handle<ClientboundStashedSoundPacket>(global::Multiplayer.Shared.Items.Inventory.HeardStashedSounds.Receive);
         Handle<ClientboundWorldItemCataloguePacket>(OnClientboundWorldItemCataloguePacket);
         Handle<ClientboundItemSpatialLeasePacket>(OnClientboundItemSpatialLeasePacket);
         Handle<ClientboundItemSpatialSamplePacket>(OnClientboundItemSpatialSamplePacket);
