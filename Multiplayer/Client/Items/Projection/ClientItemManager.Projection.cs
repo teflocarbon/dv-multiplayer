@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using Multiplayer.Client.Items.ChangeCauses;
+using Multiplayer.Client.Items.Inventory;
 using Multiplayer.Client.Items.LiveState;
 using Multiplayer.Core.Items.VanillaStorage;
 using Multiplayer.Debugging.Protocol;
@@ -24,6 +25,7 @@ internal sealed partial class ClientItemManager
     {
         if (snapshot == null)
             return;
+        InventoryRows.Observe(snapshot);
         // Before the item applies it, while the item still says whose it was.
         if (snapshot.UpdateType == ItemUpdate.ItemUpdateType.Destroy || snapshot.MoveCause.HasValue)
         {

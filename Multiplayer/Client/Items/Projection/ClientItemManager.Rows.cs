@@ -6,7 +6,7 @@ using Multiplayer.Client.Items.LiveState;
 using Multiplayer.Shared.Items.LiveState;
 using Multiplayer.Shared.Protocol.Data.Items;
 using Multiplayer.Shared.Utils;
-using Newtonsoft.Json.Linq;
+using Multiplayer.Shared.Items.Inventory;
 using UnityEngine;
 using Object = UnityEngine.Object;
 
@@ -48,7 +48,7 @@ internal sealed partial class ClientItemManager
                 continue;
             try
             {
-                LoadState(item, state);
+                ItemStateText.Load(item.gameObject, state);
                 item.ReceiveSnapshot(row);
                 placed++;
             }
@@ -83,13 +83,5 @@ internal sealed partial class ClientItemManager
         item.gameObject.SetActive(true);
         NetworkedItemManager.TraceItem("item.made-from-row", item, new() { ["prefabName"] = row.PrefabName });
         return item;
-    }
-
-    private static void LoadState(NetworkedItem item, string state)
-    {
-        if (string.IsNullOrEmpty(state) || item.GetComponent<ItemSaveData>() is not { } saveData)
-            return;
-        saveData.LoadItemData(JObject.Parse(state));
-        saveData.PostLoadItemData();
     }
 }
