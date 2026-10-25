@@ -51,7 +51,10 @@ namespace Dvmp.Scenarios
             await (host ? pair.Host : pair.Client).Run<int>(s => Items.Stash(s, lantern, false), 60);
             // Back in its slot if the run fails before the rejoin too: the pair's later runs expect it there.
             ushort essential = await (host ? pair.Host : pair.Client).Run(() => InGame.At(o.Slot));
-            pair.Cleanup(() => (host ? pair.Host : pair.Client).Run(() => InGame.PutBack(essential, o.Slot)));
+            // Only until the one after the rejoin takes over: cleanups run last first, and after a restart
+            // the old NetId can name another item.
+            bool afterCleanup = false;
+            pair.Cleanup(() => afterCleanup ? Task.CompletedTask : (host ? pair.Host : pair.Client).Run(() => InGame.PutBack(essential, o.Slot)));
             Layout before = await (host ? pair.Host : pair.Client).Run<Layout>(s => InGame.Rearrange(s, o.Slot, lantern));
             Report.Note($"{o.Who}: {before.Essential} {before.EssentialId} moved {o.Slot}->{before.EssentialSlot}, {before.Other} {before.OtherId} moved into slot {o.Slot}");
             string record = await pair.Host.Run(() => InGame.ServerClaim(before.EssentialId));
@@ -80,6 +83,7 @@ namespace Dvmp.Scenarios
 
             Check after = await (host ? pair.Host : pair.Client).Run(() => InGame.Inspect());
             Report.Note($"after the {how}: {after.Layout}");
+            afterCleanup = true;
             pair.Cleanup(() => (host ? pair.Host : pair.Client).Run(() => InGame.PutBack(after.RadioId, o.Slot)));
             Expect.Empty(after.Failures, $"every owned item in a slot of its own after the {how}, every essential visible");
         }

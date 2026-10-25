@@ -52,6 +52,7 @@ namespace Dvmp.Scenarios
                 // and an overview of an expired job goes at its holder's join (inventory.md, "Job papers").
                 Expect.That(!await pair.Host.Run(() => InGame.Offered(o.Station, job)), $"{job} expired with nobody near {o.Station}");
                 Expect.Equal(-1, back.Slot, $"the slot of {job}'s overview in the client's inventory after the rejoin, its job expired");
+                Expect.Equal("", await pair.Client.Run(() => OverviewExpireStashed.InGame.InSlot(slot)), $"what's in the client's slot {slot} after the rejoin, its overview's job expired");
                 return;
             }
             Expect.Equal(slot, back.Slot, $"the slot of {job}'s overview in the client's inventory after the rejoin");

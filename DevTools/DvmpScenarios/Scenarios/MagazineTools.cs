@@ -121,6 +121,7 @@ namespace Dvmp.Scenarios
 
             // Owned, it went to the client's Lost and Found as a destroyed box's contents go: taken back.
             if (ammo == 0) return;
+            Expect.Equal("LostAndFound", released.Place, "the ammo's ledger home once its tool is destroyed (its owner's Lost and Found)");
             if (released.Place == "LostAndFound")
             {
                 uint ammoHandle = await pair.Host.Run(() => Owned.HandleOf(ammo));
