@@ -107,10 +107,28 @@ internal static class VanillaInventorySlots
     private static readonly FieldInfo statusChanged = AccessTools.Field(typeof(DV.InventorySystem.Inventory),
         nameof(DV.InventorySystem.Inventory.InventoryStatusChanged));
 
-    /// <summary>Raises vanilla's InventoryStatusChanged for one slot, as vanilla itself would.</summary>
-    public static void Fire(DV.InventorySystem.Inventory inventory, InventorySlotState state, InventoryActionType action) =>
-        (statusChanged?.GetValue(inventory) as DV.InventorySystem.Inventory.InventoryStatusChangedDelegate)?.Invoke(
-            state, action, InventorySlotState.Empty, InventoryActionType.None);
+    /// <summary>
+    /// Raises vanilla's InventoryStatusChanged for one slot, as vanilla itself would; one listener at
+    /// a time. A listener on an object going this frame can throw (an item's own position handler, as
+    /// it's destroyed): it skipped the others, and the caller's own clean-up (NetworkedItem.OnDestroy).
+    /// </summary>
+    public static void Fire(DV.InventorySystem.Inventory inventory, InventorySlotState state, InventoryActionType action)
+    {
+        if (statusChanged?.GetValue(inventory) is not DV.InventorySystem.Inventory.InventoryStatusChangedDelegate listeners)
+            return;
+        foreach (DV.InventorySystem.Inventory.InventoryStatusChangedDelegate listener in listeners.GetInvocationList())
+        {
+            try
+            {
+                listener(state, action, InventorySlotState.Empty, InventoryActionType.None);
+            }
+            catch (System.Exception exception)
+            {
+                Multiplayer.LogWarning($"Inventory: {listener.Method.DeclaringType?.Name} threw on a slot's " +
+                                       $"{action}: {exception.Message}");
+            }
+        }
+    }
 
     /// <summary>The slot vanilla keeps this object in, dropped or not, or -1: its own data, not <c>IndexOf</c> (which answers for silhouettes too).</summary>
     public static int SlotOf(DV.InventorySystem.Inventory inventory, GameObject item)
