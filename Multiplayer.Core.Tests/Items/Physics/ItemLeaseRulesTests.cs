@@ -72,6 +72,27 @@ public sealed class ItemLeaseRulesTests
     }
 
     [Test]
+    public void AFlightThatLandsInACarCommitsTheCar() =>
+        Assert.That(ItemLeaseRules.CommitsParentChange("world", "car:12", 0.3f), Is.True);
+
+    [Test]
+    public void NotUntilItHasHeldThere() =>
+        // A mug skimming a car's edge: a frame in, a frame out.
+        Assert.That(ItemLeaseRules.CommitsParentChange("world", "car:12", 0.05f), Is.False);
+
+    [Test]
+    public void TheParentItHasIsNoChange() =>
+        Assert.That(ItemLeaseRules.CommitsParentChange("car:12", "car:12", 5f), Is.False);
+
+    [Test]
+    public void LeavingACarOrComingOntoAShelfIsOne()
+    {
+        Assert.That(ItemLeaseRules.CommitsParentChange("car:12", "world", 1f), Is.True);
+        Assert.That(ItemLeaseRules.CommitsParentChange("world", "shelf:abc", 1f), Is.True);
+        Assert.That(ItemLeaseRules.CommitsParentChange("car:12", "car:13", 1f), Is.True, "from one car into another");
+    }
+
+    [Test]
     public void TheServerMovingItAboutTheWorldEndsIt() =>
         // Not a player's release (a deleted car's item put beside the track): the old lease is stale.
         Assert.That(ItemLeaseRules.AfterChange(true, LivePlacement.World, false), Is.EqualTo(LeaseAfterChange.Ends));

@@ -105,6 +105,10 @@ internal sealed class ClientItemSpatial
             Target = state.Clone()
         };
         leases[item.NetId] = lease;
+        // A flight that changed parent is at a new revision (OI-PHY-05): this copy's own requests,
+        // a grab mid-flight, carry it.
+        if (packet.Reason == ParentChangeLeaseReason)
+            ApplyCommitMetadata(item, state);
         bool localSimulator = state.SimulatorPlayerId == NetworkLifecycle.Instance.LocalSession.PlayerId;
         ConfigureLeasePresentation(item, localSimulator, state);
         if (localSimulator && (packet.Reason?.StartsWith("lease-transfer:", StringComparison.Ordinal) == true ||
