@@ -13,7 +13,7 @@
 | --- | --- |
 | Core | `Multiplayer.Core/Items/Inventory/`: `InventorySlots`, `BeltSlots`, `SlotClaimPlanner`, `InventoryPresentationPlanner` (`InventoryPresentation.cs`), `JoinRows` |
 | Server | `Multiplayer/Server/Items/Inventory/`: `PlayerItems` (`PlayerItems.cs`, `.DataOnly.cs`, `.Rows.cs`, `.Host.cs`, `.Alarms.cs`, `.Ammo.cs`, `.Sounds.cs`, `.Lost.cs`), `ColdInventories`, `HostInventory`, `InventoryMembershipPatch`; `Multiplayer/Server/Jobs/JobPaperRows.cs` |
-| Shared | `Multiplayer/Shared/Items/Inventory/`: `InventoryStandIn`, `InventoryRowHolder`, `InventoryPutAwayPatch`, `InventoryTakeOutPatch`, `InventoryStandInPatches`, `VanillaInventorySlots`, `VanillaInventoryHazards`, `InventorySilhouettes`, `ItemStateText`, `StandInAmmo`, `StashedItems`, `StashedBoombox`, `StashedCassette`, `HeardStashedSounds`, `BoomboxStatePatch`, `AlarmRows`, `ForcedItemRows`, `TutorialRadio`, `InventoryIntegration`, `InventoryItemStatePatch`; `Multiplayer/Shared/Jobs/JobPapers.cs` |
+| Shared | `Multiplayer/Shared/Items/Inventory/`: `InventoryStandIn`, `InventoryRowHolder`, `InventoryPutAwayPatch`, `InventoryTakeOutPatch`, `InventoryStandInPatches`, `VanillaInventorySlots`, `VanillaInventoryHazards`, `InventorySilhouettes`, `ItemStateText`, `StandInAmmo`, `StashedItems`, `StashedBoombox`, `StashedCassette`, `HeardStashedSounds`, `BoomboxStatePatch`, `CassetteAreaSetupPatch`, `AlarmRows`, `ForcedItemRows`, `TutorialRadio`, `InventoryIntegration`, `InventoryItemStatePatch`; `Multiplayer/Shared/Jobs/JobPapers.cs` |
 | Client | `Multiplayer/Client/Items/Inventory/`: `InventoryRows`, `InventorySlotMovePatch`, `InventoryOwnershipUiPatch`; `Multiplayer/Client/Items/Projection/`: `ClientItemManager.StandIns.cs`, `.Rows.cs`, `.TakeOut.cs` |
 | Requests | `NetworkServer.CarryMoveSlot` and `DataOnlyNamed` (`Multiplayer/Server/Session/NetworkServer.Items.cs`) |
 
@@ -420,7 +420,11 @@ these: its object does.
   so `BoomboxStatePatch` tells its players the loaded power and mode once it has (before C10 a
   boombox taken out on showed on and played nothing), and once its cassette is in (made after it,
   from the nested row) gives the cassette the row's track and position and plays it if the row's
-  did. A tape that ran out comes out stopped on its last track (vanilla's stays "playing" with
+  did. The cassette goes into the boombox's magazine in that same first frame, before the
+  boombox's cassette area has set itself up (vanilla's Init, a frame after it wakes), and the
+  area's magazine handler threw: the load failed on the holder's game and the server alike, the
+  cassette left loose (end pass, `stashed-cassette`, `magazine-tools`). `CassetteAreaSetupPatch`
+  runs that handler once the area is set up. A tape that ran out comes out stopped on its last track (vanilla's stays "playing" with
   nothing left to play).
 - **Heard by the players near its holder** (everything heard in the world is shared). Twice a second
   the server reads what each stashed boombox of a connected player plays from its row

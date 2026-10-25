@@ -311,7 +311,10 @@ internal static partial class PlayerItems
             ushort toolNetId = ammo.MagazineNetId;
             WithObject(toolNetId, tool =>
             {
-                done(tool != null && NetworkedItem.TryGet(netId, out NetworkedItem made) && made != null ? made : null);
+                // Made only if its row went (TakeUpAmmo): one that failed is still under its NetId
+                // until the frame ends, and a request acting on it would leave the row a second copy.
+                done(tool != null && NetworkedItem.TryGet(netId, out NetworkedItem made) && made != null &&
+                     !ammoRows.ContainsKey(ammo.PersistentItemId) ? made : null);
                 if (tool != null && LiveItems.TryGet(toolNetId, out LiveItems.LiveItem toolRecord))
                     Stored(toolRecord, grace: true, sendRow: true);
             });
