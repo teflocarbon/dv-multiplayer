@@ -437,7 +437,10 @@ these: its object does.
   cassette left loose (end pass, `stashed-cassette`, `magazine-tools`). `CassetteAreaSetupPatch`
   runs that handler once the area is set up, and puts the cassette in at once: the boombox's save
   names the track and whether it plays only with a cassette in, so a state read in that first frame
-  (`stash-state`) kept neither. The server's copy of a client's take-out is made a frame after its
+  (`stash-state`) kept neither. Ammo shows in a tool through dynamic renderers (the area's fake
+  cassette, a paint sprayer's can) that set themselves up in their Start: told of it in that first
+  frame they threw too (a sprayer the host's own player took out lost its can, `stash-state-host`),
+  and `DynamicRendererSetupPatch` sets one up first. The server's copy of a client's take-out is made a frame after its
   prefab (`PlayerItems.Materialize`), set up by the time its state loads and still without its
   cassette: `BoomboxStatePatch` waits for that cassette too (a player host's own player heard
   nothing once the client took it out, `stashed-cassette`). A tape that ran out comes out stopped on its last track (vanilla's stays "playing" with

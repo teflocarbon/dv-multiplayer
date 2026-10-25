@@ -15,7 +15,8 @@ namespace Multiplayer.Shared.Items.Inventory;
 /// set up instead; it reads what the magazine holds then, as vanilla's load would have found it.
 /// The cassette is in at once all the same: the boombox's save in its first frame names its track
 /// and whether it plays only with a cassette in (a stashed state's, OI-COLD-13), and an area set up
-/// with one in leaves VR's insert trigger off, as vanilla's own insert does.
+/// with one in leaves VR's insert trigger off, as vanilla's own insert does. Its fake cassette shows at
+/// once too (<see cref="DynamicRendererSetupPatch"/>).
 /// </summary>
 [HarmonyPatch(typeof(CassetteInteractionArea), nameof(CassetteInteractionArea.OnMagazineDataChanged))]
 internal static class CassetteAreaSetupPatch
