@@ -25,7 +25,7 @@ public class ClientboundSaveGameDataPacket
     // public string Debt_insurance { get; set; }
 
     // No items: the server makes a player's starting items and hands back the rest itself
-    // (owned-items.md, PR 4).
+    // (essentials.md, "Starter kit and issued essentials").
 
     public float JobManagerTime { get; set; }
 

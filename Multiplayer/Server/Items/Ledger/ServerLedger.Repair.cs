@@ -44,8 +44,9 @@ public static partial class ServerLedger
     /// The item goes to its ledger home: into its holder's slot (a cold row when they're offline),
     /// or into Lost and Found. A home the ledger keeps no pose for (the ground, a train, a shelf), a
     /// container's slot or an install the server can't make, and a slot it can't take: the owner's
-    /// Lost and Found. An item installed, attached, snapped or loaded in a tool where it is stays, and the ledger
-    /// follows: the server can't take it off yet (as a retrieval can't, R8).
+    /// Lost and Found. An item installed, attached, snapped or loaded in a tool where it is stays, and the
+    /// ledger follows: the repair doesn't take it off (a retrieval takes off an attached or snapped one,
+    /// not an installed one: owned-list.md, "What each home's retrieval does").
     /// </summary>
     internal static void PutHome(LiveItems.LiveItem record)
     {

@@ -9,7 +9,7 @@ namespace Dvmp.Scenarios
 {
     /// <summary>
     /// A player leaves with someone else's item (the item audit: borrowed items left with the
-    /// player; owned-items.md, "Leaving"). The client takes a mug into its inventory (or keeps it
+    /// player; lost-and-found.md, "Leaving"). The client takes a mug into its inventory (or keeps it
     /// in its hand, HOLD=hand) and quits (or its game is killed, LEAVE=crash). The mug must go
     /// straight to its owner's Lost and Found, still theirs, not stay with the departed player.
     /// The owner is the host's own player (OWNER=host, a player host only) or a player who isn't
@@ -66,7 +66,7 @@ namespace Dvmp.Scenarios
                 await Task.Delay(2000);   // its departure is handled
                 OwnerInfo after = await pair.Host.Run(() => Ownership.Read(item));
                 Report.Note($"after the client left: {after}");
-                // Straight to its owner's Lost and Found (owned-items.md, "Leaving"), not left where the client stood.
+                // Straight to its owner's Lost and Found (lost-and-found.md, "Leaving"), not left where the client stood.
                 Expect.Equal("LostAndFound", after.Placement, "where the mug went when the client left");
                 Expect.Equal(owner, after.Owner, "the mug's owner after the client left");
                 Expect.Equal(ownerConnected, after.OwnerConnected, "whether the mug's owner has a session after the client left (as before)");

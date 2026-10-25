@@ -1,4 +1,4 @@
-// Owned-items steps (docs/legacy/items/owned-items.md): an item's lifelong id, its ledger entry, and the
+// Owned-items steps (docs/design/items/ledger.md): an item's lifelong id, its ledger entry, and the
 // ledger's check against the items. Each [Step] runs inside a game: call it through pair.Host /
 // pair.Client. The ids are strings, so they cross into the runner as plain data.
 using System;

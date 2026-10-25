@@ -28,7 +28,7 @@ namespace Dvmp.Scenarios
         public sealed class Options
         {
             /// <summary>The essential item's inventory slot; -1 (the default) is the first slot holding an
-            /// essential. The server puts each essential in a free slot (owned-items.md, PR 4), so slot 0
+            /// essential. The server puts each essential in a free slot (essentials.md, "The issuer"), so slot 0
             /// needn't be the comms radio.</summary>
             public int Slot = -1;
             /// <summary>The host picks the item up before the recall.</summary>

@@ -10,7 +10,7 @@ using CUI = Multiplayer.Client.Items.Containers.ContainerUi;
 namespace Dvmp.Scenarios
 {
     /// <summary>
-    /// A container takes only its depositor's own items (owned-items.md, PR 1c: the deposit rule is
+    /// A container takes only its depositor's own items (access.md, "The actions and their rules": the deposit rule is
     /// ItemAccess's now). The client holds its own toolbox and someone else's mug: a player who isn't
     /// here (OWNER=absent) or the host's own player (OWNER=host, a player host only). Its deposit must
     /// be refused with "deposit-item-not-owned", and the mug must stay in the client's inventory,
@@ -32,7 +32,7 @@ namespace Dvmp.Scenarios
             await Task.Delay(5000);   // a just-joined client is still receiving its restored items
             if (o.Owner == "essential")
             {
-                // An essential never goes in a container (owned-items.md, item-review L7): its claim and
+                // An essential never goes in a container (access.md, "Essentials stay out of containers"; item-review L7): its claim and
                 // recall must always work. The client tries one of its own, from its inventory.
                 ushort toolbox = await pair.Host.Run<ushort>(s => Items.SpawnPersonal(s, "ItemContainerToolbox", "client"));
                 Deposit essential = await pair.Client.Run<Deposit>(s => InGame.TryDeposit(s, toolbox, 0), 120);

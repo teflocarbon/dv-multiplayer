@@ -42,7 +42,7 @@ public readonly struct ItemAccessRequest
 
     public ItemAccessAction Action { get; }
     public bool ActorOwnsItem { get; }
-    /// <summary>The item is a station fixture (owned-items.md, "Fixtures"): part of a place, never a player's.</summary>
+    /// <summary>The item is a station fixture (access.md, "Fixtures"): part of a place, never a player's.</summary>
     public bool IsFixture { get; }
     /// <summary>One of Derail Valley's essentials (comms radio, maps, wallet, ...): it never goes in a container.</summary>
     public bool IsEssential { get; }
@@ -67,7 +67,7 @@ public readonly struct ItemAccessDecision
 }
 
 /// <summary>
-/// The one place that decides what a player may do with an item (owned-items.md, "Permissions").
+/// The one place that decides what a player may do with an item (access.md, "The one place that decides").
 /// The server's item request checks ask it, and no client decides. The default policy is the rules
 /// the server already had; the coming permissions system replaces the policy, not the call sites.
 /// </summary>
@@ -81,14 +81,15 @@ public static class ItemAccess
         // A fixture is hand-only and never leaves its place (decided by the user 2026-10-21).
         if (request.IsFixture && request.Action is ItemAccessAction.Stash or ItemAccessAction.Deposit)
             return ItemAccessDecision.Refuse(FixtureStaysInPlace);
-        // An essential stays out of containers, so its claim slot and recall always work (owned-items.md,
-        // item-review L7; decided by the user 2026-10-22).
+        // An essential stays out of containers, so its claim slot and recall always work (access.md,
+        // "Essentials stay out of containers"; item-review L7; decided by the user 2026-10-22).
         if (request.IsEssential && request.Action == ItemAccessAction.Deposit)
             return ItemAccessDecision.Refuse(EssentialStaysOut);
         return request.Action switch
         {
-            // Containers hold only their owner's own items (container-storage.md), and job papers: nobody
-            // owns one, and whoever carries it may put it in a box (the caller asks that they carry it).
+            // Containers hold only their owner's own items (access.md, "The actions and their rules"), and
+            // job papers: nobody owns one, and whoever carries it may put it in a box (the caller asks that
+            // they carry it).
             ItemAccessAction.Deposit when !request.ActorOwnsItem && !request.IsJobPaper => ItemAccessDecision.Refuse("deposit-item-not-owned"),
             // A lost booklet comes back to the player it was issued to, whose Lost and Found entry it is
             // (OI-LF-17; the caller asks that the entry is theirs).
@@ -104,7 +105,7 @@ public static class ItemAccess
 
 /// <summary>
 /// The station fixtures: scene items that are part of a place, by prefab name or authored key
-/// (owned-items.md, "Fixtures"). Empty until the shops work fills it.
+/// (access.md, "Fixtures"). Empty until the shops work fills it.
 /// </summary>
 public sealed class ItemFixtureList
 {

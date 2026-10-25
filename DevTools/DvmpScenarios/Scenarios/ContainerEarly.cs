@@ -7,8 +7,8 @@ using Multiplayer.Server.Items.Ledger;
 namespace Dvmp.Scenarios
 {
     /// <summary>
-    /// No item request is carried out before the load has run (docs/design/items/save-load.md, "The
-    /// load"; OI-PER-23, OI-CON-05): a deposit made before it used to be wiped by the container import
+    /// No item request is carried out before the load has run (docs/design/items/save-load.md,
+    /// "Loading"; OI-PER-23, OI-CON-05): a deposit made before it used to be wiped by the container import
     /// (F19). The host holds its load as not run, as a restart's first frames are, and the player
     /// (WHO) deposits an item into their box: it is refused <c>items-loading</c>, and the item stays in
     /// their inventory, its ledger home still their slot. Once the load counts as run the same

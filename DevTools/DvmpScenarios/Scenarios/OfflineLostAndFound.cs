@@ -4,7 +4,7 @@ using Dvmp.Lib;
 namespace Dvmp.Scenarios
 {
     /// <summary>
-    /// An offline owner counts as far away (owned-items.md, PR 3): their items lying anywhere but with
+    /// An offline owner counts as far away (lost-and-found.md, "The collection"): their items lying anywhere but with
     /// a player go to their Lost and Found under the usual rules, in a train's cab as well as on the
     /// ground. The client leaves two mugs, one on the ground and one in a loco's cab, and the host
     /// gives both to a player who isn't here. A third mug, the client's own, also goes in the cab.

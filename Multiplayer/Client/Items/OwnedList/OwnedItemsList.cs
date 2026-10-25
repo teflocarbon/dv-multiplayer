@@ -15,8 +15,8 @@ public sealed class OwnedItemListRow
 }
 
 /// <summary>
-/// The local player's owned items as the server last sent them (owned-items.md, "The owned-items
-/// list"): what the career manager's Owned Items page shows.
+/// The local player's owned items as the server last sent them (owned-list.md, "The
+/// page"): what the career manager's Owned Items page shows.
 /// </summary>
 public static class OwnedItemsList
 {

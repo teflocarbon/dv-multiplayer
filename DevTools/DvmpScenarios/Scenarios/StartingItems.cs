@@ -13,7 +13,7 @@ using UnityEngine;
 namespace Dvmp.Scenarios
 {
     /// <summary>
-    /// The server makes a player's starting items (owned-items.md, PR 4). After every rejoin the
+    /// The server makes a player's starting items (essentials.md, "Starter kit and issued essentials"). After every rejoin the
     /// client has each of DV's essentials once, the same ids as before: nothing was made by its own
     /// game, nothing duplicated. A destroyed comms radio is made again at the next rejoin, under a
     /// new id, born Issued, and the old one's ledger entry has ended. A radio in the client's Lost and

@@ -14,7 +14,7 @@ namespace Multiplayer.Server.Items.Access;
 /// </summary>
 public static class ItemAccessServer
 {
-    /// <summary>The station fixtures (owned-items.md, "Fixtures"). Empty until the shops work fills it.</summary>
+    /// <summary>The station fixtures (access.md, "Fixtures"). Empty until the shops work fills it.</summary>
     public static readonly ItemFixtureList Fixtures = new();
 
     public static bool IsFixture(NetworkedItem item, LiveItems.LiveItem record) =>

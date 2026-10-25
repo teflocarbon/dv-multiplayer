@@ -24,7 +24,7 @@ public sealed class OwnedItemRow
 }
 
 /// <summary>
-/// A player's owned-items list (owned-items.md, "The owned-items list", PR 6a): a row per live
+/// A player's owned-items list (owned-list.md, "The rows"): a row per live
 /// ledger entry they own, ended ones left out, with where it is worded by the server
 /// (<see cref="PlaceText"/>). A row is named by the item's handle (<see cref="ItemHandles"/>),
 /// so a retrieval (PR 6b) can name it while the list is open.

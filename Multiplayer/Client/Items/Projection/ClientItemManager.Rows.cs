@@ -17,7 +17,7 @@ namespace Multiplayer.Client.Items.Projection;
 
 internal sealed partial class ClientItemManager
 {
-    // A joiner's own inventory, as rows (docs/design/items/inventory.md, "Joining"; OI-COLD-03). The
+    // A joiner's own inventory, as rows (docs/design/items/inventory.md, "Cold inventories"; OI-COLD-03). The
     // server keeps these items as data only, and so does this game (D14): each row is a stand-in in
     // its exact slot, with its own saved state, under the NetId the server keeps it by. No object is
     // made until the item leaves its slot (MakeFromRow).

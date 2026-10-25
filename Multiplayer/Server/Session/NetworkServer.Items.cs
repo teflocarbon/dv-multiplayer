@@ -231,7 +231,7 @@ public partial class NetworkServer : IItemServer
             });
     }
 
-    // ---- Updates (docs/design/items/wire.md, "One update") ----
+    // ---- Updates (docs/design/items/wire.md, "The update") ----
 
     /// <summary>Item changes for one player (a join, its interest moving), built for it.</summary>
     public void SendItemUpdates(List<ItemUpdate> updates, ServerPlayer player)
@@ -464,7 +464,7 @@ public partial class NetworkServer : IItemServer
 
     private ClientboundItemResultPacket Carry(ItemRequest request, ServerPlayer player)
     {
-        // No request is carried out before the load has run (save-load.md, "The load"; OI-PER-23):
+        // No request is carried out before the load has run (save-load.md, "Loading"; OI-PER-23):
         // one made before it would act on items the load hasn't placed, and the load would wipe it.
         if (!ServerLedger.Loaded)
             return Refuse(request, "items-loading", ItemRefusal.Busy);
@@ -623,7 +623,7 @@ public partial class NetworkServer : IItemServer
             $"{other.NetId}: {(accepted ? "done" : "refused, " + reason)}");
         if (!accepted)
         {
-            // The requester's game swapped them already: both go back (inventory.md, "Optimistic").
+            // The requester's game swapped them already: both go back (inventory.md, "The optimistic client").
             item.SendCanonicalRejectionCorrection(player, reason);
             other.SendCanonicalRejectionCorrection(player, reason);
             return Refuse(request, reason);
@@ -666,7 +666,7 @@ public partial class NetworkServer : IItemServer
         return Accept(request, snapshot.AuthorityRevision, item.NetId);
     }
 
-    // An owner takes an item back into their Lost and Found (owned-items.md, PR 6b), then gets a fresh list.
+    // An owner takes an item back into their Lost and Found (owned-list.md, "Retrieval"), then gets a fresh list.
     private ClientboundItemResultPacket CarryRetrieve(ItemRequest request, ServerPlayer player)
     {
         string reason = Retrieval.Unknown;
@@ -913,7 +913,7 @@ public partial class NetworkServer : IItemServer
         }, DeliveryMethod.ReliableOrdered);
     }
 
-    // The player's owned-items list (owned-items.md, PR 6a), worded here for every game alike.
+    // The player's owned-items list (owned-list.md, "The rows"), worded here for every game alike.
     private void SendOwnedList(ServerPlayer player, uint requestId = 0)
     {
         if (player?.Peer == null) return;

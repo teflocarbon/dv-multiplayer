@@ -295,8 +295,8 @@ internal sealed partial class ServerItemManager
         return false;
     }
 
-    // The Create for an essential in Lost and Found, for its owner only (item-lifecycle.md,
-    // "Retrieval claim slots"): the tombstone sent after it makes it inert and leaves its silhouette.
+    // The Create for an essential in Lost and Found, for its owner only (essentials.md,
+    // "The silhouette"): the tombstone sent after it makes it inert and leaves its silhouette.
     private static bool TryCreateLostEssentialForOwner(NetworkedItem item, ServerPlayer player,
         out ItemUpdate create)
     {

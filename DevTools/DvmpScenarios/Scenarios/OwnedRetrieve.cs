@@ -13,7 +13,7 @@ using Multiplayer.Shared.Protocol.Packets.Items;
 namespace Dvmp.Scenarios
 {
     /// <summary>
-    /// Retrieval from the owned-items list (owned-items.md, "Retrieval", PR 6b). The client owns a
+    /// Retrieval from the owned-items list (owned-list.md, "Retrieval"). The client owns a
     /// mug on the ground, one in a loco's cab, and one inside its toolbox lying in the world. It
     /// retrieves each from its list: the ground and cab mugs are in its Lost and Found at once, and
     /// for the boxed mug the whole toolbox goes, the mug still inside. Retrieving a mug from its own

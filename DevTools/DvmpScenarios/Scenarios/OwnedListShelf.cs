@@ -10,8 +10,8 @@ using UnityEngine;
 namespace Dvmp.Scenarios
 {
     /// <summary>
-    /// The owned-items list names a shelf (OI-LIST-21; docs/design/items/owned-items.md, "The
-    /// owned-items list"). A player carries a mug of their own into the nearest shed (a vanilla
+    /// The owned-items list names a shelf (OI-LIST-21; docs/design/items/owned-list.md,
+    /// "Where it is"). A player carries a mug of their own into the nearest shed (a vanilla
     /// <c>ItemStaticParent</c>, which takes what lands in it) and drops it on the floor (or throws
     /// it, RELEASE=throw). The server's record must have it on that shelf, the ledger's home must be
     /// <c>Shelf</c>, and the owner's row must read "on a shelf". The host's own player does it by

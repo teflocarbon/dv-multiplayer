@@ -22,7 +22,7 @@ namespace Multiplayer.Server.Items.Inventory;
 
 internal static partial class PlayerItems
 {
-    // The join as rows (docs/design/items/inventory.md, "Joining"; OI-COLD-03, OI-JOIN-02; D14's C1
+    // The join as rows (docs/design/items/inventory.md, "Cold inventories"; OI-COLD-03, OI-JOIN-02; D14's C1
     // server half). A remote joiner's inventory is read from the ledger: each entry in their slots,
     // with its cold row, and the unowned rows they carry. Each becomes a live record kept as data
     // only, under a NetId reserved for it, in its exact slot; the joiner is sent the rows with their

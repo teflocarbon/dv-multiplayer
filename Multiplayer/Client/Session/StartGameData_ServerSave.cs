@@ -60,7 +60,7 @@ public class StartGameData_ServerSave : AStartGameData
         });
 
         // DV's inventory starts empty: the server makes this player's starting items and hands back
-        // everything else they carry (owned-items.md, PR 4).
+        // everything else they carry (essentials.md, "Starter kit and issued essentials").
         saveGameData.SetObject(SaveGameKeys.Storage_Inventory, new List<StorageItemData>());
 
         //For clients we need to have a session - new users may not have a session and this may also be causing problems with licenses syncing

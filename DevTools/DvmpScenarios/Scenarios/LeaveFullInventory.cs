@@ -13,7 +13,7 @@ using Newtonsoft.Json.Linq;
 namespace Dvmp.Scenarios
 {
     /// <summary>
-    /// Leaving and joining with no free slot (docs/design/items/inventory.md, "Leaving", "Joining").
+    /// Leaving and joining with no free slot (docs/design/items/inventory.md, "Cold inventories").
     /// The client's inventory is filled with mugs, then:
     /// 1. Every slot off the belt is taken and its compass is gone (OI-ESS-03): at the rejoin the new
     ///    compass goes to its Lost and Found (InventoryOverflow), not onto the belt, which stays empty.

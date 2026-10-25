@@ -87,8 +87,8 @@ public readonly struct LedgerCause
 }
 
 /// <summary>
-/// One change to the ledger, raised as it is committed (docs/design/items/ledger.md, "Ledger
-/// changes"): the entry after it, the home it came from and why. Entries are copies.
+/// One change to the ledger, raised as it is committed (docs/design/items/ledger.md, "The ledger
+/// decides, live state follows"): the entry after it, the home it came from and why. Entries are copies.
 /// </summary>
 public readonly struct LedgerChange
 {

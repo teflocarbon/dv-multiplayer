@@ -10,7 +10,7 @@ using Multiplayer.Shared.Items.LiveState;
 namespace Dvmp.Scenarios
 {
     /// <summary>
-    /// An offline owner's item stays theirs (owned-items.md, PR 2a; item-refactor.md, "Identity only"):
+    /// An offline owner's item stays theirs (ledger.md, "Owners"; item-refactor.md, "Identity only"):
     /// an offline owner is an identity with no session. The host gives a personal mug to a player who
     /// isn't here (a made-up identity, as owned-items does). The client (or the host's own player,
     /// WHO=host) picks it up and drops it: the owner must still be the absent player's identity, not
