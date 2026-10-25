@@ -130,7 +130,7 @@ namespace Dvmp.Scenarios
                 ClientboundItemResultPacket result = null;
                 uint requestId = 0;
                 bool freshList = false;
-                void Got(ClientboundItemResultPacket p) { if (p.RequestId == requestId) result = p; }
+                void Got(ClientboundItemResultPacket p) { if (p.RequestId == requestId) result = ItemAnswers.Copy(p); }
                 void Listed(ClientboundItemListPacket p) { if (p.Kind == ItemListKind.Owned && p.RequestId == 0) freshList = true; }
                 ItemClient.Current.ItemResultReceived += Got;
                 ItemClient.Current.ItemListReceived += Listed;

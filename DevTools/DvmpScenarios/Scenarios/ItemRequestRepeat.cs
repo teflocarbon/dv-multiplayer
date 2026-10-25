@@ -110,7 +110,7 @@ namespace Dvmp.Scenarios
                     ExpectedRevision = CUI.ActiveRevision,
                     Slot = inv.GetFirstFreeSlot()
                 };
-                void Got(ClientboundItemResultPacket p) { if (p.RequestId == request.RequestId) answers.Add(p); }
+                void Got(ClientboundItemResultPacket p) { if (p.RequestId == request.RequestId) answers.Add(ItemAnswers.Copy(p)); }
                 Withdrawal w = new();
                 ItemClient.Current.ItemResultReceived += Got;
                 try
@@ -146,7 +146,7 @@ namespace Dvmp.Scenarios
 
                 ClientboundItemResultPacket fresh = null;
                 uint freshId = 0;
-                void GotFresh(ClientboundItemResultPacket p) { if (p.RequestId == freshId) fresh = p; }
+                void GotFresh(ClientboundItemResultPacket p) { if (p.RequestId == freshId) fresh = ItemAnswers.Copy(p); }
                 ItemClient.Current.ItemResultReceived += GotFresh;
                 try
                 {

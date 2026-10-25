@@ -269,7 +269,7 @@ namespace Dvmp.Scenarios
                 if (entry == null) throw new Exception("row " + handle + " never appeared in this player's Lost and Found list");
                 ClientboundItemResultPacket result = null;
                 uint requestId = 0;
-                void Got(ClientboundItemResultPacket p) { if (p.RequestId == requestId) result = p; }
+                void Got(ClientboundItemResultPacket p) { if (p.RequestId == requestId) result = ItemAnswers.Copy(p); }
                 ItemClient.Current.ItemResultReceived += Got;
                 try
                 {

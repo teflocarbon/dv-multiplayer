@@ -335,7 +335,12 @@ internal static class ContainerUi
         if (result == null || !pendingMutations.Remove(result.RequestId))
             return;
 #if DEBUG
-        lastMutation = result;
+        // A copy: every answer is read into the one packet object, so a kept one became the next.
+        lastMutation = new ClientboundItemResultPacket
+        {
+            RequestId = result.RequestId, Refusal = result.Refusal, Detail = result.Detail,
+            Revision = result.Revision, ItemNetId = result.ItemNetId
+        };
         mutationSequence++;
 #endif
         global::Multiplayer.Multiplayer.Log($"[Cold Container] Request completed: " +
