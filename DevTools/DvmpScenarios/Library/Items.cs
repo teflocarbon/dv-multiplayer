@@ -103,6 +103,10 @@ namespace Dvmp.Scenarios
                 PlayerItems.WithObject(id, _ => making--);
             }
             for (int i = 0; i < 300 && making > 0; i++) yield return null;
+            // One in Lost and Found is made at once, but goes back to data at the scan after its frame,
+            // which may have come while others were still being made: it's made again in this one.
+            foreach (ushort id in ids.Where(Multiplayer.Server.Items.LostAndFound.LostAndFoundServer.IsData))
+                PlayerItems.WithObject(id, _ => { });
             foreach (NetworkedItem item in Dev.All<NetworkedItem>().Where(i => i != null && ids.Contains(i.NetId) && !i.ColdStorageRetirement).ToList())
                 UnityEngine.Object.Destroy(item.gameObject);
             for (int i = 0; i < 30; i++) yield return null;

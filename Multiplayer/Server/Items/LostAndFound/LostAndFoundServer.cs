@@ -49,8 +49,9 @@ public static class LostAndFoundServer
     // The entries kept as data, by item id: each one's state (OI-COLD-08).
     private static readonly Dictionary<Guid, SavedItemRow> rows = new();
     private static readonly Dictionary<ushort, float> eligibleSince = new();
-    // The frame each entry was collected in, until its object goes to data (not in that frame: ToData).
-    private static readonly Dictionary<ushort, int> collectedFrame = new();
+    // The frame each entry's object was collected or made again in, until it goes to data (not in
+    // that frame: ToData).
+    private static readonly Dictionary<ushort, int> objectFrame = new();
     private static readonly Dictionary<ushort, Dictionary<string, object>> lastEvaluations = new();
     private static uint generation;
 
@@ -78,7 +79,8 @@ public static class LostAndFoundServer
     /// <summary>
     /// The object of an item in Lost and Found: the one there is, or made again from its row under
     /// its NetId, inert in Lost and Found as it went (OI-COLD-08). Null when there is neither. One
-    /// made for a request that is then refused goes back to data at the next scan.
+    /// made for a request that is then refused goes back to data at the next scan, though not in the
+    /// frame it was made: whatever it was made for (a destroy too) is done with it by then.
     /// </summary>
     internal static NetworkedItem ObjectOf(ushort itemNetId)
     {
@@ -93,24 +95,25 @@ public static class LostAndFoundServer
             return null;
         rows.Remove(lost.PersistentItemId);
         ProjectToInertStorage(item);
+        objectFrame[itemNetId] = Time.frameCount;
         return item;
     }
 
     // An entry's object goes to data once it can (OI-COLD-08): its state loaded, its ammo able to go with
-    // it, and not in the frame it was collected. Taking it off a snap point (vanilla's unsnap puts it
-    // back in a car's interior) queues ECS commands on its entity for this frame's presentation; an
-    // object destroyed now loses its entity first, and their playback crashes the game (natively, in
-    // EntityCommandBuffer.Playback).
+    // it, and not in the frame it was collected or made again. Taking it off a snap point (vanilla's
+    // unsnap puts it back in a car's interior) queues ECS commands on its entity for this frame's
+    // presentation; an object destroyed now loses its entity first, and their playback crashes the game
+    // (natively, in EntityCommandBuffer.Playback). One made again is the caller's for its frame.
     private static void ToData(NetworkedItem item, LostItemRecord lost)
     {
         if (!ServerLedger.Loaded || !LiveItems.TryGet(item.NetId, out LiveItems.LiveItem record) ||
             record.Placement != ItemPlacementKind.LostAndFound)
             return;
-        if (collectedFrame.TryGetValue(item.NetId, out int frame))
+        if (objectFrame.TryGetValue(item.NetId, out int frame))
         {
             if (frame == Time.frameCount)
                 return;
-            collectedFrame.Remove(item.NetId);
+            objectFrame.Remove(item.NetId);
         }
         SavedItemRow row = PlayerItems.ToLostData(record, item);
         if (row != null)
@@ -474,7 +477,7 @@ public static class LostAndFoundServer
             return false;
         }
         eligibleSince.Remove(item.NetId);
-        collectedFrame[item.NetId] = Time.frameCount;
+        objectFrame[item.NetId] = Time.frameCount;
         generation++;
         ItemChangeLog.RecordRemoval(item, cause);
         foreach (ServerPlayer player in NetworkServer.Instance.ServerPlayers)
@@ -519,7 +522,7 @@ public static class LostAndFoundServer
         registry.Clear();
         rows.Clear();
         eligibleSince.Clear();
-        collectedFrame.Clear();
+        objectFrame.Clear();
         lastEvaluations.Clear();
         generation = 0;
     }
@@ -754,7 +757,7 @@ public static class LostAndFoundServer
             PlayerItems.LostDataGone(gone);
         generation++;
         eligibleSince.Remove(itemNetId);
-        collectedFrame.Remove(itemNetId);
+        objectFrame.Remove(itemNetId);
         Multiplayer.Log($"[LostAndFound] Removed entry handle={removed.Handle}, netId={itemNetId}, " +
             $"prefab={removed.PrefabName}, owner={removed.OwnerIdentity}: {reason}");
         if (PlayerNumbers.TryGetSession(OwnerOf(removed),

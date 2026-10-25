@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using Multiplayer.Core.Items.ChangeCauses;
 using Multiplayer.Core.Items.VanillaStorage;
 using Multiplayer.Server.Items.ChangeCauses;
@@ -42,12 +43,17 @@ internal static partial class PlayerItems
         // A paper is made again from its job (OI-COLD-07).
         if (JobPapers.IsPaper(record.PrefabName))
             row.State = JobPapers.Complete(item.gameObject, row.State);
+        // A game that knew it keeps an inert copy (the tombstone): the object made again is known to
+        // it (TakeUpObject), so the Destroy that ends that object reaches the copy too.
+        List<byte> knew = new();
         foreach (ServerPlayer player in NetworkServer.Instance.ServerPlayers)
         {
-            player.KnownItems.Remove(item);
+            if (player.KnownItems.Remove(item))
+                knew.Add(player.PlayerId);
             player.NearbyItems.Remove(item);
             player.AcknowledgedWorldItems.Remove(item.NetId);
         }
+        knownBy[record.NetId] = knew.ToArray();
         AmmoGoesData(item, "Lost and Found", Array.Empty<byte>());
         ServerItemManager.Instance?.UnregisterHostWorldItem(item);
         item.HandOverToData();
@@ -120,6 +126,7 @@ internal static partial class PlayerItems
         foreach (ServerPlayer player in NetworkServer.Instance.ServerPlayers)
             if (player.Peer != null && player != NetworkServer.Instance.LocalPlayer)
                 NetworkServer.Instance.SendItemUpdate(destroy, player);
+        knownBy.Remove(record.NetId);
         LiveItems.Remove(record.NetId);
         NetworkedItem.FreeDataNetId(record.NetId);
     }

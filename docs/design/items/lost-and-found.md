@@ -130,7 +130,8 @@ to data.
 - **Out:** a retrieval, a recall (`CarryRecall`, the repair's `IntoSlot`) and anything else that names
   it (`PlayerItems.WithObject`) has the object made again from its row under its NetId, inert in Lost
   and Found (`LostAndFoundServer.ObjectOf`, `PlayerItems.FromLostData`), and goes on as with an
-  object. One made for a request that's then refused goes back to data at the next scan. One that
+  object. One made for a request that's then refused goes back to data at the next scan, though
+  not in the frame it was made: the caller has it for that frame (a destroy too). One that
   can't be made (its prefab gone) is refused and stays: a collection with `lost-item-not-made`, a
   recall with `unknown-network-entity` (`CarryRecall`), any other request with `item-data-unavailable`.
 - **Saved** from its row (`ItemSaveLoad.OwnedRow`), and the one-home check reads the row
@@ -145,6 +146,8 @@ to data.
 - **Clients** keep what they had: a game that had the item when it was collected keeps an inert copy
   (`EnforceLostAndFoundProjection`), as before. When an entry kept as data goes (`PlayerItems.LostDataGone`) every
   game is sent its destroy before its NetId is freed, so a reused NetId never names that copy (J7).
+  The games that knew the object as it went to data (`PlayerItems.ToLostData`) know the one made
+  again (`TakeUpObject`, as for an inventory's data), so that object's own Destroy reaches their copy.
 - **Its id** is the entry's: the ledger gives a second item asking for it a new one
   (`ServerLedger.ClaimPersistentId`, J6), as it does for an id a live object holds.
 
