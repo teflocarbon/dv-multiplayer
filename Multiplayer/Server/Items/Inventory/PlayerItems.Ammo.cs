@@ -279,12 +279,14 @@ internal static partial class PlayerItems
     }
 
     // TakeUp: a tool's row goes live as data (a join), and the ammo rows of its container go with it,
-    // data in its magazine under reserved NetIds, for its holder's stand-in to nest.
+    // data in its magazine under reserved NetIds, for its holder's stand-in to nest. A box's rows
+    // aren't ammo: only a tool with a magazine has any (MagazineServer.LoadFromRows).
     private static void AmmoFromRows(LiveItems.LiveItem tool, ServerPlayer holder)
     {
         Guid toolId = tool.PersistentItemId;
         ContainerGraph graph = ContainerServer.Graph;
-        if (toolId == Guid.Empty || !graph.IsContainer(toolId))
+        if (toolId == Guid.Empty || !graph.IsContainer(toolId) ||
+            ItemSaveLoad.FindSpec(tool.PrefabName)?.GetComponentInChildren<DV.Items.ItemMagazine>(true) == null)
             return;
         foreach (StoredItemRecord stored in graph.RowsIn(toolId))
         {
