@@ -48,7 +48,7 @@ mirror them in `Multiplayer.Core.Tests/Items/` and `Multiplayer.Protocol.Tests/I
 | `SaveLoad` | the item save, item identity in the save | ✓ | ✓ | | | [save-load.md](save-load.md) |
 | `Inventory` | slots, the belt, claims as a client shows them | ✓ | ✓ | ✓ | ✓ | [inventory.md](inventory.md) |
 | `Essentials` | starting items and the issuer (the claim rules are Core `Inventory` and `Ledger`) | | ✓ | | | [essentials.md](essentials.md) |
-| `LostAndFound` | collection, entries, retrieval, a deleted car's items | ✓ | ✓ | ✓ | | [lost-and-found.md](lost-and-found.md) (R6, being written) |
+| `LostAndFound` | collection, entries, retrieval, a deleted car's items | ✓ | ✓ | ✓ | | [lost-and-found.md](lost-and-found.md) (R6) |
 | `Containers` | cold containers | ✓ | ✓ | ✓ | | [containers.md](containers.md) |
 | `OwnedList` | the owned-items page and retrieval | ✓ | ✓ | ✓ | | [owned-list.md](owned-list.md) |
 | `Access` | `ItemAccess`, fixtures | ✓ | ✓ | | | [access.md](access.md) |
@@ -57,7 +57,7 @@ mirror them in `Multiplayer.Core.Tests/Items/` and `Multiplayer.Protocol.Tests/I
 | `Physics` | leases, samples, settlement, throws, fall rescue, the terrain guard | ✓ | ✓ | ✓ | ✓ | `physics.md` (R7) |
 | `TrainWake` | items in moving trains (the item's own part is `NetworkedItem.TrainWake`, in Shared `LiveState`) | ✓ | ✓ | | | `train-wake.md` (R7) |
 | `ChangeCauses` | why an item moved or went away | ✓ | ✓ | ✓ | ✓ | [change-causes.md](change-causes.md) |
-| `VanillaStorage` | the guards that keep DV's own storage, Lost and Found and respawn from moving an item | ✓ | ✓ | | ✓ | [vanilla-storage.md](vanilla-storage.md) (R6, being written) |
+| `VanillaStorage` | the guards that keep DV's own storage, Lost and Found and respawn from moving an item | ✓ | ✓ | | ✓ | [vanilla-storage.md](vanilla-storage.md) (R6) |
 | `Behaviours` | one item type's own sync: flashlight, lantern, lighter, shovel, page book, money, the grabber | ✓ | ✓ | ✓ | ✓ | `behaviours.md` (R8) |
 
 A partial class can't span namespaces, so each one sits whole in the subsystem most of its code

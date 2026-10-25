@@ -1,7 +1,7 @@
 # Vanilla's storage, respawn and bins
 
-> Status: being written in R6 of the [item refactor](../item-refactor.md) (2026-10-25), one section per
-> PR, not yet proved in a game: that is the end pass (OI-REF-01). Vanilla's own behaviour is in
+> Status: written in R6 of the [item refactor](../item-refactor.md) (#378 to #387, 2026-10-25), not
+> yet proved in a game: that is the end pass (OI-REF-01). Vanilla's own behaviour is in
 > [research/DERAIL_VALLEY_LOST_AND_FOUND_LOGIC.md](../../research/DERAIL_VALLEY_LOST_AND_FOUND_LOGIC.md).
 
 | Side | Code |
