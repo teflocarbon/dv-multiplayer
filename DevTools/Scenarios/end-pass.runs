@@ -136,7 +136,7 @@ papers-in-box
 papers-in-box-host @player
 old-report-row
 old-report-row-unslotted
-old-report-row-unowned
+old-report-row-full
 ledger-repair-strays
 lost-and-found-data
 bin-owned
