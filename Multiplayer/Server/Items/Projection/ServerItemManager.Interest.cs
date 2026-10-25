@@ -361,8 +361,13 @@ internal sealed partial class ServerItemManager
             if (LiveItems.TryGet(item.NetId, out LiveItems.LiveItem existingRecord) &&
                 existingRecord.Placement is ItemPlacementKind.Destroyed or ItemPlacementKind.Installed)
                 continue;
-            // What another player holds is theirs: its copy here runs too, and drifts from them.
-            if (hostActs && HeldByAnotherPlayer(existingRecord, hostPlayer))
+            // What another player holds is theirs: its copy here runs too, and drifts from them. So
+            // does one they simulate (their drop or throw, in flight): the copy here follows their
+            // samples, and a lantern's knob swung its wick from the row's 0.2 to 0.4 as it fell, sent
+            // as the host's own change (retrieved-state). And for a moment after it settles, while
+            // the knob may still swing. Not while our own player works it.
+            if (hostActs && (HeldByAnotherPlayer(existingRecord, hostPlayer) ||
+                             HostSpatial.SimulatedByAnother(item.NetId) && !item.IsLocalInteractionOpen))
                 item.RevertRemoteHolderDrift();
             uint dirtyBefore = item.LastDirtyTick;
             ItemUpdate snapshot = item.GetSnapshot();
