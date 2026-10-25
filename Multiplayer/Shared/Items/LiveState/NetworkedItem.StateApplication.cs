@@ -34,6 +34,18 @@ public partial class NetworkedItem
 {
     // Unity presentation changes for world, hand, inventory, attachment, and recall states.
 
+    /// <summary>Off the snap point it is on, if any (a coupler's lantern, an item on a hanger), into the
+    /// world's parent: the server put it somewhere else (Lost and Found, off a deleted car). An unsnap
+    /// gives it back the parent it had, which may be the car.</summary>
+    internal void LeaveSnapPoint()
+    {
+        var point = Item?.SnappableItem?.SnappedTo;
+        if (point == null)
+            return;
+        point.UnsnapItem(true);
+        transform.SetParent(WorldMover.OriginShiftParent, true);
+    }
+
     private void PrepareForStateChange(byte playerId, ItemState targetState)
     {
         LeaveMagazine(targetState);

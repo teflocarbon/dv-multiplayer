@@ -31,8 +31,9 @@ namespace Multiplayer.Server.Items.OwnedList;
 /// - With another player, in their hand or inventory: taken from them, and they're told.
 /// - Loaded in a tool: where its tool is. With them, nothing to do; anywhere else it comes out of the
 ///   tool alone, and a player who has the tool is told.
-/// - With them already, in Lost and Found, or missing: nothing to do.
-/// - Attached, snapped or installed: not yet (detaching first, and gadget removal, PR 8).
+/// - With them already, in Lost and Found, or unloadable: nothing to do.
+/// - On a coupler or a snap point (an end-of-train lantern, a hanger): detached, then collected (OI-LIST-14).
+/// - Installed: not yet (gadget removal, OI-LIST-15, paused with gadgets).
 /// A recall is one step (docs/design/items/wire.md), so a retrieval never meets one half done.
 /// </summary>
 public static class Retrieval

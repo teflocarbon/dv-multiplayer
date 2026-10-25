@@ -69,6 +69,9 @@ public static partial class LiveItems
         record.MagazineNetId = 0;
         record.MagazineToolId = Guid.Empty;
         record.MagazineSlot = -1;
+        // Off its coupler or snap point first, as a deleted car does (OI-LF-04, OI-LIST-14).
+        item.LeaveSnapPoint();
+        record.AttachedCarNetId = 0;
         record.Placement = ItemPlacementKind.LostAndFound;
         record.Slot = -1;
         record.Holder = Guid.Empty;

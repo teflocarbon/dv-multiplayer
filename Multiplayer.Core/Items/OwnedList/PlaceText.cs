@@ -51,7 +51,8 @@ public static class PlaceText
             case HomeKind.Shelf:
                 return "on a shelf";
             case HomeKind.Attached:
-                return "attached to " + car;
+                // An end-of-train lantern (OI-LIST-06).
+                return string.IsNullOrEmpty(facts.CarId) ? "on the end of a car" : "on the end of car " + facts.CarId;
             case HomeKind.Snapped:
                 return "fitted in place";
             case HomeKind.Container:
@@ -65,7 +66,7 @@ public static class PlaceText
             case HomeKind.Unloadable:
                 return "can't be loaded (its item mod is missing)";
             default:
-                return "unknown";
+                return "lost track of it";
         }
     }
 }
@@ -75,13 +76,13 @@ public enum RetrievalKind : byte
 {
     /// <summary>With its owner, in Lost and Found, or unloadable: no button.</summary>
     NothingToDo,
-    /// <summary>Lying somewhere: collected into Lost and Found now.</summary>
+    /// <summary>Lying somewhere, or on a coupler or snap point (detached first): collected into Lost and Found now.</summary>
     Collect,
     /// <summary>In a container: the outermost container that isn't with its owner goes, whole.</summary>
     OutermostContainer,
     /// <summary>With another player: taken from them first.</summary>
     TakeFromHolder,
-    /// <summary>Attached, snapped or installed: not yet (detaching first; gadget removal is PR 8).</summary>
+    /// <summary>Installed: not yet (gadget removal, OI-LIST-15, paused with gadgets).</summary>
     NotYet
 }
 
@@ -92,7 +93,8 @@ public static class RetrievalRule
         HomeKind.Slot or HomeKind.Hand => where.Holder == owner ? RetrievalKind.NothingToDo : RetrievalKind.TakeFromHolder,
         HomeKind.LostAndFound or HomeKind.Unloadable => RetrievalKind.NothingToDo,
         HomeKind.Container => RetrievalKind.OutermostContainer,
-        HomeKind.Attached or HomeKind.Snapped or HomeKind.Installed => RetrievalKind.NotYet,
+        // Attached or snapped: detached, then into Lost and Found (OI-LIST-14).
+        HomeKind.Installed => RetrievalKind.NotYet,
         _ => RetrievalKind.Collect
     };
 }

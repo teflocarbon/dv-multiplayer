@@ -296,6 +296,8 @@ public sealed class NetworkedItemClient : INetworkedItemClientPart
         // Ammo goes out of its tool's magazine (an owner's retrieval from someone else's tool), as
         // the server's copy does (LiveItems.TryMoveToLostAndFound).
         try { item.LeaveMagazine(); } catch { }
+        // Off its coupler or snap point, as the server's copy is: an inert lantern would hold the coupler.
+        try { item.LeaveSnapPoint(); } catch { }
         try
         {
             DV.InventorySystem.Inventory inventory = DV.InventorySystem.Inventory.Instance;
