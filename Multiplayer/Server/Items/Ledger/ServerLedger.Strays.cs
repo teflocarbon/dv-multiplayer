@@ -113,7 +113,9 @@ public static partial class ServerLedger
             ToWorld(item, now);
             if (owner == Guid.Empty)
                 return;
-            string refused = Own(now, owner, BirthReason.Duplicate, Guid.Empty, RepairDetail);
+            // From named here: rekeying a Lost and Found entry sends its owner's list, whose
+            // reconcile can put this object back to data, so its identity may be gone by now.
+            string refused = Own(now, owner, BirthReason.Duplicate, Guid.Empty, RepairDetail, copiedFrom: from);
             if (refused.Length == 0 && !inLost)
                 ToLostAndFound(item, now, out refused);
             if (refused.Length > 0)
