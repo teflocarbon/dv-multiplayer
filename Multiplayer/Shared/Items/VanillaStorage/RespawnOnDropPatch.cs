@@ -12,9 +12,11 @@ using UnityEngine;
 namespace Multiplayer.Shared.Items.VanillaStorage;
 
 /// <summary>
-/// Observes when Derail Valley schedules its distance-based respawn/destruction coroutine, and
-/// suppresses it for items Multiplayer manages (the host's Lost and Found scanner owns those).
-/// Unmanaged scene objects keep vanilla behaviour.
+/// Derail Valley's distance-based respawn or destroy (OI-VAN-05; vanilla-storage.md, "Respawn"). In
+/// multiplayer it never runs on a client for a networked item, and never puts one in vanilla's Lost and
+/// Found list: the server decides (<see cref="IItemServer.AllowsRespawnOrDestroy"/>), letting only a
+/// binned item's destroy and an unowned scene item's reset to its spawn run, as its own steps.
+/// Objects with no NetId keep vanilla behaviour.
 /// </summary>
 [HarmonyPatch(typeof(RespawnOnDrop), nameof(RespawnOnDrop.RespawnOrDestroy))]
 internal static class RespawnOnDropPatch
@@ -49,9 +51,35 @@ internal static class RespawnOnDropPatch
                     ["suppressedByMultiplayer"] = MultiplayerStoragePatchGuard.IsManaged(item, out _)
                 });
 
-        // The host scanner owns distance collection for canonical player items. Clients
-        // must never run a process-local distance decision. Preserve vanilla reset/destroy
-        // behavior for unowned scene objects and other non-network-managed items.
-        return !MultiplayerStoragePatchGuard.IsManaged(item, out _);
+        if (!MultiplayerStoragePatchGuard.Active || networked == null || networked.NetId == 0)
+            return true;
+        // A client never decides; the server, for the few it allows.
+        return ItemServer.Current?.AllowsRespawnOrDestroy(networked, __instance) == true;
+    }
+
+    // A destroy the server allowed carries its cause: a binned item's is its binner's (OI-VAN-02).
+    [HarmonyPostfix]
+    private static void AfterRespawnOrDestroy(RespawnOnDrop __instance, ref System.Collections.IEnumerator __result)
+    {
+        if (__instance == null || !MultiplayerStoragePatchGuard.Active || ItemServer.Current is not { } server ||
+            !NetworkedItem.TryGetNetworkedItem(__instance.GetComponent<ItemBase>(), out NetworkedItem networked) ||
+            networked == null || networked.NetId == 0)
+            return;
+        __result = Noted(__result, server, networked);
+    }
+
+    private static System.Collections.IEnumerator Noted(System.Collections.IEnumerator vanilla, IItemServer server, NetworkedItem item)
+    {
+        bool first = true;
+        while (true)
+        {
+            // Its first step only waits; the destroy is in a later one, within the frame of the note.
+            if (!first && item != null)
+                server.BeforeRespawnOrDestroyStep(item);
+            first = false;
+            if (!vanilla.MoveNext())
+                yield break;
+            yield return vanilla.Current;
+        }
     }
 }

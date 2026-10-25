@@ -82,6 +82,7 @@ internal sealed partial class ServerItemManager : IItemManagerServerPart
     public void Clear()
     {
         LostAndFoundServer.Clear();
+        VanillaStorage.Binning.Clear();
         ContainerServer.Clear();
         TrainItemWake.Clear();
         HostSpatial.Clear();

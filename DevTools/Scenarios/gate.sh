@@ -123,6 +123,8 @@ runs=( # name | scenario | variables | pair kind it prefers (default player)
   "save-homes|save-homes|"
   "leave-full-inventory|leave-full-inventory|"
   "lost-and-found-duplicate-id|lost-and-found-duplicate-id|"
+  "bin-owned|bin-owned|"
+  "duplicate-essentials-load|duplicate-essentials-load|"
   "owned-list-shelf|owned-list-shelf||player"
   "client-shelf|item-bug-client-shelf|"
   "shelf-unseen|item-bug-shelf-unseen||player"

@@ -136,7 +136,7 @@ An id is for life. When an object registers an id another live object has,
 `ServerLedger.ClaimPersistentId` keeps the first, gives the copy a new id (`ItemIdentity.CopiedFrom`
 names the original) and logs `item.duplicate-persistent-id`; once owned, the copy is born `Duplicate`
 from the original (OI-ID-05, -18). An ended id that comes back gets a new one too (`TakeNewId`). An
-entry ends with an `ItemRemovalReason`: binning, using up, a deleted car, a money deposit, or
+entry ends with an `ItemRemovalReason`: binning (`Discarded`, by its binner, [vanilla-storage.md](vanilla-storage.md#bins)), using up, a deleted car, a money deposit, or
 `DestroyedByGame` when nothing said why.
 
 ## Cold and live homes

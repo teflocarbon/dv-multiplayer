@@ -34,6 +34,15 @@ public interface IItemServer
     /// </summary>
     void OnItemDestroyed(NetworkedItem item, bool suppressNetworkDestroy);
 
+    /// <summary>
+    ///     Whether vanilla's <c>RespawnOnDrop</c> may respawn or destroy a networked item (OI-VAN-05): a
+    ///     binned item's destroy, and an unowned scene item's reset to its spawn. Never into vanilla's Lost and Found.
+    /// </summary>
+    bool AllowsRespawnOrDestroy(NetworkedItem item, RespawnOnDrop respawner);
+
+    /// <summary>Before each step of a respawn-or-destroy it allowed: a binned item's destroy is noted as its binner's.</summary>
+    void BeforeRespawnOrDestroyStep(NetworkedItem item);
+
     /// <summary>The server's part of a new item manager.</summary>
     IItemManagerServerPart CreateItemManagerPart(NetworkedItemManager manager);
 

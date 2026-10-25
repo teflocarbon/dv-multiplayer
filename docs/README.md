@@ -37,6 +37,7 @@ host-authority model works end to end, then points at the rest.
 | [design/items/save-load.md](design/items/save-load.md) | Saving and loading (R4): one key, `Multiplayer.Items`, each fact saved once and each row standing alone; the load before any request and its plan; rows that won't load (`Unloadable`, `SaveRecovery`); old saves start items fresh; vanilla's lists as a write-only mirror |
 | [design/items/containers.md](design/items/containers.md) | Containers (R5): a stored item's home is its container's slot and a container's id its shell's item id; who keeps a box, from the ledger; deposit, withdrawal and moves as ledger changes that roll back |
 | [design/items/lost-and-found.md](design/items/lost-and-found.md) | Lost and Found (R6, being written): owned by the ledger, every way in, a deleted car's items (owned ones to Lost and Found, unowned ones beside the track) |
+| [design/items/vanilla-storage.md](design/items/vanilla-storage.md) | Vanilla's storage, respawn and bins (R6, being written): vanilla's Lost and Found list refused, respawn only for unowned scene items and bins, binning your own or nobody's (`Discarded`), the load's duplicate pass off |
 | [design/shops.md](design/shops.md) | Shops as a server transaction: shared registers and shelves, the cash rules and the scanner are built; prediction, delivery to the owner, receipts, station fixtures and per-player stock are planned |
 
 ## Legacy

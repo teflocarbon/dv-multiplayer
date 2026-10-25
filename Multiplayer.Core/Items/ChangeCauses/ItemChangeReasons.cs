@@ -42,7 +42,9 @@ public enum ItemRemovalReason : byte
     /// Its saved state wouldn't load: the server made it again fresh from its prefab, with the same id,
     /// in its owner's Lost and Found (D9). Its entry lives on.
     /// </summary>
-    RemadeFresh
+    RemadeFresh,
+    /// <summary>Put in a bin by its owner, or by anyone when nobody owns it, and gone with the bin's destroy (D10).</summary>
+    Discarded
 }
 
 /// <summary>
@@ -117,7 +119,9 @@ public enum ItemMoveReason : byte
     /// <summary>Loaded into a tool's magazine (a cassette into a boombox).</summary>
     LoadedIntoMagazine,
     /// <summary>Out of a tool's magazine: ejected, or taken out.</summary>
-    UnloadedFromMagazine
+    UnloadedFromMagazine,
+    /// <summary>Put in a bin by someone it isn't theirs to bin: put down beside the bin (D10).</summary>
+    BinRefused
 }
 
 /// <summary>Where an item is, by whom it's held, and who owns it: what a move changes.</summary>
