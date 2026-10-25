@@ -133,7 +133,7 @@ to data.
   (`ObservedSource.LostAndFoundRow`).
 - **A booklet** kept as data goes when its job ends, as its object would (the scan asks
   `JobPaperRows.Wanted`).
-- **One being destroyed** is gone to the scan (`NetworkedItem.Destroying`): a box's destroy sends its
+- **One being destroyed** is gone to the scan (`NetworkedItem.IsDestroying`): a box's destroy sends its
   contents here, and their owner's list runs the scan inside the box's OnDestroy, while the dying box
   still answers to Unity's null check. Taken for one that stays, it would be made data again, a row
   whose entry has ended.
