@@ -64,6 +64,10 @@ internal sealed class ServerItemSpatial
                 yield return item;
     }
 
+    /// <summary>Whether another player than the server's own simulates the item under a lease now.</summary>
+    internal bool SimulatedByAnother(ushort itemNetId) =>
+        leases.TryGetValue(itemNetId, out Lease lease) && lease.SimulatorPlayerId != HostItemActor.SimulatorId;
+
     internal void Update()
     {
         if (NetworkLifecycle.Instance == null || !NetworkLifecycle.Instance.IsHost())
