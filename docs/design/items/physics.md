@@ -1,7 +1,8 @@
 # Physics
 
-> Status: built in R7 of the [item refactor](../item-refactor.md) (#389-#396, drafts, 2026-10-25), not yet
-> proved in a game: that is the end pass (OI-REF-01). It covers an item loose in the world, a car or
+> Status: built in R7 of the [item refactor](../item-refactor.md) (#389-#398) and merged into
+> `items/refactor`, not yet proved in a game: that is the end pass (OI-REF-01).
+> It covers an item loose in the world, a car or
 > on a shelf: who simulates it, the samples and the settlement, throws, the terrain guard, the fall
 > rescue and the pickup range. Items resting in a moving train are [train-wake.md](train-wake.md);
 > who is sent an item is [projection.md](projection.md); the record a commit writes is
@@ -84,7 +85,9 @@ a player host.
   its car), not the old simulator: the host's own world first, then the nearest player. The new
   lease (`lease-transfer:<why>`) has a new epoch and the last accepted state as its baseline,
   velocity included. With no candidate, the last accepted pose is committed.
-- **A train wake** picks by `ItemSimulatorChoice.ForWake` ([train-wake.md](train-wake.md)).
+- **A train wake** picks by `ItemSimulatorChoice.ForWake` from the candidates who have the item. With
+  none, the item is pinned only in the interest of the players in range who lack it, and a simulator
+  is picked once one of them has it ([train-wake.md](train-wake.md#the-grant)).
 - **A change of parent** keeps the simulator ([below](#a-change-of-parent-in-flight)).
 
 A candidate (`ServerItemSpatial.Candidates`) is a `ReadyForItems` player whose game has the item:
@@ -112,12 +115,20 @@ record still matches; finite values, a quaternion magnitude of 0.5 to 1.5, at mo
 
 Accepted, it is the lease's last accepted state, the server's copy is posed (when it simulates) or
 kept a proxy, the item's place in the world index is refreshed (`RefreshHostSpatialPosition`) and
-it is relayed. Rejected, it is `item.spatial-sample-rejected`; unless it was only stale or from the
-wrong sender, the lease ends by committing the last accepted pose (`sample-rejected:<why>`).
+it is relayed. Rejected, it is `item.spatial-sample-rejected`. A remote client's rejected sample or
+settlement, unless it was only stale or from the wrong sender, ends the lease by committing the last
+accepted pose (`sample-rejected:<why>`, `TerminateInvalidCurrentLease`). The server's own rejected
+sample is only published; its rejected settlement settles at the last accepted pose
+(`SampleHostLease`).
 
-**Observers** (`ApplyObservedPose`) follow the latest target, extrapolated by its velocity for up to
-0.15 s, smoothed toward at 10/s, snapping beyond 6 m. An extrapolation that would end under the
-terrain when the sample itself is above it is dropped. A player who gets the item's Create while a
+**Observers** (OI-PHY-10) are every game but the simulator, the server included
+(`NetworkedItemSpatialManager.ApplyObservedPose`, `ApplyPose`; the rule and its constants are Core's
+`ObserverSmoothing`). The latest accepted sample is the target. It is extrapolated by its linear and
+angular velocity for the time since it arrived, at most 0.15 s (`PredictionLimit`), and not at all
+while it sleeps or is settled. Each frame the copy moves `1 - e^(-10 dt)` of the way to it
+(`InterpolationRate`, 10/s), and jumps to it from 6 m or more away (`SnapDistance`). In a car or on a shelf this is in the parent's frame. An
+extrapolation that would end under the terrain when the sample itself is above it is dropped. A
+player who gets the item's Create while a
 lease is open (a late joiner, or one coming into range) gets the lease too (`SendActiveLeasesTo`,
 `interest-entry`), and the Create carries the last accepted pose.
 
@@ -161,9 +172,18 @@ before it: a player who settled the item before a wake set it sliding into the n
 
 A drop or a throw is an ordinary item update. The server checks it (`NetworkedItemServer.ValidateUpdate`):
 a world release within 64 m of the sender, a car parent that exists within 192 m, a shelf that
-resolves within 192 m. A throw carries only its direction (`ThrowDirection`): the thrower keeps its
-own velocity, and every other game replays `GrabHandlerItem.Throw(direction)` before its copy
-becomes a proxy (`GrabHandlerItemPatch` hands every `Throw` to `NetworkedItem.OnThrow`).
+resolves within 192 m.
+
+**A throw** (OI-PHY-09). The thrower simulates the flight, under the lease its release begins
+(`world-release`, [Leases](#leases)). The throw's update carries the release pose (taken in
+`NetworkedItem.OnThrow`), the parent (a car or a shelf, with the parent-local pose) and the direction
+(`ThrowDirection`), but no velocity (`NetworkedItem.CreateUpdateData`). The thrower's body keeps the
+throw's own velocity: a `world-release` lease applies none (`ClientItemSpatial.ApplyClientLease`
+applies a lease's velocity only for `lease-transfer:` and `train-wake:`). Every other game replays
+`GrabHandlerItem.Throw(direction)` (`NetworkedItem.HandleDroppedOrThrownState`), and its copy becomes
+a proxy that follows the thrower's samples; so does the server's, unless the server is the thrower
+(`ServerItemSpatial.ApplyAcceptedHostSample`). `GrabHandlerItemPatch` hands every `Throw` to
+`NetworkedItem.OnThrow`.
 
 - **A gentle release waits** (`ItemReleaseGrace`): under 2 m/s relative to the player's car it is
   held 0.3 s and sent only if no hand has the item by then, so a VR hand swap isn't a drop.
@@ -184,10 +204,8 @@ index, not a cell, and train motion moves its parent without being resent.
 - `CabItemRigidbody` already reports velocity relative to the train, so `Capture` doesn't subtract
   the car's and `ApplySimulationVelocity` doesn't add it; a shelf's body velocity is subtracted. DV
   keeps a resting cab item awake with small impulses: hence the car-local dwell.
-- **A settled car item is kinematic on every game**: the server and every game that got its commit,
-  and since R7 a game that gets it already settled, in a Create or a convergence correction
-  (`NetworkedItemSpatialManager.HoldSettledTrainItem`; OI-PHY-06, F34). That game also takes its
-  settled state as committed, so it can report an impact on it ([train-wake.md](train-wake.md#late-joiners)).
+- **A settled car item is kinematic on every game** (`HoldSettledTrainItem`; OI-PHY-06): the rule is
+  [train-wake.md](train-wake.md#settled-train-items)'s.
 
 ## The terrain guard
 
@@ -272,13 +290,12 @@ accepted pose, or the lease ends (OI-PHY-04).
 - Recovery for runaway or never-sleeping motion (OI-PHY-15, paused); a throw onto a moving flatcar
   landing within tolerance on both games (OI-PHY-14, paused). Trajectories aren't frame-identical:
   what is promised is that once motion ends, the server commits the real resting pose and parent.
-- OI-PHY-09 (a throw sends its direction only) and OI-PHY-10 (observers' extrapolation) are R8 rows,
-  unticked: the code's rules are described above.
 
 ## Tests
 
 Core (`Multiplayer.Core.Tests/Items/Physics/`): `ItemLeaseRulesTests`, `ItemSimulatorChoiceTests`,
-`ItemSpatialStreamValidatorTests`, `ItemReleaseSyncTests`, `PickupReachTests`.
+`ItemSpatialStreamValidatorTests`, `ItemReleaseSyncTests`, `PickupReachTests`, `ObserverSmoothingTests`
+(an observer's 0.15 s prediction, its blend at 10/s and its snap from 6 m, OI-PHY-10).
 
 ## Scenarios
 

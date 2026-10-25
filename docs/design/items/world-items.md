@@ -1,7 +1,8 @@
 # World items
 
-> Status: built in R7 of the [item refactor](../item-refactor.md) (#389-#396, drafts, 2026-10-25), not yet
-> proved in a game: that is the end pass (OI-REF-01). It covers the items the game's scenes make
+> Status: built in R7 of the [item refactor](../item-refactor.md) (#389-#398) and merged into
+> `items/refactor`, not yet proved in a game: that is the end pass (OI-REF-01).
+> It covers the items the game's scenes make
 > (scene-authored items, by stable key), the catalogue two games compare at join, a client's binding of
 > them, shelves (static parents) and the station offices' stock. Who is sent which item is
 > [projection.md](projection.md); a scene item's save rows are [save-load.md](save-load.md); settling
@@ -34,7 +35,8 @@ The key is the first 128 bits of SHA-256, as 32 hex digits (`WorldItemStableIden
 
 Only the hash is kept. Two flags are taken at the same time: an office slot (a node named `Offices`
 on its path, `AuthoredHierarchyPolicy.ContainsNode`) and a shop slot (a `DV.Shops` component above it).
-An object made later never gets a key (`EnsureAuthoredItemKey`): it is a **dynamic** item, with a GUID
+An object made later never gets a key of its own: the key is taken only in `Awake`, by the test
+above (a refill takes its slot's, [below](#authored-projections-on-a-client)). It is a **dynamic** item, with a GUID
 from the server ([ledger.md](ledger.md)) and a client copy made for each Create
 ([projection.md](projection.md#on-a-client)).
 
@@ -60,8 +62,9 @@ its items ([below](#authored-projections-on-a-client)) and sends its summary
 1. accepts the catalogue if the count and digest match its own (`AuthoredCatalogueKeys.Match`);
 2. refuses, for that player, every key that collides in either game (`AuthoredCatalogueKeys.Refused`),
    kept as `ServerPlayer.RefusedAuthoredKeys`;
-3. answers (`ClientboundWorldItemCataloguePacket`): accepted or not, its own count, collisions and
-   digest, a reason, and the refused keys, which the client logs.
+3. answers (`ClientboundWorldItemCataloguePacket`): accepted or not, its own count, number of
+   collisions (`HostCollisionCount`, not the keys) and digest, a reason, and the refused keys, which
+   the client logs.
 
 `ServerPlayer.TakesAuthored` decides whether a player is sent an item: any dynamic item; a scene item
 only if their catalogue was accepted and its key isn't refused. Interest asks it of every item
@@ -114,8 +117,8 @@ meant is the one that puts the item's shelf-local position nearest where the ite
 (`StaticParentKeys.Nearest`); each caller passes both. A scene loaded or unloaded since the last scan
 rescans them before any lookup, so a tile with a same-keyed shelf is a candidate at once; before the
 R7 fixes a key already known never saw it, and resolved to the other building's shelf. Otherwise a
-miss rescans after 2 s at most: before R7 every miss rescanned, and a key no game had did it at every
-sample. The server refuses a client's update onto a shelf it can't resolve, or more than 192 m
+miss rescans them at most once every 2 s (`RebuildSeconds`): before R7 every miss rescanned, and a
+key no game had did it at every sample. The server refuses a client's update onto a shelf it can't resolve, or more than 192 m
 from the sender (`invalid-or-distant-static-parent`), and a sample or settlement
 held to the same distance ([physics.md](physics.md)).
 
@@ -142,14 +145,20 @@ player's item or an essential, not snapped, and not a container, a gadget or a j
 
 **A player who could see it protects a place** (`OfficeStockRules.Protects`): every connected player whose
 cells hold it. Where an item already lies (a knocked prop, a fork) that is 5×5, as far as interest keeps
-items (`WorldItemCellCoord.KeepRadius`), and the item is also kept while it is in any player's nearby
+items (`InterestCells.KeepRadius`), and the item is also kept while it is in any player's nearby
 set, wherever it lies (not their known set: an item made from a container is known to every player and
 stays so). Before the R7 fixes only 3×3 was checked there, and a player a cell and a half away still
 had the prop when it was reset or cleared in front of them. An empty slot or a prop's place stays 3×3:
 what would appear there is new, and new items enter interest at 3×3, so 5×5 kept an office empty for a
 player shunting nearby. **A player still loading protects everywhere**: where they will appear isn't known
 yet, and before R7 a player joining beside an office watched its props vanish (OI-SYNC-10, F30). On a
-player host the host's own player counts; a dedicated host has none.
+player host the host's own player counts; a dedicated host has none. The host's own player's nearby
+set never holds a scene item, as it sends no catalogue
+([projection.md](projection.md#player-hosted-and-dedicated-servers)), so a knocked prop is kept for it
+by the 5×5 check alone (`OfficeStockReplenishment.AnyPlayerInterested`, `AnyPlayerHas`). That is
+harmless: a prop that lies in the world or on a shelf is in a nearby set only within those 5×5
+cells (`ServerItemManager.RefreshPlayerInterest`), and a fork is a dynamic item, in its nearby set
+like anyone's.
 
 1. **Taken.** A prop moved from the world or a shelf into a hand or an inventory leaves its slot
    (`OnAuthoritativeTransition`). It loses its key and becomes a dynamic item with a GUID of its own,

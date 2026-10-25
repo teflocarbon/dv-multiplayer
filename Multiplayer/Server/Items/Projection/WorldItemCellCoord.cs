@@ -1,17 +1,13 @@
 using System;
 using System.Collections.Generic;
+using Multiplayer.Core.Items.Projection;
 using UnityEngine;
 
 namespace Multiplayer.Server.Items.Projection;
 
+/// <summary>A world cell of item interest; its size and radii are Core's <see cref="InterestCells"/>.</summary>
 internal readonly struct WorldItemCellCoord : IEquatable<WorldItemCellCoord>
 {
-    public const float Size = 128f;
-    /// <summary>
-    /// An item enters a player's interest within one cell of theirs (3x3) and leaves it only beyond
-    /// this many (5x5): the hysteresis (ServerItemManager.Interest).
-    /// </summary>
-    public const int KeepRadius = 2;
     public readonly int X;
     public readonly int Z;
 
@@ -22,14 +18,14 @@ internal readonly struct WorldItemCellCoord : IEquatable<WorldItemCellCoord>
     }
 
     public static WorldItemCellCoord FromAbsolute(Vector3 position) =>
-        new(Mathf.FloorToInt(position.x / Size), Mathf.FloorToInt(position.z / Size));
+        new(InterestCells.CellOf(position.x), InterestCells.CellOf(position.z));
 
     public bool Equals(WorldItemCellCoord other) => X == other.X && Z == other.Z;
     public override bool Equals(object obj) => obj is WorldItemCellCoord other && Equals(other);
     public override int GetHashCode() => unchecked((X * 397) ^ Z);
     public override string ToString() => $"{X},{Z}";
 
-    public static HashSet<WorldItemCellCoord> Neighbourhood(WorldItemCellCoord centre, int radius = 1)
+    public static HashSet<WorldItemCellCoord> Neighbourhood(WorldItemCellCoord centre, int radius = InterestCells.EnterRadius)
     {
         HashSet<WorldItemCellCoord> cells = new();
         for (int x = centre.X - radius; x <= centre.X + radius; x++)

@@ -11,9 +11,9 @@
 
 | Side | Code |
 | --- | --- |
-| Core | `Multiplayer.Core/Items/Inventory/`: `InventorySlots`, `BeltSlots`, `SlotClaimPlanner`, `InventoryPresentation` |
-| Server | `Multiplayer/Server/Items/Inventory/`: `PlayerItems` (`PlayerItems.cs`, `.DataOnly.cs`, `.Rows.cs`, `.Host.cs`, `.Alarms.cs`, `.Ammo.cs`, `.Sounds.cs`), `ColdInventories`, `HostInventory`, `InventoryMembershipPatch`; `Multiplayer/Server/Jobs/JobPaperRows.cs` |
-| Shared | `Multiplayer/Shared/Items/Inventory/`: `InventoryStandIn`, `InventoryRowHolder`, `InventoryPutAwayPatch`, `InventoryTakeOutPatch`, `InventoryStandInPatches`, `VanillaInventorySlots`, `InventorySilhouettes`, `ItemStateText`, `StashedItems`, `StashedBoombox`, `StashedCassette`, `HeardStashedSounds`, `BoomboxStatePatch`, `AlarmRows`, `ForcedItemRows`, `TutorialRadio`, `InventoryIntegration`, `InventoryItemStatePatch`; `Multiplayer/Shared/Jobs/JobPapers.cs` |
+| Core | `Multiplayer.Core/Items/Inventory/`: `InventorySlots`, `BeltSlots`, `SlotClaimPlanner`, `InventoryPresentationPlanner` (`InventoryPresentation.cs`), `JoinRows` |
+| Server | `Multiplayer/Server/Items/Inventory/`: `PlayerItems` (`PlayerItems.cs`, `.DataOnly.cs`, `.Rows.cs`, `.Host.cs`, `.Alarms.cs`, `.Ammo.cs`, `.Sounds.cs`, `.Lost.cs`), `ColdInventories`, `HostInventory`, `InventoryMembershipPatch`; `Multiplayer/Server/Jobs/JobPaperRows.cs` |
+| Shared | `Multiplayer/Shared/Items/Inventory/`: `InventoryStandIn`, `InventoryRowHolder`, `InventoryPutAwayPatch`, `InventoryTakeOutPatch`, `InventoryStandInPatches`, `VanillaInventorySlots`, `VanillaInventoryHazards`, `InventorySilhouettes`, `ItemStateText`, `StandInAmmo`, `StashedItems`, `StashedBoombox`, `StashedCassette`, `HeardStashedSounds`, `BoomboxStatePatch`, `AlarmRows`, `ForcedItemRows`, `TutorialRadio`, `InventoryIntegration`, `InventoryItemStatePatch`; `Multiplayer/Shared/Jobs/JobPapers.cs` |
 | Client | `Multiplayer/Client/Items/Inventory/`: `InventoryRows`, `InventorySlotMovePatch`, `InventoryOwnershipUiPatch`; `Multiplayer/Client/Items/Projection/`: `ClientItemManager.StandIns.cs`, `.Rows.cs`, `.TakeOut.cs` |
 | Requests | `NetworkServer.CarryMoveSlot` and `DataOnlyNamed` (`Multiplayer/Server/Session/NetworkServer.Items.cs`) |
 
@@ -39,8 +39,10 @@ Which slot a change gets (`LiveItems.TryApplyTransition` and the methods beside 
 | a player's stash or slot move naming a slot | that slot, or a refusal |
 | a change that doesn't move the item (object state) | the slot it had |
 | a server-made move into an inventory (a leaver's hand item, a forced change) | the slot named, else the one it had in that inventory, else its claim (if the holder owns it), else the lowest free one (`ServerLedger.FreeSlot`) |
-| a recall | its claim, else the lowest free one |
-| a Lost and Found retrieval, a withdrawal, a starting item, a cold row going live | the slot named, else its claim, else the lowest free one |
+| a recall | the slot asked for (the silhouette clicked), else its claim, else the lowest free one (`LiveItems.TryRecall`) |
+| a Lost and Found retrieval, a cold row going live | the slot named, else its claim, else the lowest free one |
+| a withdrawal | its claim if the withdrawer owns it, else the lowest free one: the slot the client names isn't used (`ContainerServer.Withdraw`) |
+| a starting item | the slot the issuer picks beforehand, free of what it has already given (`StartingItemsIssuer`) |
 
 The lowest free slot is counted from 0, so the belt comes last (`InventorySlots.FirstFree`). With no
 free slot a move into an inventory is refused `inventory-full`.
@@ -54,8 +56,10 @@ Every route into an inventory lands in a slot or falls back, never in no slot (O
 - **A withdrawal** comes out anyway: an owned item into its owner's Lost and Found
   (`InventoryOverflow`), an unowned one at the player's feet (OI-ACC-04).
 - **A recall** goes into its claim, which its silhouette keeps, so a full inventory still has room.
-- **A cold row going live, a starting item** that finds no slot after all goes to the holder's feet
-  (`LiveItems.RegisterMaterializedColdItem`), and from there to their Lost and Found when it's theirs.
+- **A starting item** with no free slot is made at the holder's feet (`StartingItemsIssuer.MakeAtFeet`)
+  and goes on to their Lost and Found. **A cold row going live** with no slot is made an object at their
+  feet (`PlayerItems.GoLive`), as is one `LiveItems.RegisterMaterializedColdItem` finds no slot for
+  after all, and from there it goes to their Lost and Found when it's theirs.
 - **The holder's game** puts the item where the server says. A claim its vanilla inventory refuses
   isn't counted as placed, reserved or not: the item goes to the first free slot instead
   (`NetworkedItem` `HandleInventoryOrHandState`, `InventoryStandIn.Place`).
@@ -63,19 +67,21 @@ Every route into an inventory lands in a slot or falls back, never in no slot (O
 ## Vanilla's hazards
 
 Vanilla's own inventory and storage bookkeeping has holes that could hide or lose an item
-(OI-ESS-13). `VanillaInventoryHazards` and `StorageControllerPatch` mend them on every game:
+(OI-ESS-13). `VanillaInventoryHazards` and `StorageControllerAddManagedItemPatch` (`StorageControllerPatch.cs`) mend them on every game:
 
 | | Vanilla | Now |
 | --- | --- | --- |
 | H1 | `SwapItems` doesn't move the claim map (reserved and locked slots, by the object), so a purge after a swap blanked the other item's slot | the map follows the swap |
-| H2 | the load places items by saved slot and ignores the result: of two for one slot, one is in none | the server gives each a slot (`ServerLedger.GiveSlots`, one item per slot) and the issuer counts what's carried |
+| H2 | the load places items by saved slot and ignores the result: of two for one slot, one is in none | the server keeps one item per slot: of two live entries saved in one slot the load keeps the first and sends the others to Lost and Found (`ItemLedger.Restore`), and the issuer counts what's carried |
 | H3 | `AddItemToStorageItemList` takes an item out of its old storage list before it asks whether the new one takes it: a refused move left it in none, so it wasn't saved | asked first, owned or not: a refused move keeps its list |
 | H4-H6 | a slot lock read a dead object and threw halfway; slot and lock confusion | the server keeps the slots (the client's inventory is a view it corrects, R3); a lock on a dead entry clears the entry |
 | H7 | a destroyed item is purged only when it has a claim (the purge reads the claim map): an ordinary one stayed, counting against the 36 slots | its entry goes as its object does (`NetworkedItem.OnDestroy`) |
 | H8 | an item saved once per list | one home per item (the ledger) |
 
-An old save's inventory items without a slot are given one at load (`ServerLedger.GiveSlots`):
-essentials first, each its saved claim if free, else the lowest free one; cold rows the same.
+At the load, two live entries saved in one slot keep the first there and send the others to Lost and
+Found, and claims that clash move apart (`ItemLedger.Restore`). A row saved without a slot takes one
+as it goes live at the join: its claim, else the lowest free one ([Cold inventories](#cold-inventories)),
+or, with none free, it overflows.
 
 ## The belt
 
@@ -320,9 +326,10 @@ anything else of theirs is sent:
    goes if its job no longer wants it ([Job papers](#job-papers)).
 3. The joiner is sent one `ClientboundInventoryRowsPacket`: each item's `Create`, built for them, and
    its saved state. Their game keeps the rows (`InventoryRows`) and draws each as its stand-in in its
-   slot ([Stand-ins](#stand-ins)); an item that stays an object there is made from its row
-   (`ClientItemManager.MakeFromRow`, at the safety position under its NetId, its state loaded a frame
-   later as vanilla's starting items are) and placed by its `Create`.
+   slot ([Stand-ins](#stand-ins)). A row that stays an object there (an enabled VR belt slot's, say)
+   isn't made from its row: `FillFromRows` hands its `Create` to the ordinary path
+   (`ProcessReceivedAsClient`, `CreateItem`), which makes it fresh from its prefab, without the row's
+   saved state, while the server keeps the item as data.
 4. An essential of theirs that another connected player holds as data has no object for interest to
    find, so they are sent its `Create` too and kept up to date with it (OI-ESS-17).
 
@@ -453,9 +460,10 @@ by NetId (`NetworkedJob`), and its object is made again from its job when it lea
   them again. Vanilla's reprint at the load skips a job whose booklet a player carries.
 - **A row the job no longer wants goes**, at the holder's join or when the job ends. That is a booklet
   of a job that's over, or an overview of a job someone took or that expired. A connected holder's is
-  made and destroyed, so their game is told. A report with no free slot (or homed in Lost and Found)
-  goes to Lost and Found like other items, made from its recipe (an unowned one is left at the
-  player's feet, as other unowned items are); one with no recipe (saved before C7) can never be made, and goes.
+  made and destroyed, so their game is told. A report with no free slot
+  is made from its recipe at the player's feet and stays there: nobody owns a paper, and Lost and
+  Found takes only an item with a keeper (`LiveItems.KeeperOf`: an owner, or a booklet's issued
+  player), so it refuses a report (`item-has-no-owner`); one with no recipe (saved before C7) can never be made, and goes.
 - **A holder who leaves** takes their papers cold, and the jobs forget their NetIds
   (`JobPaperRows.Forget`).
 
@@ -465,7 +473,8 @@ docs/jobs.md ("Papers in inventories") has the job side.
 
 - `Multiplayer.Core.Tests/Items/Inventory/`: `InventorySlotsTests` (a claim's slot off the belt, the
   lowest free slot, belt last), `BeltSlotsTests`, `SlotClaimPlannerTests`, `InventoryPresentationTests`
-  (red, the Get button's routes).
+  (red, the Get button's routes), `JoinRowsTests` (a joining owner is sent their essential another
+  player holds as data).
 - `Multiplayer.Core.Tests/Items/Ledger/ItemLedgerTests.cs`: two items never share a slot, a swap in
   one commit with the claims following, a stale or cross-inventory swap refused, a claim never on the
   belt, the re-key merge (`Rekey_OntoAnIdentityWithData_MergesIt_ASlotClashGoesToLostAndFound`).

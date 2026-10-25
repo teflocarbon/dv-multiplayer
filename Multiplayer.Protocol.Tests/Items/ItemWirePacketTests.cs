@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
 using LiteNetLib.Utils;
+using Multiplayer.Core.Items.ChangeCauses;
 using Multiplayer.Core.Items.Ledger;
 using Multiplayer.Core.Items.LiveState;
 using Multiplayer.Shared.Debugging;
@@ -23,6 +24,16 @@ namespace Multiplayer.Protocol.Tests.Items;
 [TestFixture]
 public sealed class ItemWirePacketTests
 {
+    [Test]
+    public void TheAdoptionReasonsAreGone()
+    {
+        // A client never makes an item, so nothing can adopt one (OI-SYNC-01, -02): the reasons
+        // went in R2 (a4b0faad) rather than staying for their wire numbers.
+        string[] gone = { "ClientAdoption", "ReturnedToRejoiningOwner", "Adopted" };
+        foreach (Type reasons in new[] { typeof(ItemTransitionReason), typeof(ItemMoveReason), typeof(ItemRemovalReason), typeof(BirthReason) })
+            Assert.That(Enum.GetNames(reasons).Intersect(gone), Is.Empty, reasons.Name);
+    }
+
     [Test]
     public void NoItemPacketCarriesAGuid()
     {

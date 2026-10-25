@@ -1,14 +1,14 @@
 # Vanilla's storage, respawn and bins
 
-> Status: written in R6 of the [item refactor](../item-refactor.md) (#378 to #387, 2026-10-25), not
+> Status: built in R6 of the [item refactor](../item-refactor.md) (#378 to #388, merged, 2026-10-25), not
 > yet proved in a game: that is the end pass (OI-REF-01). Vanilla's own behaviour is in
 > [research/DERAIL_VALLEY_LOST_AND_FOUND_LOGIC.md](../../research/DERAIL_VALLEY_LOST_AND_FOUND_LOGIC.md).
 
 | Side | Code |
 | --- | --- |
-| Shared | `StorageControllerPatch`, `StorageIntegration`, `RespawnOnDropPatch` (`Multiplayer/Shared/Items/VanillaStorage/`); `StartingItemsControllerPatch` (`Multiplayer/Shared/Career/`) |
+| Shared | `StorageControllerPatch.cs` (`MultiplayerStoragePatchGuard`, `StorageControllerAddManagedItemPatch`, `StorageControllerAddLostItemPatch`, `StorageControllerRequestLostActivationPatch`, `StorageControllerMoveWorldItemsPatch`, `StorageControllerAccessPointPatch` and the others beside them), `StorageIntegration`, `RespawnOnDropPatch` (`Multiplayer/Shared/Items/VanillaStorage/`); `StartingItemsControllerPatch` (`Multiplayer/Shared/Career/`) |
 | Server | `Binning`, `ItemDumpsterPatch` (`Binning.cs`), `RespawnOnDropRangePatch` (`Multiplayer/Server/Items/VanillaStorage/`); `UseUp`, `UseUpPatch` (`Multiplayer/Server/Items/Consumables/UseUp.cs`); `MoneyDepositPatch`, `DevConsolePatch` (`Multiplayer/Server/Items/Behaviours/`) |
-| Client | `UseUpRequestPatch`, `DevConsoleRefusalPatch` (`Multiplayer/Client/Items/Behaviours/`) |
+| Client | `UseUpRequestPatch`, `MoneyPatch`, `DevConsoleRefusalPatch` (`Multiplayer/Client/Items/Behaviours/`) |
 
 Vanilla keeps an item's place in its own storage lists (inventory, world, Lost and Found, item
 containers) and moves items on its own: a respawn, a bin, a load's duplicate pass. In multiplayer an
@@ -61,7 +61,7 @@ is 75 m off (OI-VAN-02, D10). On the server the bin is a request (`ItemDumpsterP
   owned item's entry ends `Discarded`. An essential is issued again at its owner's next join, as one
   they have none of.
 - **Someone else's** is refused: in a hand it just isn't the bin's; lying in the bin it is put down
-  beside it, on the binner's side (`ServerItemManager.PutAt`, `BinRefused`), and stays theirs.
+  beside it, on the binner's side (`FallRescueServer.PutAt`, through `ServerItemManager.FallRescue`; `BinRefused`), and stays theirs.
 
 The bin keeps where it was (`Binning.InBin`): an item that has left it, by a recall, a stash or a
 throw, isn't the bin's any more even when vanilla's trigger never said so (Unity sends no exit on a

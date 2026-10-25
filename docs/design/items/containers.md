@@ -1,6 +1,6 @@
 # Containers
 
-> Status: built in R5 of the [item refactor](../item-refactor.md) (#367-#376, drafts, 2026-10-25), not yet
+> Status: built in R5 of the [item refactor](../item-refactor.md) (#367-#377, merged, 2026-10-25), not yet
 > proved in a game: that is the end pass (OI-REF-01). It covers cold containers: what a stored
 > item is, who keeps a box, deposit, withdrawal, moves between boxes and ammo in a magazine. The ledger it commits to is
 > [ledger.md](ledger.md); the save rows are [save-load.md](save-load.md); who may deposit is
@@ -10,8 +10,8 @@
 | Side | Code |
 | --- | --- |
 | Core | `ContainerGraph`, `ContainerRecord`, `StoredItemRecord`, `IContainerOwners` (`Multiplayer.Core/Items/Containers/ContainerGraph.cs`) |
-| Server | `ContainerServer` (`Multiplayer/Server/Items/Containers/ContainerServer.cs`); the requests in `NetworkServer.Items.cs` (`CarryDeposit`, `CarryWithdraw`, `CarryMoveInContainer`, `ContainerList`); `ServerLedger.CommitStored` |
-| Client | `ContainerUi`, `ContainerUiPatch` (`Multiplayer/Client/Items/Containers/`) |
+| Server | `ContainerServer`, `MagazineServer` (`Multiplayer/Server/Items/Containers/`); the requests in `NetworkServer.Items.cs` (`CarryDeposit`, `CarryWithdraw`, `CarryMoveInContainer`, `ContainerList`); `ServerLedger.CommitStored` |
+| Client | `ContainerUi`, `ColdContainerItemProxy`, `ColdProxyContainer`, `ContainerUiPatch` (`Multiplayer/Client/Items/Containers/`) |
 
 ## Stored items
 
@@ -100,8 +100,8 @@ the reservation ends (OI-CON-03).
 The server takes a row out of its box with no player's request when an owner retrieves their item
 from a box that isn't theirs ([owned-list.md](owned-list.md#out-of-a-box), OI-LIST-23).
 `ContainerServer.TakeOutLoose` does it in one step: the row must be settled (`ContainerGraph.IsSettled`:
-no deposit or withdrawal of it, or of anything inside it, part way; else `container-busy`,
-OI-LIST-18); the ledger moves the item from its box to `World`; the item is made an object again
+no deposit or withdrawal of it, or of anything inside it, part way; else `container-item-busy`, which
+a retrieval reports as `container-busy`, `Retrieval.Busy`; OI-LIST-18); the ledger moves the item from its box to `World`; the item is made an object again
 (`ItemSaveLoad.MakeLive`); and `ContainerGraph.TakeOut` removes the row and moves the box's revision
 on. If the item can't be made, the ledger moves it back and the row stays. A box taken out keeps its
 own container and contents: its shell binds to them by its id.
@@ -109,7 +109,7 @@ own container and contents: its shell binds to them by its id.
 ## A box destroyed
 
 A box's shell destroyed for good (by the game, a deleted car, a scenario; not put in a box,
-collected, gone cold, remade or an authored slot's old object) takes its container with it (OI-CON-11; `ContainerServer.OnRemoved`,
+collected, gone cold, left interest, remade or an authored slot's old object) takes its container with it (OI-CON-11; `ContainerServer.OnRemoved`,
 called from `ItemChangeLog.RecordRemoval`). `ContainerGraph.RemoveContainer` removes the container
 and gives back its rows:
 
@@ -155,9 +155,10 @@ tool. Its ammo has a home in each of the tool's forms (CN1 and OI-CON-16; R5 C7 
   then its object retires by interest, as a deposit's does. `MagazineServer.LoadFromRows` makes them
   objects in the magazine again when the tool's object is bound (the server's shell scan), whichever
   way it came back.
-- **A stow that fails** as the tool goes cold leaves its ammo where the holder was, an owned item
-  on to their Lost and Found (`PlayerItems.AmmoLeftBehind`), moved from wherever the ledger has it;
-  if the ledger refuses even that, the object is still made there for the home check to find.
+- **A stow that fails** as the tool's object goes lets its ammo out as a destroyed tool's ammo goes
+  (`MagazineServer.Release`): an owned item to its owner's Lost and Found (`ContainerCleared`), any
+  other, or one Lost and Found refuses, dropped where the tool was. Ammo of a stand-in tool that
+  can't go cold with its holder is below (`AmmoLeftBehind`).
 - **The tool destroyed for good** lets its ammo go as a destroyed box's contents go: an owned item to
   its owner's Lost and Found (`ContainerCleared`), any other loose where the tool was.
 - **Retrieved by its owner** (owned items), loaded ammo is where its tool is: nothing to do while the
@@ -241,18 +242,47 @@ Between boxes not nested directly, both revisions are checked as sent.
 A withdrawal's item goes by interest too: a row is sent to the withdrawer alone (`PlayerItems.Issue`),
 and one made loose at their feet reaches others through the world index, as any item does.
 
+## The client's view
+
+No game but the server has a stored item, as an object or a row. The client shows a box's list
+([wire.md](wire.md#one-list)) in vanilla's own non-VR and VR inventory views, and `ContainerUiPatch`
+turns the player's drags in them into item requests (`Multiplayer/Client/Items/Containers/ContainerUi.cs`):
+
+- Opening a box (`ItemContainer.ToggleContainerAccess`) asks for its list by its shell's NetId
+  (`ContainerUi.Open`). Each row is one slot's item: its handle, prefab, display name, slot and
+  flags (`Container`, `SomeoneElses`; `NetworkServer.ContainerList`).
+- `ContainerUi.Project` makes each row a hidden object (`HideFlags.HideAndDontSave`) with a
+  `ColdContainerItemProxy`: an `IInventoryItemSpec` that takes its name and icons from the prefab's
+  spec and keeps the row's container handle, item handle and slot. It has no `NetworkedItem` or
+  `ItemBase`. The proxies fill the open box's slot model in each `ItemContainerProvider` showing it.
+  A row that is a box gets a `ColdProxyContainer` too, an `AItemContainer` that takes no item
+  (`ValidItem` is false) and whose `ToggleContainerAccess` opens that box's list by its handle
+  (`ContainerUi.OpenChild`). Each new list, or a refused one, destroys the old proxies first
+  (`ClearProxies`).
+- Every operation names a row by its handle, never a NetId: a withdrawal and a move take the
+  handle of the row in the slot (`RowAt(slot).Handle`), and a proxy dragged into the open box is a
+  `MoveInContainer` by its `ItemHandle` (`TryInterceptAdd`). The only item NetId sent is that of a
+  real item being deposited: its object's, or an inventory row's stand-in's (`InventoryStandIn.NetId`).
+  The open box itself goes by its shell's NetId when it is opened and in a deposit (`ShellNetId`),
+  and by its handle otherwise.
+- A deposit goes to the slot asked for when it is free in the view, else the first free one; with
+  none free it isn't sent. Each result asks for the list again (`ContainerUi.OnMutation`), so the
+  view is the server's.
+
 ## Depth
 
 A box may sit at most `ContainerLimits.MaximumDepth` (8) boxes deep inside the outermost one. A
 deposit or a move of a box checks where it would land (`ValidateDestination`): how deep its
 destination is, plus one, plus how deep the boxes inside it go. A ninth level is refused
 (`container-depth-exceeded`, OI-CON-15), so no graph is made that the load, which holds a save to the
-same limit (`ValidateDepthFrom`), would refuse. A box can't go inside itself or one of its own boxes
-(`destination-is-descendant`).
+same limit (`ValidateDepthFrom`), would refuse. A box can't go inside itself (`container-self-cycle`) or one of its own boxes
+(`destination-is-descendant`; `ContainerGraph.ValidateNoCycle`).
 
 ## Before the load
 
 No item request is carried out before the load has run (OI-PER-23): every request is refused
-`items-loading` (`ItemRefusal.Busy`) at the one entry (`NetworkServer.Carry`), and a container browse
-too (OI-CON-05). A request made before the load would act on items the load hasn't placed, and the
+`items-loading` (`ItemRefusal.Busy`) at the one entry (`NetworkServer.Carry`). A container browse
+is a list request, not an item request: `ContainerServer.Browse` refuses it `items-loading` too
+(OI-CON-05), as `ContainerOperationStatus.NotFound`, which the list carries as
+`ItemRefusal.UnknownItem` (`NetworkServer.RefusalOf`). A request made before the load would act on items the load hasn't placed, and the
 load would wipe it (F19).

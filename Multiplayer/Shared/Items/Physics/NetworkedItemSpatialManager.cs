@@ -1,5 +1,6 @@
 using DV;
 using DV.CabControls;
+using Multiplayer.Core.Items.Physics;
 using Multiplayer.Shared.Debugging;
 using Multiplayer.Shared.Items.Inventory;
 using Multiplayer.Shared.Items.LiveState;
@@ -44,9 +45,6 @@ internal sealed class NetworkedItemSpatialManager
     internal const float MaximumSimulatorDistance = 192f;
     /// <summary>A lease renewed because its flight changed parent: a new epoch at a new revision, same simulator (OI-PHY-05).</summary>
     internal const string ParentChangeLeaseReason = "parent-change";
-    private const float ObserverSnapDistance = 6f;
-    private const float ObserverInterpolationRate = 10f;
-    private const float ObserverPredictionLimit = 0.15f;
 
     internal sealed class Lease
     {
@@ -285,8 +283,9 @@ internal sealed class NetworkedItemSpatialManager
         if (item == null || lease?.Target == null)
             return;
         ItemSpatialStateData predicted = lease.Target.Clone();
-        float prediction = Mathf.Clamp(now - lease.LastAcceptedAt, 0f, ObserverPredictionLimit);
-        if (prediction > 0f && !predicted.Sleeping && predicted.Phase != ItemSpatialPhase.Settled)
+        float prediction = ObserverSmoothing.PredictionSeconds(now - lease.LastAcceptedAt,
+            predicted.Sleeping || predicted.Phase == ItemSpatialPhase.Settled);
+        if (prediction > 0f)
         {
             if (predicted.WorldParentKind == ItemWorldParentKind.World)
             {
@@ -437,12 +436,12 @@ internal sealed class NetworkedItemSpatialManager
             : anchor.rotation * state.ParentLocalRotation;
         ApplyAuthoritativeParent(item, state, anchor);
         float distance = Vector3.Distance(item.transform.position, targetPosition);
-        if (immediate || distance >= ObserverSnapDistance)
+        if (ObserverSmoothing.Snaps(distance, immediate))
         {
             item.transform.SetPositionAndRotation(targetPosition, targetRotation);
             return;
         }
-        float t = 1f - Mathf.Exp(-ObserverInterpolationRate * Time.unscaledDeltaTime);
+        float t = ObserverSmoothing.Blend(Time.unscaledDeltaTime);
         item.transform.position = Vector3.Lerp(item.transform.position, targetPosition, t);
         item.transform.rotation = Quaternion.Slerp(item.transform.rotation, targetRotation, t);
     }

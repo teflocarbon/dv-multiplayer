@@ -1,15 +1,12 @@
 # Items
 
-> Status: R3 of the [item refactor](../item-refactor.md), 2026-10-24. The code layout and the names
-> on this page are built, and so is the ledger deciding every owned item's owner and home with live
-> state following it (R3). One save (R4) and the rest are planned, and each part says which PR
-> builds it. Every requirement is a row in [the checklist](../../item-overhaul-checklist.md). Until a
-> subsystem's doc below is written, the [legacy docs](#legacy-docs) are the account of what its code
-> does today.
+> Status: built by the [item refactor](../item-refactor.md), R0-R8, merged into `items/refactor`
+> (2026-10-25); proof in a game of both host kinds is the end pass (OI-REF-01). Each subsystem's doc
+> below says what its code does. Every requirement is a row in [the checklist](../../item-overhaul-checklist.md).
 
 ## The guarantee
 
-Built in R3 for the ledger and inventories; the save (R4), containers (R5) and Lost and Found (R6) finish it:
+Built in R3 for the ledger and inventories, and finished by the save (R4), containers (R5) and Lost and Found (R6):
 
 > Every owned item is, at every moment, in exactly one known home. That home is saved, and the item
 > comes back there on reload. Anything that would leave it nowhere sends it to its owner's Lost and
@@ -48,16 +45,16 @@ mirror them in `Multiplayer.Core.Tests/Items/` and `Multiplayer.Protocol.Tests/I
 | `SaveLoad` | the item save, item identity in the save | ✓ | ✓ | | | [save-load.md](save-load.md) |
 | `Inventory` | slots, the belt, claims as a client shows them | ✓ | ✓ | ✓ | ✓ | [inventory.md](inventory.md) |
 | `Essentials` | starting items and the issuer (the claim rules are Core `Inventory` and `Ledger`) | | ✓ | | | [essentials.md](essentials.md) |
-| `LostAndFound` | collection, entries, retrieval, a deleted car's items | ✓ | ✓ | ✓ | | [lost-and-found.md](lost-and-found.md) (R6) |
+| `LostAndFound` | collection, entries, retrieval, a deleted car's items | ✓ | ✓ | ✓ | | [lost-and-found.md](lost-and-found.md) |
 | `Containers` | cold containers | ✓ | ✓ | ✓ | | [containers.md](containers.md) |
 | `OwnedList` | the owned-items page and retrieval | ✓ | ✓ | ✓ | | [owned-list.md](owned-list.md) |
 | `Access` | `ItemAccess`, fixtures | ✓ | ✓ | | | [access.md](access.md) |
-| `WorldItems` | scene-authored items, the catalogue, static parents, office stock | ✓ | ✓ | ✓ | ✓ | [world-items.md](world-items.md) (R7) |
-| `Projection` | interest and what each client is shown | ✓ | ✓ | ✓ | | [projection.md](projection.md) (R7) |
-| `Physics` | leases, samples, settlement, throws, fall rescue, the terrain guard | ✓ | ✓ | ✓ | ✓ | [physics.md](physics.md) (R7) |
-| `TrainWake` | items in moving trains (the item's own part is `NetworkedItem.TrainWake`, in Shared `LiveState`) | ✓ | ✓ | | | [train-wake.md](train-wake.md) (R7) |
+| `WorldItems` | scene-authored items, the catalogue, static parents, office stock | ✓ | ✓ | ✓ | ✓ | [world-items.md](world-items.md) |
+| `Projection` | interest and what each client is shown | ✓ | ✓ | ✓ | | [projection.md](projection.md) |
+| `Physics` | leases, samples, settlement, throws, fall rescue, the terrain guard | ✓ | ✓ | ✓ | ✓ | [physics.md](physics.md) |
+| `TrainWake` | items in moving trains (the item's own part is `NetworkedItem.TrainWake`, in Shared `LiveState`) | ✓ | ✓ | | | [train-wake.md](train-wake.md) |
 | `ChangeCauses` | why an item moved or went away | ✓ | ✓ | ✓ | ✓ | [change-causes.md](change-causes.md) |
-| `VanillaStorage` | the guards that keep DV's own storage, Lost and Found and respawn from moving an item | ✓ | ✓ | | ✓ | [vanilla-storage.md](vanilla-storage.md) (R6) |
+| `VanillaStorage` | the guards that keep DV's own storage, Lost and Found and respawn from moving an item | ✓ | ✓ | | ✓ | [vanilla-storage.md](vanilla-storage.md) |
 | `Behaviours` | one item type's own sync: flashlight, lantern, lighter, shovel, page book, money, magazines, the grabber; used-up items and the dev console | ✓ | ✓ | ✓ | ✓ | [behaviours.md](behaviours.md) |
 
 A partial class can't span namespaces, so each one sits whole in the subsystem most of its code
@@ -69,13 +66,13 @@ fall-rescue, terrain-guard and world-integration parts to `Physics` and `WorldIt
 `AuthoredItems`, `AuthoredProjections`).
 
 The item packets and their data are in `Multiplayer/Shared/Protocol` (`Packets/Items/`,
-`Data/Items/`): five packets since R2, described in [wire.md](wire.md).
+`Data/Items/`): six packets (five since R2, and the join's inventory rows since R4), described in [wire.md](wire.md).
 
 ## Legacy docs
 
 These describe the item system before the refactor, with the class and file names from before R0
-([the rename map](../item-refactor.md#rename-map) translates them). They are evidence of today's
-behaviour, not design. They are in `docs/legacy/items/` (moved 2026-10-24), each with a banner naming its replacement:
+([the rename map](../item-refactor.md#rename-map) translates them). The refactor replaced that code, so
+they are history: not how the code works now, and not design. They are in `docs/legacy/items/` (moved 2026-10-24), each with a banner naming its replacement:
 [item-lifecycle.md](../../legacy/items/item-lifecycle.md), [owned-items.md](../../legacy/items/owned-items.md),
 [lost-and-found.md](../../legacy/items/lost-and-found.md), [container-storage.md](../../legacy/items/container-storage.md),
 [item-world-sync.md](../../legacy/items/item-world-sync.md), [item-spatial-physics.md](../../legacy/items/item-spatial-physics.md),

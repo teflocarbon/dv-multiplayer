@@ -243,8 +243,9 @@ The host's game is the only place shared state is decided. The rules:
 
 Concrete cases:
 
-- **Items.** `Server/Items/LiveState/LiveItems.cs` holds one host record per
-  item: placement, holder, persistent owner, inventory claim, revision. A player's change to an
+- **Items.** The server's ledger (`Server/Items/Ledger/ServerLedger`) decides every owned item's
+  owner and home, and `Server/Items/LiveState/LiveItems.cs` holds one live record per item, owned
+  or not: placement, holder this second, pose, revision. A player's change to an
   item is a request (`ServerboundItemRequestPacket`: take, stash, drop, throw, recall, deposit, ...)
   that goes through `LiveItems.TryApplyTransition`, which runs `ItemStateMachine` from
   `Multiplayer.Core`; one result answers it, and a repeated request id gets the same answer and
@@ -253,7 +254,8 @@ Concrete cases:
   (mine, someone else's, nobody's), never its owner, and only the owner the claim. A refused change
   is followed by the item's canonical state. Physics of a thrown or dropped item may be leased to one client, which
   sends samples and a settlement the host validates. See
-  [design/items/wire.md](design/items/wire.md), [design/item-lifecycle.md](legacy/items/item-lifecycle.md) and
+  [design/items/wire.md](design/items/wire.md), [design/items/ledger.md](design/items/ledger.md),
+  [design/items/live-state.md](design/items/live-state.md) and
   [design/items/physics.md](design/items/physics.md).
 - **Train topology.** `ServerboundTrainTopologyCommandPacket` (couple, uncouple, hoses, cocks,
   MU) is checked for range (the player within 8 m of the primary car, measured to the line
@@ -296,9 +298,9 @@ A client connects with `ServerboundClientLoginPacket` as the connection payload.
 
 Failures reject the request with a `ClientboundLoginResponsePacket` carrying a locale key (and
 missing/extra mods). On accept the host creates the `ServerPlayer`, re-keys an install GUID's data to a
-Steam ID the first time (`InstallGuidRekey`), gives back saved items held for this player
-(`ItemSaveLoad.OnOwnerConnected`); nothing is re-bound, since owners and holders are identities,
-not session numbers. It replies with the player id and its **protocol
+Steam ID the first time (`InstallGuidRekey`, which also re-keys their ledger entries and cold
+inventory: [design/items/save-load.md](design/items/save-load.md#re-keying-a-player)); nothing is
+re-bound, since owners and holders are identities, not session numbers. It replies with the player id and its **protocol
 fingerprint**.
 
 The fingerprint comes from `Tools/ProtocolManifestGenerator`, which runs after every build of
@@ -360,8 +362,10 @@ Notes on the steps:
   the client moves past `ReadyForTrainSets`. The client waits up to 45 s for the baseline and the
   canonical topology, then disconnects with a reason if either is missing.
 - **Items** have no snapshot step: from `ReadyForItems` the item manager's tick creates items as
-  they enter the player's interest. A rejoining player's inventory comes back the same way: the
-  host kept the records, and they're bound to the player at login.
+  they enter the player's interest. A joining player's own inventory is sent first, at
+  `ReadyForItems`, as one `ClientboundInventoryRowsPacket`: the rows the server kept while they were
+  away, each in its exact slot (`PlayerItems.SendRows`,
+  [design/items/inventory.md](design/items/inventory.md#cold-inventories)).
 - **Loading screen.** `DisplayLoadingInfoPatch` unhooks the loading screen from
   `WorldStreamingInit.LoadingFinished`, so it stays up through the sync. `RemoveLoadingScreen` takes
   it down, and the client then makes sure it has left loading mode
@@ -411,19 +415,21 @@ Only the host saves; `SaveGameManager.SaveAllowed` returns false on clients. A p
 `SaveGameManager.UpdateInternalData` calls `NetworkedSaveGameManager.Server_UpdateInternalData`,
 which writes a `Multiplayer` section into the host's save:
 
-- `Players.<guid>`: position, rotation and server-side inventory of each remote player that has
-  finished loading;
-- Lost and Found, cold container contents, and world item records (`WorldItemsV1`).
+- `Players.<guid>`: position and rotation of every player, the host's own included;
+- every item, in one key, `Multiplayer.Items` (`ItemSaveLoad.WriteSave`): the ledger, each item's
+  state, Lost and Found, containers' contents and the cold inventories, with vanilla's own item
+  lists written as a mirror ([design/items/save-load.md](design/items/save-load.md)).
 
-On load, items saved in a player's hand or inventory wait until that player connects
-(`ItemSaveLoad.OnOwnerConnected`).
+On load, the items are loaded once, before any request is carried out. An offline player's
+inventory stays as rows until they join.
 
 When a player disconnects (`NetworkServer.OnPeerDisconnected`) the host, with each step guarded
-so one failure doesn't skip the rest: cancels their pending item recalls, releases item physics
-leases, drops what they held and borrowed inventory items owned by others, clears their train
-control operations, updates the in-memory save with their data, removes them, tells the others,
-and runs `PlayerDisconnected` subscribers (cars release control leases there). Their own items
-stay as host records and are rebound on rejoin.
+so one failure doesn't skip the rest: releases their item physics leases, puts their items away
+(`PlayerItems.Leave`: the hand item into a free slot, someone else's items to their owner's Lost
+and Found, the rest of the inventory cold, as rows in its exact slots), clears their train control
+operations, updates the in-memory save with their data, removes them, tells the others, and runs
+`PlayerDisconnected` subscribers (cars release control leases there). Their inventory comes back
+as rows when they rejoin ([design/items/inventory.md](design/items/inventory.md#cold-inventories)).
 
 A client that crashes and reconnects before its old connection times out is matched by GUID at
 login and the stale session is retired first (see [Login](#1-login)). When the host stops it
@@ -441,16 +447,17 @@ The regression scenarios for this are `rejoin` (including `CRASH=1`), `save-relo
 | [jobs.md](jobs.md) | Job generation, booklets, validation and reports. |
 | [design/trains.md](design/trains.md) | Train authority layers, topology commands and snapshots, controls, brakes, motion, baseline. |
 | [design/items/train-wake.md](design/items/train-wake.md) | Loose items riding on trains: gluing, waking on impacts and acceleration, settlement. |
-| [design/items/README.md](design/items/README.md) | Start here for items: the item system as the refactor builds it, its names and one code folder and doc per subsystem. The item docs below are legacy until each is replaced. |
-| [design/item-lifecycle.md](legacy/items/item-lifecycle.md) | Legacy: an item's life, its placements, the state machine and shared rules, and the doc for each item system. |
-| [design/owned-items.md](legacy/items/owned-items.md) | Ownership and the owned-items ledger, starting items, joining and leaving, recall, the owned-items list and retrieval. |
-| [design/lost-and-found.md](legacy/items/lost-and-found.md) | Lost and Found: collection, entries, retrieval, saving. |
+| [design/items/README.md](design/items/README.md) | Start here for items: the item system as the refactor built it, its names, and one code folder and doc per subsystem. |
+| [design/items/wire.md](design/items/wire.md) | The item packets: naming items and players, the per-recipient update, one request and one result. |
+| [design/items/ledger.md](design/items/ledger.md), [live-state.md](design/items/live-state.md) | Every owned item's owner and home, and every item's live record, state machine and revisions. |
+| [design/items/inventory.md](design/items/inventory.md), [essentials.md](design/items/essentials.md) | Slots, stand-ins, cold inventories, joining and leaving; starting items, claim slots, recall. |
+| [design/items/owned-list.md](design/items/owned-list.md), [access.md](design/items/access.md) | The owned-items list and retrieval; what a player may do with an item. |
+| [design/items/containers.md](design/items/containers.md), [lost-and-found.md](design/items/lost-and-found.md) | Cold containers; Lost and Found: collection, entries, retrieval. |
+| [design/items/save-load.md](design/items/save-load.md) | The item save, `Multiplayer.Items`, and loading. |
 | [design/items/projection.md](design/items/projection.md), [world-items.md](design/items/world-items.md) | Item catalogue, interest streaming, projection to clients, placement anchors, office stock. |
 | [design/items/physics.md](design/items/physics.md) | Thrown and dropped item physics: leases, samples, settlement, validation. |
-| [design/container-storage.md](legacy/items/container-storage.md) | Cold containers: contents as server records, browse, deposit, withdraw. |
-| [design/item-persistence.md](legacy/items/item-persistence.md) | Where each item is saved, and loading. |
-| [design/item-ownership-open-questions.md](legacy/items/item-ownership-open-questions.md) | The ownership questions still open. |
-| [legacy/items/item-sync-review.md](legacy/items/item-sync-review.md) | Historical: the July 2026 review of item sync. |
+| [design/items/behaviours.md](design/items/behaviours.md), [change-causes.md](design/items/change-causes.md), [vanilla-storage.md](design/items/vanilla-storage.md) | Each item type's own sync; why an item moved or went away; vanilla's storage, respawn and bins. |
+| [legacy/items/](legacy/items/) | The item docs from before the refactor, kept as history ([README.md](README.md#legacy) lists them). |
 | [testing.md](testing.md) | Unit, protocol and in-game (dvmp) test layers. |
 | [observability.md](observability.md) | Debug events, overlay, packet inspector, HTTP firehose, captures. |
 | [development.md](development.md) | Building, deploying and the development workflow. |

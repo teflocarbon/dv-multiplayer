@@ -25,8 +25,9 @@
 | the claim flags a client shows (dropped, stolen, locked) | births and ends |
 | physics leases and settlement, projection to each client | the one-home check ([ledger.md](ledger.md)) |
 
-For an owned item the record's placement is written only after the ledger has committed the same
-home. An unowned item has no ledger entry: its placement is its home, and the ledger's slot rules
+For an owned item the record takes the new placement first, then the ledger commits the same home;
+nothing is written, logged or sent before that, and a refusal puts the record back
+([A change](#a-change)). An unowned item has no ledger entry: its placement is its home, and the ledger's slot rules
 still cover it (`ServerLedger.UnownedInSlot`).
 
 ## The live item
@@ -37,7 +38,7 @@ still cover it (`ServerLedger.UnownedInSlot`).
 | --- | --- |
 | `NetId` | the item's network id this session |
 | `Revision` | counts every accepted change; see [Revisions](#revisions) |
-| `Placement` | `ItemPlacementKind`: `World`, `PlayerHand`, `PlayerInventory`, `TrainInterior`, `StaticParent`, `Attached`, `SnappedAttachment`, `Installed`, `LostAndFound`, `Container`, `Destroyed` |
+| `Placement` | `ItemPlacementKind`: `World`, `PlayerHand`, `PlayerInventory`, `TrainInterior`, `StaticParent`, `Attached`, `SnappedAttachment`, `Installed`, `LostAndFound`, `Container`, `Destroyed`, `Magazine` |
 | `Holder` | the identity of the player whose hand or inventory it's in, or empty. They may be offline |
 | `PlacementHand` | which hand, for `PlayerHand` |
 | `Slot` | its slot of the holder's inventory, for every inventory item, owned or not (OI-SLOT-01); else -1 |
@@ -47,6 +48,7 @@ still cover it (`ServerLedger.UnownedInSlot`).
 | `StoredOwner`, `StoredClaimSlot` | what the item's own store named, read only until the ledger's saved entries are in (`ServerLedger.Restored`) |
 | `PersistentItemId`, `AuthoredItemKey` | the item's id, or a scene-authored item's key |
 | `Position`, `Rotation`, `WorldParent*`, `ParentLocal*`, `AttachedCar*` | the pose and what it hangs from |
+| `MagazineNetId`, `MagazineToolId`, `MagazineSlot` | for `Magazine`: the tool's NetId and id, and the slot ([containers.md](containers.md#ammo-in-a-magazine)) |
 | `LastReason`, `LastMove` | the last transition's reason and its cause ([change-causes.md](change-causes.md)) |
 
 `ServerLedger.HomeOf(record)` turns a record into its exact home: a hand by holder and hand, a slot
@@ -87,22 +89,25 @@ A player's request reaches it through `NetworkedItemServer.Server_ReceiveItemUpd
 make it at all (possession, the item shown to them, a sane pose, a book's page), then commits, then
 sends the accepted update to everyone, the sender included as its acknowledgement. A refusal at any
 step sends the sender a correction (`SendCanonicalRejectionCorrection`): the record's state, with the
-cause `HostCorrection`, which puts their game back.
+cause `HostCorrection`, which puts their game back. One case gets no correction: object state from a
+player who doesn't hold the item is ignored (`non-holder-object-state-ignored`), since it isn't a
+dispute about where the item is.
 
 The other ways in, each also ledger-first:
 
 | Method | For |
 | --- | --- |
-| `TryApplyServerTransition` | the server's own world on a host with no player (`HostItemActor.IsServer`): an empty actor, which moves items about the world but never holds one or becomes an owner |
+| `TryApplyServerTransition` | the server itself as an empty actor, which moves items about the world but never holds one or becomes an owner: the server's own world on a host with no player (`HostItemActor.IsServer`, from `ProcessChanged`), and on any host a deleted car's items (`DeletedCarItems.IntoWorld`) and a destroyed tool's ammo (`MagazineServer`) dropped into the world |
 | `TryApplyGadgetTransition` | the gadget code: the only way into or out of `Installed` |
 | `TryRecall` | an owner's recall ([below](#recall-in-one-step)) |
 | `TrySwapSlots` | two items of one inventory swapping slots ([inventory.md](inventory.md#moving-between-slots)) |
 | `TryMoveToLostAndFound`, `TryRetrieveFromLostAndFound`, `RestoreLostRecord` | Lost and Found's collection and retrieval |
-| `RegisterMaterializedColdItem` | an item made from data into an inventory: a withdrawal, the starting items, a cold row going live |
+| `RegisterDataOnly` | a row put straight into an inventory with no object: `PlayerItems.Issue` (a withdrawal into a slot, the starting items, an admin's give) and a joiner's rows (`PlayerItems.SendRows`) |
+| `RegisterMaterializedColdItem` | an object made from a row into an inventory or at its holder's feet: a cold row that can't be a row at join (`GoLive`: no free slot, a ledger home of `LostAndFound`, an item that can't be a stand-in), a starting item made with the inventory full |
 | `TryCommitSpatialPose` | a physics settlement; the ledger takes where it landed (`ServerLedger.OnSettled`) |
 
-`ServerLedger.OnMove` checks every accepted move afterwards: an owned item that moved without a
-ledger commit first is logged `item.ledger-not-first` and the ledger follows.
+A move made without a ledger commit first is caught afterwards (`ServerLedger.OnMove`,
+[ledger.md](ledger.md#the-ledger-decides-live-state-follows)).
 
 `KeepRemotePossession` is a backstop: a record that lands in the host's own player's hands while the
 server's copy is another present player's goes back to that player, with a warning.
@@ -136,7 +141,11 @@ the owner and the claim slot are the ledger's, and the ledger commit changes the
 
 A **forced** change skips the revision and possessor checks, never the gadget rule or the ledger.
 The server forces its own changes: the host's own player's observed changes (`ServerItemManager.ProcessChanged`,
-`HostLocalState`), a leaver's items ([inventory.md](inventory.md#cold-inventories)), an admin's give.
+`HostLocalState`) and its put-aways (`HostInventory`), a leaver's items
+([inventory.md](inventory.md#cold-inventories)), the invariant repair's move into a slot, and the
+server's own moves of a deleted car's items and a destroyed tool's ammo. An admin's give isn't a
+transition: it is born `Granted` by `ServerLedger.Own`, as a row (`PlayerItems.Issue`) or at the
+player's feet.
 
 ## Revisions
 
@@ -173,8 +182,8 @@ Found's collection if the item is there, else to `LiveItems.TryRecall`:
    `requester-not-persistent-owner` (OI-ACC-05);
 3. `ItemStateMachine.Recall`: the owner, a claim with `Reserved` or `Locked`, not installed, the exact
    revision;
-4. the slot: its claim slot if free, else the lowest free one (`ServerLedger.FreeSlot`); none is
-   `inventory-full`;
+4. the slot: the one asked for (the silhouette clicked) if free, else its claim slot, else the lowest
+   free one (`ServerLedger.FreeSlot`); none is `inventory-full`;
 5. the ledger commit; a refusal puts the record back.
 
 The update goes to everyone with no originating player, so every game applies it, the holder's
@@ -207,13 +216,15 @@ Each game adds its part:
 
 ## Data-only records
 
-An item in a connected remote player's inventory keeps its `LiveItem` (NetId, holder, slot, revision:
-it's live), but the server has no object for it: its state is a row (OI-COLD-06,
-[inventory.md](inventory.md#data-only-on-the-server)). `PlayerItems.IsDataOnly(record)` says so. The
-NetId stays the item's while it's data: `NetworkedItem.HandOverToData` lets go of it without freeing
-it, the object made again takes it up (`TakeUpFromData`), and it's freed only if the item goes cold
-(`FreeDataNetId`). The one-home check reads such an item's row, not an object. A request that names
-it has the object made first (`PlayerItems.WithObject`), so everything on this page runs on an object.
+An item in a connected player's inventory (a remote player's, and the host's own player's, D14), and
+ammo in the magazine of a tool kept so (`PlayerItems.Ammo`), keeps its `LiveItem` (NetId, holder,
+slot, revision: it's live), but the server has no object for it: its state is a row.
+`PlayerItems.IsDataOnly(record)` says so. When it goes to data, and how its object is made again for
+a request (`PlayerItems.WithObject`, so everything on this page runs on an object), is
+[inventory.md](inventory.md#data-only-on-the-server)'s. The NetId stays the item's while it's data:
+`NetworkedItem.HandOverToData` lets go of it without freeing it, the object made again takes it up
+(`TakeUpFromData`), and it's freed only if the item goes cold (`FreeDataNetId`). The one-home check
+reads such an item's row, not an object.
 
 A Lost and Found entry is kept as data the same way, under its record and NetId, its row kept by
 Lost and Found (OI-COLD-08); `PlayerItems.WithObject` makes its object again there
@@ -221,10 +232,8 @@ Lost and Found (OI-COLD-08); `PlayerItems.WithObject` makes its object again the
 
 ## Not on this page
 
-- Physics (leases, samples, settlement, throws, fall rescue): R7's `physics.md`; until then
-  [item-spatial-physics.md](../../legacy/items/item-spatial-physics.md).
-- Projection (interest, what each client is shown, convergence): R7's `projection.md`; until then
-  [item-world-sync.md](../../legacy/items/item-world-sync.md).
+- Physics (leases, samples, settlement, throws, fall rescue): [physics.md](physics.md).
+- Projection (interest, what each client is shown, convergence): [projection.md](projection.md).
 
 ## Tests
 
