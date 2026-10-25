@@ -3,6 +3,7 @@ using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
+using DV.CabControls;
 using Dvmp.Agent;
 using Dvmp.Lib;
 using HarmonyLib;
@@ -25,6 +26,10 @@ namespace Dvmp.Scenarios
     ///   (a Failed ack), which forgets the Create and sends it again: within 15 s the client has the
     ///   mug, acknowledged. Before R7 the immediate path sent nothing, and the server sent only
     ///   updates for an object the client never made (OI-SYNC-07);
+    /// - failing: the client's game fails every Create of the mug, as a client without a modded
+    ///   item's prefab would. The server sends it again after 5, 10, 20 and 40 s, then stops while
+    ///   the mug stays in the client's interest; once the client has left and come back it sends it
+    ///   afresh. Before, it went every 5 s for as long as the client stayed near it;
     /// - late-retire: a retirement's ack arrives after the mug came back into the client's interest
     ///   (F45: given to the server as the race delivers it). The server must keep the mug known, hold
     ///   nothing back, and take the new Create's ack. Before R7 it forgot the mug for 5 s and refused
@@ -33,17 +38,17 @@ namespace Dvmp.Scenarios
     ///   out of the mug's range. The client's copy must have the host's correction as its last move,
     ///   and its retirement must say it left interest and where it was (OI-SYNC-18). The server's
     ///   debug state names the client's projection of the mug (OI-SYNC-17);
-    /// - collision: one of the client's scene items is given another's key, and the client's
+    /// - collision: the client's game is given a second object of one scene item (its key twice), and its
     ///   catalogue is negotiated again. The server must still accept it and refuse only that key.
     ///   Before R7 it refused the whole catalogue: no scene items for that client (OI-SYNC-08).
     /// </summary>
     [Scenario("projection-acks", "A Create the client can't make is sent again; a late retirement ack holds nothing back; corrections and retirements carry their causes")]
-    [Budget(180)]
+    [Budget(300)]
     public sealed class ProjectionAcks : Scenario<ProjectionAcks.Options>
     {
         public sealed class Options
         {
-            /// <summary>failed, late-retire, cause or collision.</summary>
+            /// <summary>failed, failing, late-retire, cause or collision.</summary>
             public string Mode = "failed";
         }
 
@@ -64,8 +69,11 @@ namespace Dvmp.Scenarios
                 case "cause":
                     await Causes(pair);
                     break;
+                case "failing":
+                    await Failing(pair);
+                    break;
                 default:
-                    throw new ArgumentException("MODE: failed, late-retire, cause or collision, not " + o.Mode);
+                    throw new ArgumentException("MODE: failed, failing, late-retire, cause or collision, not " + o.Mode);
             }
         }
 
@@ -83,6 +91,35 @@ namespace Dvmp.Scenarios
                 p => p.Acknowledged, 15, "the Create sent again, and acknowledged");
             Report.Note("after the retry: " + again);
             Expect.That(await pair.Client.Run(() => InGame.Has(mug)), "the client has the mug after the retry");
+        }
+
+        private static async Task Failing(Pair pair)
+        {
+            await pair.Client.Run(() => InGame.FailCreates("Mug"));
+            pair.Cleanup(() => pair.Client.Run(() => InGame.FailNextCreate("")));
+            ushort mug = await pair.Host.Run<ushort>(s => Items.Spawn(s, "Mug", "client"));
+            // 1 + 4 retries over 5 + 10 + 20 + 40 s: all of them by 90 s, and none after.
+            Projection given = await Until.Value(() => pair.Host.Run(() => InGame.ProjectionTo(mug)),
+                p => p.RetryIn < 0, 100, "the server giving up on the mug's Create");
+            Report.Note("after the failures: " + given);
+            await Task.Delay(15000);
+            int failures = await pair.Client.Run(() => InGame.Failures());
+            Report.Note($"the client's game failed the mug's Create {failures} times");
+            // Core ProjectionRetry: the first Create and its 4 retries.
+            Expect.Equal(5, failures, "Creates of the mug the client failed (the first and each retry, then none)");
+            Expect.That(!given.Known && !given.Acknowledged, "the server doesn't count the mug as the client's", given.ToString());
+
+            // Out of interest and back: it is sent afresh, and made this time.
+            await pair.Client.Run(() => InGame.FailNextCreate(""));
+            Abs at = await pair.Host.Run(() => OwnedListShelf.InGame.At(mug));
+            await pair.Client.Run<Abs>(s => Walk.Away(s, 900, 0), 60);
+            await Until.Value(() => pair.Host.Run(() => InGame.ProjectionTo(mug)), p => p.RetryIn == 0, 20,
+                "the server forgetting the failures once the mug left the client's interest");
+            await pair.Client.Run(() => OwnedListShelf.InGame.GoTo(at), 60);
+            Projection back = await Until.Value(() => pair.Host.Run(() => InGame.ProjectionTo(mug)),
+                p => p.Acknowledged, 20, "the mug sent afresh after the client came back, and acknowledged");
+            Report.Note("after coming back: " + back);
+            Expect.That(await pair.Client.Run(() => InGame.Has(mug)), "the client has the mug after coming back");
         }
 
         private static async Task LateRetire(Pair pair)
@@ -160,6 +197,7 @@ namespace Dvmp.Scenarios
         {
             private const string HarmonyId = "dvmp.projection-acks";
             private static string failPrefab = "";
+            private static bool failAlways;
             private static int failures;
             private static ushort watched;
             private static string removal = "";
@@ -171,6 +209,7 @@ namespace Dvmp.Scenarios
                 var harmony = new Harmony(HarmonyId + ".create");
                 harmony.UnpatchAll(HarmonyId + ".create");
                 failPrefab = prefab ?? "";
+                failAlways = false;
                 failures = 0;
                 if (failPrefab.Length > 0)
                     harmony.Patch(AccessTools.Method(typeof(ClientItemManager), "CreateItem"),
@@ -182,10 +221,20 @@ namespace Dvmp.Scenarios
             {
                 if (failPrefab.Length == 0 || snapshot?.PrefabName != failPrefab)
                     return true;
-                failPrefab = "";
+                if (!failAlways)
+                    failPrefab = "";
                 failures++;
                 __result = false;
                 return false;
+            }
+
+            /// <summary>Client: fails every Create of this prefab, until <see cref="FailNextCreate"/> stops it.</summary>
+            [Step]
+            public static bool FailCreates(string prefab)
+            {
+                FailNextCreate(prefab);
+                failAlways = true;
+                return true;
             }
 
             [Step]
@@ -211,7 +260,9 @@ namespace Dvmp.Scenarios
                 {
                     Known = item != null && client.KnownItems.ContainsKey(item),
                     Acknowledged = client.AcknowledgedWorldItems.Contains(netId),
-                    RetryIn = client.ProjectionRetryAt.TryGetValue(netId, out float at) ? Mathf.Max(0f, at - Time.time) : 0f
+                    // -1: no more Creates while it stays in the client's interest.
+                    RetryIn = !client.ProjectionRetries.TryGetValue(netId, out var retry) ? 0f
+                        : float.IsPositiveInfinity(retry.At) ? -1f : Mathf.Max(0f, retry.At - Time.time)
                 };
             }
 
@@ -296,37 +347,50 @@ namespace Dvmp.Scenarios
             [Step]
             public static string Removal() => removal;
 
-            private static NetworkedItem collided;
-            private static string collidedKey = "";
+            private static GameObject twinHolder;
 
             /// <summary>
-            /// Client: gives one scene item another's key, as two objects of a modded scene might,
-            /// and negotiates its catalogue again. Result: the key two objects now make.
+            /// Client: a second object of one scene item, with its name, scene and key, as a modded
+            /// scene might have, and negotiates its catalogue again. The client's game has the same
+            /// keys as the host's, one of them twice: only that one collides. (Before, this gave a
+            /// second item the first's key, which took the second's key out of the client's set: the
+            /// catalogues differed, and the server refused it whole however it treated collisions.)
+            /// The copy is made under an inactive parent, so it never wakes: no NetId, nothing sent.
+            /// Result: the key two objects now make.
             /// </summary>
             [Step]
             [ClientOnly]
             public static string Collide()
             {
-                NetworkedItem[] authored = NetworkedItem.GetAll().Where(i => i != null && i.IsSceneAuthored)
-                    .GroupBy(i => i.AuthoredItemKey).Select(g => g.First()).Take(2).ToArray();
-                if (authored.Length < 2) throw new Exception("fewer than two scene items in this game");
-                collided = authored[1];
-                collidedKey = collided.AuthoredItemKey;
-                collided.AuthoredItemKey = authored[0].AuthoredItemKey;
-                NetworkedItemManager.Instance.Authored.Catalogue.Rebuild();
+                var catalogue = NetworkedItemManager.Instance.Authored.Catalogue;
+                NetworkedItem original = catalogue.Items.FirstOrDefault(i => i != null && i.Item != null);
+                if (original == null) throw new Exception("no scene item in this game's catalogue");
+                twinHolder = new GameObject("dvmp projection-acks twin");
+                twinHolder.SetActive(false);
+                UnityEngine.SceneManagement.SceneManager.MoveGameObjectToScene(twinHolder, original.gameObject.scene);
+                GameObject twin = UnityEngine.Object.Instantiate(original.gameObject, twinHolder.transform);
+                twin.name = original.gameObject.name;
+                // ItemBase takes its spec at Awake, which a sleeping copy never has.
+                ItemBase item = twin.GetComponent<ItemBase>();
+                AccessTools.Property(typeof(ItemBase), nameof(ItemBase.InventorySpecs))
+                    .SetValue(item, twin.GetComponent<InventoryItemSpec>());
+                twin.GetComponent<NetworkedItem>().AuthoredItemKey = original.AuthoredItemKey;
+                int before = catalogue.BaselineCount;
+                catalogue.Rebuild();
+                if (catalogue.BaselineCount != before || !catalogue.BaselineCollisionKeys.Contains(original.AuthoredItemKey))
+                    throw new Exception($"the twin didn't collide alone: {before} keys before, {catalogue.BaselineCount} after, collided [{string.Join(",", catalogue.BaselineCollisionKeys)}]");
                 Multiplayer.Client.Session.NetworkClient.Instance.SendWorldItemCatalogue();
-                return authored[0].AuthoredItemKey;
+                return original.AuthoredItemKey;
             }
 
-            /// <summary>Client: gives the item its own key back and negotiates again.</summary>
+            /// <summary>Client: removes the second object and negotiates again.</summary>
             [Step]
             [ClientOnly]
             public static bool Uncollide()
             {
-                if (collided != null && collidedKey.Length > 0)
-                    collided.AuthoredItemKey = collidedKey;
-                collided = null;
-                collidedKey = "";
+                if (twinHolder != null)
+                    UnityEngine.Object.DestroyImmediate(twinHolder);
+                twinHolder = null;
                 NetworkedItemManager.Instance.Authored.Catalogue.Rebuild();
                 Multiplayer.Client.Session.NetworkClient.Instance.SendWorldItemCatalogue();
                 return true;

@@ -105,6 +105,12 @@ internal sealed partial class ServerItemManager
             {
                 lastInterestRefreshTick[player.PlayerId] = tick;
                 RefreshPlayerInterest(player, centre, desiredCells, cellsChanged);
+                // An item that left the player's interest starts afresh when it comes back.
+                if (player.ProjectionRetries.Count > 0)
+                    foreach (ushort netId in player.ProjectionRetries.Keys.ToArray())
+                        if (!NetworkedItem.TryGet(netId, out NetworkedItem retried) || retried == null ||
+                            !player.NearbyItems.ContainsKey(retried))
+                            player.ProjectionRetries.Remove(netId);
             }
 
             foreach (NetworkedItem item in lostItems)
@@ -149,7 +155,7 @@ internal sealed partial class ServerItemManager
         // the other side each time the player stepped across it.
         if (player.NearbyItems.Count > 0)
         {
-            HashSet<NetworkedItem> retainable = RelevantItems(WorldItemCellCoord.Neighbourhood(centre, 2));
+            HashSet<NetworkedItem> retainable = RelevantItems(WorldItemCellCoord.Neighbourhood(centre, WorldItemCellCoord.KeepRadius));
             desiredItems.UnionWith(player.NearbyItems.Keys.Where(item => item != null && retainable.Contains(item)));
         }
         AddPinnedInterest(player, desiredItems);
@@ -413,13 +419,10 @@ internal sealed partial class ServerItemManager
                     suppressCreate: false,
                     destroyed: false);
 
+                // The failures are counted until the client makes it or it leaves interest.
                 if (delivery.Kind == ItemDeliveryKind.Create &&
-                    player.ProjectionRetryAt.TryGetValue(nearbyItem.NetId, out float retryAt))
-                {
-                    if (Time.time < retryAt)
-                        continue;
-                    player.ProjectionRetryAt.Remove(nearbyItem.NetId);
-                }
+                    player.ProjectionRetries.TryGetValue(nearbyItem.NetId, out var retry) && Time.time < retry.At)
+                    continue;
 
                 if (delivery.Kind == ItemDeliveryKind.Create)
                 {

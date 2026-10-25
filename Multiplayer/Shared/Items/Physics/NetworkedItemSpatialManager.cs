@@ -453,7 +453,7 @@ internal sealed class NetworkedItemSpatialManager
             NetworkedTrainCar.TryGet(state.WorldParentNetId, out TrainCar car))
             return car.interior ?? car.transform;
         if (state.WorldParentKind == ItemWorldParentKind.StaticParent &&
-            WorldItemStaticParentRegistry.TryResolve(state.WorldParentKey, state.AbsolutePosition, out Transform parent))
+            WorldItemStaticParentRegistry.TryResolve(state.WorldParentKey, state.AbsolutePosition, state.ParentLocalPosition, out Transform parent))
             return parent;
         return null;
     }

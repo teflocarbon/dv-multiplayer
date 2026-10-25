@@ -110,11 +110,14 @@ nothing, and a moved shelf never resolved (OI-SYNC-09, F47). Keys from before R7
 
 **Resolving a key** (`WorldItemStaticParentRegistry.TryResolve`). The registry keeps the loaded scenes'
 shelves by key. Of shelves with one key (two copies of a building, two shelves of one name) the one
-nearest the item is meant (`StaticParentKeys.Nearest`); each caller passes where the item is. A miss
-rescans the scenes only when one has loaded or unloaded since, or after 2 s: before R7 every miss
-rescanned, and a key no game had did it at every sample. The server refuses a client's update onto a
-shelf it can't resolve, or more than 192 m from the sender (`invalid-or-distant-static-parent`), and a
-sample or settlement held to the same distance ([physics.md](physics.md)).
+meant is the one that puts the item's shelf-local position nearest where the item is
+(`StaticParentKeys.Nearest`); each caller passes both. A scene loaded or unloaded since the last scan
+rescans them before any lookup, so a tile with a same-keyed shelf is a candidate at once; before the
+R7 fixes a key already known never saw it, and resolved to the other building's shelf. Otherwise a
+miss rescans after 2 s at most: before R7 every miss rescanned, and a key no game had did it at every
+sample. The server refuses a client's update onto a shelf it can't resolve, or more than 192 m
+from the sender (`invalid-or-distant-static-parent`), and a sample or settlement
+held to the same distance ([physics.md](physics.md)).
 
 **Adopting the resting shelf** (SH1). Vanilla parents an item to a shelf on its next collision with it
 (`ItemReparentingBase.OnCollisionEnter`), about eight frames after a drop, and a dropped mug can sleep
@@ -138,7 +141,13 @@ A station office's props are stock: each is a slot the server keeps stocked, not
 player's item or an essential, not snapped, and not a container, a gadget or a job paper.
 
 **A player who could see it protects a place** (`OfficeStockRules.Protects`): every connected player whose
-3×3 cells hold it. **A player still loading protects everywhere**: where they will appear isn't known
+cells hold it. Where an item already lies (a knocked prop, a fork) that is 5×5, as far as interest keeps
+items (`WorldItemCellCoord.KeepRadius`), and the item is also kept while it is in any player's nearby
+set, wherever it lies (not their known set: an item made from a container is known to every player and
+stays so). Before the R7 fixes only 3×3 was checked there, and a player a cell and a half away still
+had the prop when it was reset or cleared in front of them. An empty slot or a prop's place stays 3×3:
+what would appear there is new, and new items enter interest at 3×3, so 5×5 kept an office empty for a
+player shunting nearby. **A player still loading protects everywhere**: where they will appear isn't known
 yet, and before R7 a player joining beside an office watched its props vanish (OI-SYNC-10, F30). On a
 player host the host's own player counts; a dedicated host has none.
 
@@ -183,8 +192,12 @@ on both host kinds unless marked:
 
 - `shelf-item` (default, `RELEASE=throw`): a client's mug on a shed's shelf, seen by a late joiner,
   still there after a restart (the key in each game, OI-SYNC-09), and retrieved (OI-LIST-09);
+  `MODE=twin`: a same-keyed shelf far away (a tile loading after the key was known) and one whose
+  pivot is at the mug, and each game still resolves the right one;
 - `item-bug-client-shelf` (default, `RELEASE=throw`; SH1) and `item-bug-shelf-unseen` (SH2, player host
   only), both required passes; `owned-list-shelf` (player host only) and `owner-offline WHERE=shelf`;
-- `office-stock`: `loading` (a loading player keeps a fork, OI-SYNC-10) and `MODE=knocked` (OI-SYNC-13);
-- `projection-acks MODE=collision`: one scene key refused, the catalogue still accepted (OI-SYNC-08);
+- `office-stock`: `loading` (a loading player keeps a fork, OI-SYNC-10), `MODE=knocked` (OI-SYNC-13) and
+  `MODE=knocked-edge` (a player two cells away, whose game still has the prop, keeps it);
+- `projection-acks MODE=collision`: a second object of one scene item in the client's game; that key
+  refused alone, the catalogue still accepted (OI-SYNC-08);
 - `save-homes`: a scene item in a slot through a restart, once.

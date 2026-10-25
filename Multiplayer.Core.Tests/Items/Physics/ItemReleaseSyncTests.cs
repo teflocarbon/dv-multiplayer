@@ -121,6 +121,46 @@ public sealed class ItemReleaseSyncTests
     }
 
     [Test]
+    public void StateMachine_AFlightsParentChangeKeepsAnyonesGrabFromBeforeIt()
+    {
+        // A3: player 2 throws a mug (-> 5); it crosses into a flatcar mid-flight and the server
+        // commits the new parent (-> 6). Player 3's catch, made at 5, still holds.
+        LiveItemState thrown = Apply(State(revision: 4, placement: LivePlacement.PlayerHand, holder: 2),
+            actor: 2, expected: 4, LivePlacement.World);
+        LiveItemState inCar = ParentChange(thrown);
+        TransitionResult caught = ItemStateMachine.Apply(inCar, Command(actor: 3, expected: 5, LivePlacement.PlayerHand));
+        Assert.That(caught.Accepted, Is.True, caught.RejectionReason);
+        Assert.That(ItemStateMachine.Apply(inCar, Command(actor: 2, expected: 5, LivePlacement.PlayerHand)).Accepted,
+            Is.True, "the thrower's too");
+        Assert.That(ItemStateMachine.Apply(inCar, Command(actor: 3, expected: 4, LivePlacement.PlayerHand)).RejectionReason,
+            Is.EqualTo("stale-authority-revision"), "made before the throw, when it was in a hand");
+
+        // The thrower's settlement in the car (-> 7) keeps the window from before the parent change
+        // for the settler, and only for them.
+        LiveItemState settled = Settle(inCar, settler: 2);
+        Assert.That(ItemStateMachine.Apply(settled, Command(actor: 2, expected: 5, LivePlacement.PlayerHand)).Accepted,
+            Is.True, "the settler's own request from before the parent change");
+        Assert.That(ItemStateMachine.Apply(settled, Command(actor: 3, expected: 5, LivePlacement.PlayerHand)).Accepted,
+            Is.False, "player 3 didn't simulate where it came to rest");
+
+        // A second parent change (out of the car again, -> 7) keeps the first's window.
+        Assert.That(ItemStateMachine.Apply(ParentChange(inCar), Command(actor: 3, expected: 5, LivePlacement.PlayerHand)).Accepted,
+            Is.True, "two parent changes in one flight");
+    }
+
+    [Test]
+    public void StateMachine_AParentChangeAfterAWakeKeepsTheSettlersWindow()
+    {
+        // F3: player 2 settles a mug in a car (-> 5), a wake sets it sliding at that revision, and
+        // it slides onto the next car (parent change -> 6). Player 2's grab made at 4, which their
+        // own settlement covered, still holds.
+        LiveItemState settled = Settle(State(revision: 4, placement: LivePlacement.World), settler: 2);
+        LiveItemState nextCar = ParentChange(settled);
+        TransitionResult grab = ItemStateMachine.Apply(nextCar, Command(actor: 2, expected: 4, LivePlacement.PlayerHand));
+        Assert.That(grab.Accepted, Is.True, grab.RejectionReason);
+    }
+
+    [Test]
     public void StateMachine_SettlersWindowOutlivesObjectStateButNotAMove()
     {
         LiveItemState state = State(revision: 4, placement: LivePlacement.World);
@@ -289,10 +329,15 @@ public sealed class ItemReleaseSyncTests
     }
 
     // A settle commit as LiveItems.TryCommitSpatialPose makes it, by the player simulating it.
-    private static LiveItemState Settle(LiveItemState state, int settler)
+    private static LiveItemState Settle(LiveItemState state, int settler) => Commit(state, P(settler));
+
+    // A flight's change of parent, as ServerItemSpatial.CommitParentChangeIfDue commits it.
+    private static LiveItemState ParentChange(LiveItemState state) => Commit(state, ItemPlacementRevision.Anyone);
+
+    private static LiveItemState Commit(LiveItemState state, System.Guid settler)
     {
         LiveItemState next = state.Clone();
-        (next.SettledBy, next.SettledBase, next.SettledTop) = ItemPlacementRevision.SettledAfter(P(settler),
+        (next.SettledBy, next.SettledBase, next.SettledTop) = ItemPlacementRevision.SettledAfter(settler,
             state.Revision, state.ObjectStateRunBase, state.ObjectStateRunTop,
             state.SettledBy, state.SettledBase, state.SettledTop);
         next.Revision++;

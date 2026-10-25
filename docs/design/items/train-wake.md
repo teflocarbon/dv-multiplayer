@@ -134,9 +134,15 @@ own.
 sent it: it is pinned in their interest for 10 s (`ItemSimulatorChoice.Lacking`, riders first, then
 nearest; `ServerItemManager.PinInterest`; OI-PHY-12). The wake waits (`wake-pending`) and is retried
 every 0.5 s, so it finds one of them once their game has the item. A pending wake older than 10 s
-(`PendingWakeSeconds`, counted from the first attempt: a retry keeps it) is dropped
-(`wake-expired`) and the item stays settled. A missing server object waits the same way. Any other refusal drops the wake without
-an event and keeps the record.
+(`PendingWakeSeconds`) is dropped (`wake-expired`) and the item stays settled. The 10 s count from
+the first attempt of the trigger that is waiting: a retry keeps it, and a fresh trigger for an item
+already waiting (a derailment after a braking) starts its own. Before #397 a retry restarted the
+clock, so a wake never expired; #397's first fix let a fresh trigger take the waiting one's clock,
+so a derailment, which fires once, could expire untried. So triggers that keep coming (a train
+braking hard again and again) keep an item nobody can simulate pending, and pinned, for as long as
+they come; that is by design: each is a real disturbance, and the pin is what lets a player take it.
+A missing server object waits the same way. Any other refusal, a first attempt or a retry, drops
+the wake without an event and keeps the record.
 
 ## Late joiners
 

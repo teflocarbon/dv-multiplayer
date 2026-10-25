@@ -7,6 +7,11 @@ namespace Multiplayer.Server.Items.Projection;
 internal readonly struct WorldItemCellCoord : IEquatable<WorldItemCellCoord>
 {
     public const float Size = 128f;
+    /// <summary>
+    /// An item enters a player's interest within one cell of theirs (3x3) and leaves it only beyond
+    /// this many (5x5): the hysteresis (ServerItemManager.Interest).
+    /// </summary>
+    public const int KeepRadius = 2;
     public readonly int X;
     public readonly int Z;
 

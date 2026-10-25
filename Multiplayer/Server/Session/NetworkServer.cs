@@ -308,8 +308,6 @@ public partial class NetworkServer : NetworkManager
         RegisterLocalHandlers();
     }
 
-    private const float ProjectionRetryDelaySeconds = 5f;
-
     //allow mods to register their own packets
     public void RegisterExternalPacket<T>(ServerPacketHandler<T> handler) where T : class, IPacket, new()
     {

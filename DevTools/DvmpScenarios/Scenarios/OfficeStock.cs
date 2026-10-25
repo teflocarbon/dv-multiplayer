@@ -24,16 +24,20 @@ namespace Dvmp.Scenarios
     /// - knocked: an office prop is knocked 450 m out of its office, and the client stands beside
     ///   it, nobody at the office. It must stay where it lies; before R7 only the office was checked,
     ///   and it vanished from beside the client (OI-SYNC-13). Once the client leaves, it is put back.
+    /// - knocked-edge: as knocked, but the client then stands two cells from the prop: out of the 3x3
+    ///   cells new items enter a player's interest by, inside the 5x5 they stay in it by, so its game
+    ///   still has the prop. It must stay; before the R7 fixes only 3x3 was checked, and it was put
+    ///   back in front of the client (B4).
     /// The fork cleanup's other guards (owned, claimed, in Lost and Found, leased, grabbed:
     /// OI-SYNC-11) are Core's OfficeStockRules tests.
     /// </summary>
-    [Scenario("office-stock", "An office prop left lying isn't cleared while a player is still loading; one knocked out of its office isn't put back while a player is beside it")]
+    [Scenario("office-stock", ("An office prop left lying isn't cleared while a player is still loading; one knocked out of its office isn't put back while a player is beside it or still has it"))]
     [Budget(300)]
     public sealed class OfficeStock : Scenario<OfficeStock.Options>
     {
         public sealed class Options
         {
-            /// <summary>loading or knocked.</summary>
+            /// <summary>loading, knocked or knocked-edge.</summary>
             public string Mode = "loading";
         }
 
@@ -46,10 +50,10 @@ namespace Dvmp.Scenarios
             await pair.Client.Run(() => OwnedListShelf.InGame.GoTo(prop.At), 60);
             if (o.Mode == "loading")
                 await Loading(pair, prop);
-            else if (o.Mode == "knocked")
-                await Knocked(pair, prop);
+            else if (o.Mode is "knocked" or "knocked-edge")
+                await Knocked(pair, prop, edge: o.Mode == "knocked-edge");
             else
-                throw new ArgumentException("MODE: loading or knocked, not " + o.Mode);
+                throw new ArgumentException("MODE: loading, knocked or knocked-edge, not " + o.Mode);
         }
 
         private static async Task Loading(Pair pair, Prop prop)
@@ -75,16 +79,25 @@ namespace Dvmp.Scenarios
             Expect.That(!exists, "the fork is cleared once nobody is loading or near");
         }
 
-        private static async Task Knocked(Pair pair, Prop prop)
+        private static async Task Knocked(Pair pair, Prop prop, bool edge)
         {
             Abs far = await pair.Client.Run<Abs>(s => Walk.Away(s, 450, 0), 60);
             await pair.Host.Run(() => InGame.Knock(prop.NetId, far));
             pair.Cleanup(() => pair.Host.Run(() => InGame.Release(prop.NetId)));
             if (!pair.Dedicated) await pair.Host.Run<Abs>(s => Walk.Away(s, -900, 0), 60);
+            string where = "beside it";
+            if (edge)
+            {
+                await Task.Delay(5000);   // the client's game has the prop
+                // The middle of the cell two east of the prop's (cells are 128 m).
+                float dx = ((float)Math.Floor(far.X / 128f) + 2f) * 128f + 64f - far.X;
+                await pair.Client.Run<Abs>(s => Walk.Away(s, dx, 0), 60);
+                where = $"{dx:0} m east of it, two cells";
+            }
             await Task.Delay(25000);   // a knocked prop nobody is near is put back after 15 s
             float fromHome = await pair.Host.Run(() => InGame.FromBaseline(prop.NetId));
-            Report.Note($"after 25 s beside it: {fromHome:0} m from its place");
-            Expect.AtLeast(fromHome, 100, "metres the prop is from its place while the client is beside it");
+            Report.Note($"after 25 s {where}: {fromHome:0} m from its place");
+            Expect.AtLeast(fromHome, 100, $"metres the prop is from its place while the client is {where}");
 
             await pair.Client.Run<Abs>(s => Walk.Away(s, 900, 0), 60);
             float back = await Until.Value(() => pair.Host.Run(() => InGame.FromBaseline(prop.NetId)), m => m < 0.5f, 40,
