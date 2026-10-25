@@ -217,6 +217,11 @@ then the player is sent no updates for an object it doesn't have. Before the R7 
 always 5 s and cleared when the Create went, so a Create that could never succeed went every 5 s for
 as long as the player stayed near it, and the client logged a missing prefab each time.
 
+A new item's own first snapshot is a Create. A player the item was already made for (its Create went
+a tick before) is sent that change as a `FullSync` instead (`ProcessChanged`): as a second Create, a
+game that couldn't make the item failed it twice, once more than its retries allow (`projection-acks
+MODE=failing`).
+
 ## Convergence
 
 Replication is by event: once a client knows an item, it hears of it again only when it changes. Some
