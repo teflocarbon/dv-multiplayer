@@ -21,6 +21,9 @@ namespace Multiplayer.Shared.Items.Inventory;
 /// it, the cassette takes the row's track and position (<see cref="StashedCassette"/>), and plays
 /// on if the row's did, as vanilla's load would.</item>
 /// </list>
+/// The server's copy of a take-out (<c>PlayerItems.Materialize</c>) loads a frame after its prefab,
+/// as vanilla's own load does, so the boombox is set up by then and only its cassette, made after
+/// the load there too, is left: a player host's own player heard nothing once the client took it out.
 /// </summary>
 [HarmonyPatch(typeof(BoomboxInteractionController))]
 internal static class BoomboxStatePatch
@@ -35,6 +38,8 @@ internal static class BoomboxStatePatch
         if (!__instance.initialized)
             CoroutineManager.Instance.StartCoroutine(AfterSetup(__instance, __instance.volumeAndInterferenceController.GetVolume(),
                 data?.DeepClone() as JObject));
+        else if (!__instance.HasCassetteInserted && StashedCassette.TryRead(data, out _))
+            CoroutineManager.Instance.StartCoroutine(Resume(__instance, data.DeepClone() as JObject));
     }
 
     private static IEnumerator AfterSetup(BoomboxInteractionController boombox, float volume, JObject data)
@@ -47,6 +52,12 @@ internal static class BoomboxStatePatch
             yield break;
         boombox.SetVolume(volume);
         TellPowerAndMode(boombox);
+        yield return Resume(boombox, data);
+    }
+
+    // Once it has its cassette, the cassette takes the row's track and position, and plays on if the row's did.
+    private static IEnumerator Resume(BoomboxInteractionController boombox, JObject data)
+    {
         if (!StashedCassette.TryRead(data, out StashedCassette.Position position))
             yield break;
         float until = Time.realtimeSinceStartup + CassetteWaitSeconds;

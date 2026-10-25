@@ -435,7 +435,12 @@ these: its object does.
   boombox's cassette area has set itself up (vanilla's Init, a frame after it wakes), and the
   area's magazine handler threw: the load failed on the holder's game and the server alike, the
   cassette left loose (end pass, `stashed-cassette`, `magazine-tools`). `CassetteAreaSetupPatch`
-  runs that handler once the area is set up. A tape that ran out comes out stopped on its last track (vanilla's stays "playing" with
+  runs that handler once the area is set up, and puts the cassette in at once: the boombox's save
+  names the track and whether it plays only with a cassette in, so a state read in that first frame
+  (`stash-state`) kept neither. The server's copy of a client's take-out is made a frame after its
+  prefab (`PlayerItems.Materialize`), set up by the time its state loads and still without its
+  cassette: `BoomboxStatePatch` waits for that cassette too (a player host's own player heard
+  nothing once the client took it out, `stashed-cassette`). A tape that ran out comes out stopped on its last track (vanilla's stays "playing" with
   nothing left to play).
 - **Heard by the players near its holder** (everything heard in the world is shared). Twice a second
   the server reads what each stashed boombox of a connected player plays from its row
