@@ -53,33 +53,33 @@ the named PR; scenario line numbers are at beta 1a0b732f.
 
 ## Where it stands
 
-On 2026-10-24, with R3 (#342, #343, #344), R4a (#347) and R4b (#348), after OI-REF-02's player-host run and its missing scenarios (#356); R5's drafts (#367-#374) are counted as in a PR (2026-10-25):
+On 2026-10-25, with every stage of the refactor built (R0 to R8; R8 is #399 to #404, drafts), counted by script from each row's status column. A `[~] #n` row, merged or in a draft, waits on the end pass (OI-REF-01):
 
 | Area | Done | Built, unproved | In a PR or branch | Not started | Needs decision | Paused | Not needed |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | The refactor's full runs | 0 | 0 | 0 | 2 | 0 | 0 | 0 |
-| Identity and what is owned | 13 | 0 | 1 | 1 | 0 | 4 | 0 |
-| The ledger as the source of truth | 14 | 0 | 0 | 1 | 0 | 0 | 1 |
-| Joining, rejoining and leaving | 9 | 0 | 0 | 2 | 0 | 0 | 0 |
-| Starting items | 8 | 1 | 0 | 1 | 0 | 0 | 0 |
-| Essentials and claims | 13 | 1 | 0 | 2 | 0 | 0 | 1 |
+| Identity and what is owned | 13 | 0 | 2 | 0 | 0 | 4 | 0 |
+| The ledger as the source of truth | 15 | 0 | 0 | 0 | 0 | 0 | 1 |
+| Joining, rejoining and leaving | 9 | 0 | 2 | 0 | 0 | 0 | 0 |
+| Starting items | 8 | 0 | 2 | 0 | 0 | 0 | 0 |
+| Essentials and claims | 13 | 1 | 2 | 0 | 0 | 0 | 1 |
 | Inventory slots | 3 | 0 | 0 | 0 | 0 | 0 | 0 |
-| Cold and live homes | 6 | 0 | 8 | 1 | 0 | 0 | 0 |
-| Lost and Found | 15 | 1 | 0 | 6 | 0 | 0 | 0 |
-| The list and retrieval | 11 | 2 | 3 | 1 | 0 | 6 | 0 |
-| Lineage | 3 | 1 | 0 | 0 | 0 | 3 | 0 |
+| Cold and live homes | 6 | 0 | 10 | 0 | 0 | 0 | 0 |
+| Lost and Found | 14 | 0 | 8 | 0 | 0 | 0 | 0 |
+| The list and retrieval | 11 | 0 | 6 | 0 | 0 | 6 | 0 |
+| Lineage | 3 | 0 | 1 | 0 | 0 | 3 | 0 |
 | Fixtures and `ItemAccess` | 7 | 0 | 1 | 0 | 0 | 7 | 0 |
-| Containers | 5 | 0 | 9 | 1 | 0 | 1 | 0 |
-| Persistence | 20 | 0 | 0 | 2 | 0 | 0 | 1 |
-| Projection and world sync | 4 | 2 | 0 | 11 | 0 | 4 | 0 |
-| Physics and train wake | 0 | 1 | 1 | 11 | 0 | 3 | 0 |
-| Vanilla paths | 0 | 0 | 0 | 6 | 0 | 0 | 0 |
-| Layout and names | 0 | 0 | 0 | 1 | 0 | 0 | 0 |
+| Containers | 5 | 0 | 10 | 0 | 0 | 1 | 0 |
+| Persistence | 20 | 0 | 1 | 1 | 0 | 0 | 1 |
+| Projection and world sync | 6 | 0 | 11 | 0 | 0 | 4 | 0 |
+| Physics and train wake | 1 | 0 | 12 | 0 | 0 | 3 | 0 |
+| Vanilla paths | 0 | 0 | 6 | 0 | 0 | 0 | 0 |
+| Layout and names | 1 | 0 | 0 | 0 | 0 | 0 | 0 |
 | Shops seam | 1 | 0 | 0 | 0 | 0 | 9 | 0 |
-| Gadgets seam | 3 | 0 | 0 | 1 | 0 | 7 | 1 |
+| Gadgets seam | 3 | 0 | 1 | 0 | 0 | 7 | 1 |
 | Mod items | 0 | 0 | 0 | 0 | 0 | 5 | 0 |
 | Migration | 0 | 0 | 0 | 0 | 0 | 0 | 7 |
-| **All 277** | **135** | **9** | **23** | **50** | **0** | **49** | **11** |
+| **All 278** | **139** | **1** | **75** | **3** | **0** | **49** | **11** |
 
 - **The item refactor** (user, 2026-10-23; the plan is the item-refactor-plan session's
   `docs/design/item-refactor.md`) builds the rows that serve storing items, giving them back and
@@ -138,7 +138,7 @@ every other difference becomes a row.
 | ID | Requirement | Source | Status | Evidence |
 | --- | --- | --- | --- | --- |
 | OI-REF-02 | The checkpoint after R4: the item regression set and the known bugs on a player host over `items/refactor`. Every `[~] #n` row of R2, R3 and R4 is proved and ticked "(p; d: end pass)" or fixed first; a new failure is traced to the PR that caused it | User 2026-10-24 | `[ ]` | R3 and R4 are the big rewrites, so a failure is found while it's two PRs to search. **Player-host run, 2026-10-24:** 54 scenarios in 92 runs on refp1 and refp2. Everything passed but `shop-restock` (shops paused: no shop scanner) and the known bugs `item-bug-booklet-restart` (OI-COLD-15, R4C) and `item-bug-car-delete-unowned` (R6). `red` and `shop-restock` first failed on their own lookups of a data-only item (#352). `item-release MODE=regrab-late` failed 1 run in 3, now OI-PHY-16. 73 rows ticked; 14 wait on scenarios that don't exist yet (their rows say which), and `gate.sh` still lacks 11 item scenarios added in R1–R4. **#356** added the missing scenarios and those 11 to `gate.sh` (known bugs run as KNOWN): 12 more rows ticked; OI-ID-06 waits on LF9 and OI-LIST-21 on SH1 and SH2 ([item-bug-review.md](research/item-bug-review.md)) |
-| OI-REF-01 | The end pass: the item regression set and the known bugs on both host kinds over `items/refactor`, before the beta merge. Every `[~] #n` row is proved on a player host and ticked; every row ticked "(p; d: end pass)" is proved on the dedicated host or unticked; every difference between the host kinds is fixed or becomes a row | User 2026-10-24 | `[ ]` | Replaces each PR's full runs |
+| OI-REF-01 | The end pass: the item regression set and the known bugs on both host kinds over `items/refactor`, before the beta merge. Every `[~] #n` row is proved on a player host and ticked; every row ticked "(p; d: end pass)" is proved on the dedicated host or unticked; every difference between the host kinds is fixed or becomes a row | User 2026-10-24 | `[ ]` | **What it runs:** [`DevTools/Scenarios/end-pass.runs`](../DevTools/Scenarios/end-pass.runs) (R8, #404), 165 runs in three parts: the item regression set (every gate run of each scenario the plan names), the hotbar-cycle sweep, and every run added since R4C (each `[~] #n built (end pass)` row's proof, the R5 container runs that weren't in `gate.sh` added). Once per host kind: `RUNS="$(grep -v @dedicated DevTools/Scenarios/end-pass.runs)" PAIRS="p:2"`, then `RUNS="$(grep -v @player DevTools/Scenarios/end-pass.runs)" PAIRS="d:2"` (the file's header). Replaces each PR's full runs |
 
 OI-SHOP-01 stays done; its workstream is paused.
 

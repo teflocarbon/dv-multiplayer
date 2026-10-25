@@ -1,0 +1,179 @@
+# The end pass (OI-REF-01): every line on both host kinds, before items/refactor merges into beta.
+# Generated from gate.sh by R8 (#404). A line is a gate run by name; @player and @dedicated mark the
+# runs only one host kind takes. Run it twice, one pass per host kind:
+#   RUNS="$(grep -v @dedicated DevTools/Scenarios/end-pass.runs)" PAIRS="p:2" DevTools/Scenarios/gate.sh
+#   RUNS="$(grep -v @player DevTools/Scenarios/end-pass.runs)" PAIRS="d:2" DevTools/Scenarios/gate.sh
+# Known bugs ([KnownBug]) count as KNOWN, not FAIL. shop-restock fails while shops are paused (no shop
+# scanner): its result is recorded, not fixed here.
+
+# 1. The item regression set (docs/design/item-refactor.md, "The item regression set"), every run of each
+#    (the plan's jobs-roundtrip is the jobs scenario).
+rejoin
+rejoin-crash
+recall
+recall-taken @player
+recall-stashed @player
+containers
+containers-briefcase-flashlight
+containers-unowned
+containers-proxies
+containers-host @player
+lost-and-found
+lost-and-found-host @player
+lost-and-found-flag-off
+item-id-roundtrip
+ledger-save
+fixture-no-stash
+absent-owner
+absent-owner-host @player
+absent-owner-flashlight
+offline-lost-and-found
+owner-offline
+owner-offline-crash
+owner-offline-cab
+owner-offline-shelf
+car-delete-owner
+car-delete-owner-online
+car-delete-owner-absent
+lost-and-found-many-owners
+offline-sweep-mid-save
+rejoin-mid-sweep
+rejoin-mid-sweep-crash
+deposit-refused
+deposit-refused-host @player
+deposit-refused-essential
+starting-items
+owned-list
+owned-retrieve
+item-lineage
+borrowed-disconnect @player
+borrowed-disconnect-crash @player
+borrowed-disconnect-absent
+borrowed-disconnect-absent-hand
+borrowed-disconnect-absent-crash
+inventory-persist
+host-player-persist @player
+save-reload
+remote-held-item
+owned-items
+item-release-regrab
+item-release-regrab-late
+item-release-throw-flatcar
+item-release-object-state
+item-release-interact
+host-throw-settles @player
+server-throw @player
+server-throw-client
+train-items
+train-items-host-throw-moving @player
+client-fall-rescue
+full-inventory-essential
+lost-essential-rejoin
+gadget-save
+gadget-join
+shop
+shop-restock
+booklet-summon
+booklet-summon-host @player
+booklet-summon-far @player
+overview-pickup
+jobs
+recall-lease
+car-delete-unowned
+car-delete-unowned-track
+essential-slot-rejoin
+container-save-refused
+
+# 2. The hotbar-cycle sweep (D14): every vanilla item a client stands in, out and back.
+hotbar-cycle
+hotbar-cycle-host @player
+hotbar-cycle-quick
+
+# 3. Every run added since R4C (#349 on), each a row's "built (end pass)" proof.
+lease-ends-collect
+lease-ends-refused
+lease-ends-samples
+lease-ends-save
+thrower-leaves @dedicated
+late-join-train-item
+late-join-train-item-convergence
+late-join-train-item-parent-change
+retrieved-state
+full-inventory-routes
+lost-and-found-slots
+stand-in-object-state
+takeout-refused
+stash-state
+stash-state-host @player
+join-rows
+join-rows-host @player
+join-row-object
+save-invariant
+lost-and-found-moved
+car-delete-attached
+car-delete-attached-slow
+attached-offline
+snapped-restart
+booklet-not-owned
+retrieve-busy-box
+retrieve-busy-box-deposit
+retrieve-busy-box-held @player
+retrieve-from-foreign-box
+essential-claim-moved
+essential-claim-moved-host @player
+booklet-restart-host @player
+papers-in-box
+papers-in-box-host @player
+old-report-row
+old-report-row-unslotted
+old-report-row-unowned
+ledger-repair-strays
+lost-and-found-data
+bin-owned
+bin-owned-far
+bin-owned-takeback
+duplicate-essentials-load
+use-up
+money-deposit
+leave-holding
+leave-holding-crash
+leave-holding-unowned
+leave-holding-unowned-crash
+leave-holding-borrowed
+leave-holding-borrowed-crash
+licence-no-paper
+client-shelf-throw
+shelf-item
+shelf-item-throw
+shelf-item-twin
+projection-acks
+projection-acks-failing
+projection-acks-late-retire
+projection-acks-cause
+projection-acks-collision
+interest-cells
+office-stock-loading
+office-stock-knocked
+office-stock-knocked-edge
+magazine-ammo
+magazine-tools
+containers-nested
+containers-nested-host @player
+box-destroyed
+container-depth
+container-depth-host @player
+container-interest @player
+container-nested-move
+retrieve-from-box
+withdraw-full
+fall-rescue-interior
+pickup-range
+pickup-range-attached
+installed-kept
+overview-expire-stashed
+stashed-items
+stashed-items-host @player
+stashed-cassette
+stashed-cassette-host @player
+overview-rejoin
+expired-report-slot
