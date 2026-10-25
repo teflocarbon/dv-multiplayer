@@ -49,7 +49,7 @@ public static class LostAndFoundServer
     // The entries kept as data, by item id: each one's state (OI-COLD-08).
     private static readonly Dictionary<Guid, SavedItemRow> rows = new();
     private static readonly Dictionary<ushort, float> eligibleSince = new();
-    // The frame each entry was collected in, until its object goes to data (not in that frame: ToData).
+    // The frame each entry was collected in, until its object goes to data (two frames on: ToData).
     private static readonly Dictionary<ushort, int> collectedFrame = new();
     private static readonly Dictionary<ushort, Dictionary<string, object>> lastEvaluations = new();
     private static uint generation;
@@ -97,10 +97,12 @@ public static class LostAndFoundServer
     }
 
     // An entry's object goes to data once it can (OI-COLD-08): its state loaded, its ammo able to go with
-    // it, and not in the frame it was collected. Taking it off a snap point (vanilla's unsnap puts it
-    // back in a car's interior) queues ECS commands on its entity for this frame's presentation; an
-    // object destroyed now loses its entity first, and their playback crashes the game (natively, in
-    // EntityCommandBuffer.Playback).
+    // it, and not until two frames after it was collected. Taking it off a snap point (vanilla's unsnap
+    // puts it back in a car's interior) queues ECS commands on its entity
+    // (BeginPresentationEntityCommandBufferSystem); an object destroyed before they play back loses its
+    // entity first, and their playback crashes the game (natively, in EntityCommandBuffer.Playback).
+    // They play back at the end of PreLateUpdate: the collection's own frame, or the next one for a
+    // collection made after that (at the end of the frame).
     private static void ToData(NetworkedItem item, LostItemRecord lost)
     {
         if (!ServerLedger.Loaded || !LiveItems.TryGet(item.NetId, out LiveItems.LiveItem record) ||
@@ -108,7 +110,7 @@ public static class LostAndFoundServer
             return;
         if (collectedFrame.TryGetValue(item.NetId, out int frame))
         {
-            if (frame == Time.frameCount)
+            if (Time.frameCount - frame < 2)
                 return;
             collectedFrame.Remove(item.NetId);
         }
@@ -322,6 +324,7 @@ public static class LostAndFoundServer
             TraceRecallRejection(itemNetId, rejectionReason);
             return false;
         }
+        collectedFrame.Remove(itemNetId);
         // The transition indexed the item while its entry still held it, which skips it: index it
         // now, or a player who joins later (its owner, rejoining) is never sent it.
         ServerItemManager.Instance?.RegisterHostWorldItem(item);
