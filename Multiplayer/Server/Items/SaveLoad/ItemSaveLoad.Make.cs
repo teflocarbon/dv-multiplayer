@@ -268,9 +268,11 @@ internal static partial class ItemSaveLoad
         {
             Multiplayer.LogWarning($"Saved item {record.PrefabName} ({record.PersistentItemId:D}) is snapped to {record.WorldParentKey}, " +
                                    $"which isn't here after {SnapPointWaitSeconds} s");
-            if (record.Owner != Guid.Empty)
-                ServerLedger.SendToLostAndFound(record.PersistentItemId, LostItemReason.SaveRecovery,
-                    "its snap point's gadget is gone", out _);
+            // Owned, to its owner's Lost and Found; unowned (or refused), into the world where it is,
+            // as off a deleted car: never left snapped to nothing.
+            if (record.Owner == Guid.Empty || !ServerLedger.SendToLostAndFound(record.PersistentItemId,
+                    LostItemReason.SaveRecovery, "its snap point's gadget is gone", out _))
+                DeletedCarItems.IntoWorld(item, record, "its snap point's gadget is gone");
             yield break;
         }
         record.WorldParentNetId = gadget;
@@ -405,6 +407,8 @@ internal static partial class ItemSaveLoad
     /// with the same id, in its owner's Lost and Found (<c>SaveRecovery</c>), as an unloadable one is (D9).
     /// </summary>
     internal static bool MakeLostAgain(Guid id, string prefab, Guid owner) =>
+        // Only an item with no object anywhere: one found by its id is a copy, which the repair re-mints.
+        FindExisting(id, null) == null &&
         MakeInLostAndFound(id, prefab, null, owner, LostItemReason.SaveRecovery, DateTime.UtcNow.Ticks,
             null, ItemInventoryClaimFlags.None);
 

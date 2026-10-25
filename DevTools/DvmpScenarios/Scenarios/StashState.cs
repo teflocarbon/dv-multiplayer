@@ -240,7 +240,7 @@ namespace Dvmp.Scenarios
             }
 
             // A magazine's ammo, by prefab and state; "" for none or no magazine.
-            private static string Contents(GameObject go)
+            internal static string Contents(GameObject go)
             {
                 var magazine = go.GetComponentInChildren<ItemMagazine>(true);
                 if (magazine == null) return "";

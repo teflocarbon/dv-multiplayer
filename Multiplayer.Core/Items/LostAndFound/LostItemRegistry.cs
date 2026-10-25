@@ -158,6 +158,24 @@ public sealed class LostItemRegistry
         return changed;
     }
 
+    /// <summary>
+    /// The item took a new id (a copy re-minted by the one-home repair, D7): its record follows, and
+    /// the old id is left to the item that keeps it. False, with nothing changed, when the item has
+    /// no record here or the new id is another item's.
+    /// </summary>
+    public bool RekeyItem(ushort netId, Guid fresh)
+    {
+        if (fresh == Guid.Empty || !records.TryGetValue(netId, out LostItemRecord record))
+            return false;
+        if (persistentIdToNetId.TryGetValue(fresh, out ushort other) && other != netId)
+            return false;
+        if (persistentIdToNetId.TryGetValue(record.PersistentItemId, out ushort mapped) && mapped == netId)
+            persistentIdToNetId.Remove(record.PersistentItemId);
+        record.PersistentItemId = fresh;
+        persistentIdToNetId[fresh] = netId;
+        return true;
+    }
+
     /// <summary>The host moved the item's retrieval claim (ClaimSlotPolicy): keep the saved copy in step.</summary>
     public bool SetInventoryClaimSlot(ushort netId, int slot)
     {

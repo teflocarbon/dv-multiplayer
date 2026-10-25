@@ -257,7 +257,10 @@ turns the player's drags in them into item requests (`Multiplayer/Client/Items/C
   `ItemBase`. The proxies fill the open box's slot model in each `ItemContainerProvider` showing it.
   A row that is a box gets a `ColdProxyContainer` too, an `AItemContainer` that takes no item
   (`ValidItem` is false) and whose `ToggleContainerAccess` opens that box's list by its handle
-  (`ContainerUi.OpenChild`). The proxies go when the box closes: vanilla's active container changing
+  (`ContainerUi.OpenChild`). A click on that row on the inventory screen makes the row's
+  `ColdProxyContainer` vanilla's active container (`ToggleActiveContainerOnClick`): `ContainerUi.Closed`
+  takes that as an open, not a close, makes the box shown active again and opens the stored box's list
+  in its place (OI-CON-17). The proxies go when the box closes: vanilla's active container changing
   away from it (closed, or another box opened) ends its view (`ContainerUi.Closed`, from
   `ContainerUiPatch`), and a late answer to its list is ignored. Each new list, or a refused one,
   destroys the old proxies first too (`ClearProxies`).

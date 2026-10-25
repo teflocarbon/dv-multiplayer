@@ -54,6 +54,26 @@ public sealed class HomeInvariantTests
         }));
         Assert.That(found.Single(v => v.Id == Lantern).Repair, Is.EqualTo(Home.World), "the copy the ledger names stays");
         Assert.That(found.Single(v => v.Id == Radio).Repair, Is.EqualTo(Home.LostAndFound), "a lost item goes to its owner's");
+        Assert.That(found.Single(v => v.Id == Lantern).Copies, Is.EqualTo(2));
+        Assert.That(found.Single(v => v.Id == Radio).Copies, Is.EqualTo(0));
+    }
+
+    [Test]
+    public void Rule1_TwoCopiesOfAnItemWhoseHomeIsLostAndFound_SayTwo_NotNone()
+    {
+        // The repair home is Lost and Found either way; the count says which repair: re-mint the
+        // stray, not make the item again (which found the stray and put it in Lost and Found unminted).
+        LedgerEntry[] entries = { Entry(Radio, Home.LostAndFound) };
+        ObservedItem[] observed =
+        {
+            Row(Radio, ObservedSource.LostAndFoundRow, Home.LostAndFound),
+            Live(Radio, Home.World)
+        };
+
+        InvariantViolation found = HomeInvariant.Check(entries, observed).Single(v => v.Rule == InvariantRule.OneHome);
+
+        Assert.That(found.Repair, Is.EqualTo(Home.LostAndFound));
+        Assert.That(found.Copies, Is.EqualTo(2));
     }
 
     [Test]

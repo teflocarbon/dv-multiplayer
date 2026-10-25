@@ -281,14 +281,29 @@ internal sealed partial class ServerItemManager
         {
             // Attached items (e.g. end-of-train lanterns) ride their car; the record's position is
             // where they were attached, so follow the car or they vanish once the train leaves.
-            if (record.AttachedCarNetId != 0 &&
-                NetworkedTrainCar.TryGet(record.AttachedCarNetId, out TrainCar attachedCar) && attachedCar != null)
-                return recipient.CarId == record.AttachedCarNetId ||
+            TrainCar attachedCar = CarOf(item, record);
+            if (attachedCar != null && NetworkedTrainCar.TryGetNetId(attachedCar, out ushort carNetId))
+                return recipient.CarId == carNetId ||
                        recipientCells.Contains(WorldItemCellCoord.FromAbsolute(
                            attachedCar.transform.position - WorldMover.currentMove));
             return recipientCells.Contains(WorldItemCellCoord.FromAbsolute(record.Position));
         }
         return false;
+    }
+
+    // The car an attached or snapped item rides: a coupler's names it in the record; a gadget's snap
+    // point names only the gadget, so its car is the installed gadget's, else the snap point's own.
+    private static TrainCar CarOf(NetworkedItem item, LiveItems.LiveItem record)
+    {
+        if (record.AttachedCarNetId != 0 && NetworkedTrainCar.TryGet(record.AttachedCarNetId, out TrainCar car) && car != null)
+            return car;
+        if (record.Placement != ItemPlacementKind.SnappedAttachment)
+            return null;
+        if (LiveItems.TryGet(record.WorldParentNetId, out LiveItems.LiveItem gadget) && gadget.AttachedCarNetId != 0 &&
+            NetworkedTrainCar.TryGet(gadget.AttachedCarNetId, out car) && car != null)
+            return car;
+        DV.Items.Snapping.ItemSnapPointBase point = item.Item?.SnappableItem?.SnappedTo;
+        return point != null ? TrainCar.Resolve(point.gameObject) : null;
     }
 
     // The Create for an essential in Lost and Found, for its owner only (essentials.md,

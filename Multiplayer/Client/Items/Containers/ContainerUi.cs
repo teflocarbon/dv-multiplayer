@@ -64,6 +64,8 @@ internal sealed class ColdProxyContainer : AItemContainer
 {
     private uint handle;
     private string localizedName = string.Empty;
+    /// <summary>The stored box's row handle: what opens its contents.</summary>
+    public uint Handle => handle;
     protected override string ContainerName { get; set; } = "ColdProxy";
     public override string ContainerNameLocalized { get => localizedName; protected set => localizedName = value; }
     public override bool DirectInteractionAllowed => true;
@@ -92,6 +94,8 @@ internal static class ContainerUi
     // This UI's requests still waiting for their result: each one's answer reloads the view.
     private static readonly HashSet<uint> pendingMutations = new();
     private static ClientboundItemListPacket activeView;
+    // The box the player opened: vanilla's active container while the view shows it or a box in it.
+    private static AItemContainer shellContainer;
     private static ushort activeShellNetId;
     private static ushort requestedShellNetId;
     private static uint pendingRequestId;
@@ -126,6 +130,7 @@ internal static class ContainerUi
             shell.NetId == 0)
             return;
         EnsureInitialized();
+        shellContainer = container;
         requestedShellNetId = shell.NetId;
         activeShellNetId = 0;
         activeView = null;
@@ -137,12 +142,23 @@ internal static class ContainerUi
 
     /// <summary>
     /// The box shown is no longer vanilla's active container (closed, or another opened): its view
-    /// ends and its row proxies go with it (OI-CON-10). A late answer to its list is ignored.
+    /// ends and its row proxies go with it (OI-CON-10). A late answer to its list is ignored. A
+    /// stored box's row clicked on the inventory screen isn't a close: vanilla makes the row's
+    /// <see cref="ColdProxyContainer"/> active, so the box shown is made active again and the
+    /// view moves to the stored box's list.
     /// </summary>
     public static void Closed(AItemContainer nowActive)
     {
         if (activeShellNetId == 0 && requestedShellNetId == 0 && proxies.Count == 0)
             return;
+        if (nowActive is ColdProxyContainer child && activeShellNetId != 0 && shellContainer != null &&
+            proxies.Contains(child.gameObject))
+        {
+            // Back to the box shown first: its own Closed call returns at the next check.
+            DV.InventorySystem.Inventory.Instance.ItemContainerRegistry.ActiveContainer = shellContainer;
+            OpenChild(child.Handle);
+            return;
+        }
         if (nowActive != null &&
             NetworkedItem.TryGetNetworkedItem(nowActive.GetComponent<ItemBase>(), out NetworkedItem shell) &&
             shell.NetId != 0 && (shell.NetId == activeShellNetId || shell.NetId == requestedShellNetId))
@@ -150,6 +166,7 @@ internal static class ContainerUi
         global::Multiplayer.Multiplayer.Log($"[Cold Container] Closed: shellNetId={activeShellNetId}, " +
             $"proxies={proxies.Count}");
         activeView = null;
+        shellContainer = null;
         activeShellNetId = 0;
         requestedShellNetId = 0;
         pendingRequestId = 0;
@@ -408,6 +425,7 @@ internal static class ContainerUi
         }
         initialized = false;
         activeView = null;
+        shellContainer = null;
         activeShellNetId = 0;
         requestedShellNetId = 0;
         pendingRequestId = 0;

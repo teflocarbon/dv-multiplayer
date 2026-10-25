@@ -84,7 +84,7 @@ them (`IsNonSpatialRelevantTo`):
 | anything with an owner's recall claim | that owner, anywhere: their silhouette and Get button need it |
 | a train interior | the car's occupants (`ServerPlayer.CarId`), or anyone whose cells hold where it is in the car now |
 | a magazine | whoever knows its tool, or would be sent the tool |
-| attached, snapped | the car's occupants, or anyone whose cells hold the car |
+| attached, snapped | the car's occupants, or anyone whose cells hold the car: the coupler's car, or for an item on a gadget's snap point (a hanger), which names only the gadget, the installed gadget's car (`ServerItemManager.CarOf`) |
 
 Only items the player's catalogue takes go in (`ServerPlayer.TakesAuthored`: any item but a scene item
 whose key was refused, [world-items.md](world-items.md#the-authored-catalogue)).

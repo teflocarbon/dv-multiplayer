@@ -479,17 +479,6 @@ public partial class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
         }
     }
 
-    internal void EnsureAuthoredItemKey()
-    {
-        // Never promote an after-load dynamic materialization into the authored catalogue.
-        // The only valid source is the content-scene staging hierarchy observed during Awake.
-        if (!WorldItemStableIdentity.IsValid(AuthoredItemKey) && Item != null &&
-            WorldItemStableIdentity.IsLikelyAuthoredAtAwake(Item))
-            AuthoredItemKey = WorldItemStableIdentity.Capture(Item);
-        if (IsSceneAuthored)
-            ItemServer.Current?.MarkAuthoredIdentity(this);
-    }
-
     internal void AdoptAuthoredItemKey(string key, bool replenishableOfficeSlot = false,
         bool authoredShopSlot = false)
     {

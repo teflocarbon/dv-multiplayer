@@ -213,10 +213,16 @@ into the world. An item part way into or out of a box waits for the next check (
   stays and the ledger follows: gadget removal is paused (OI-LIST-15).
 - `OneHome`, no copy anywhere: made again fresh from its prefab, with the same id, in its owner's Lost
   and Found (`RemakeLost`, `ItemSaveLoad.MakeLostAgain`, `SaveRecovery`), as an item whose state won't
-  load is (D9); with no player owner or no prefab it is logged only.
+  load is (D9); with no player owner or no prefab it is logged only. The violation says how many copies
+  it found (`InvariantViolation.Copies`), and that count picks this repair, not the repair home (which
+  is Lost and Found for two copies of an item whose home is Lost and Found too). Both steps look again
+  first, and make nothing when a copy is there by then: a live record, a Lost and Found entry or row,
+  or an object with the id.
 - `OneHome`, two copies or more: the copy in the ledger's home keeps the id (else the first live one,
   put home); each other live copy is a new item, re-minted as `Register` re-mints a copy (`Remint`: a
-  new id, born `Duplicate` from the first), its owner's, into their Lost and Found.
+  new id, born `Duplicate` from the first), its owner's, into their Lost and Found. A copy already in
+  Lost and Found stays there, its entry and any data row re-keyed to the new id
+  (`LostAndFoundServer.RekeyItem`, `LostItemRegistry.RekeyItem`), so it is saved and found under it.
 - `NoStray` of an ended entry: each live copy is re-minted the same way, its ended entry's owner's,
   into their Lost and Found; with no player owner, into the world. The ended entry stays ended.
 - `NoStray` of a record whose store named an owner (`StoredOwner`): registered as that owner's, born

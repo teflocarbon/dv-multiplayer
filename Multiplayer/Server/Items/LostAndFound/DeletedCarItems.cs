@@ -5,6 +5,7 @@ using DV.CabControls;
 using DV.Items;
 using DV.Items.Snapping;
 using Multiplayer.Core.Items.ChangeCauses;
+using Multiplayer.Core.Items.LiveState;
 using Multiplayer.Core.Items.LostAndFound;
 using Multiplayer.Server.Items.ChangeCauses;
 using Multiplayer.Server.Items.LiveState;
@@ -137,14 +138,15 @@ public static class DeletedCarItems
         item.transform.SetParent(WorldMover.OriginShiftParent, true);
         // Owned, or a booklet kept for the player it was issued to (OI-LF-17).
         bool owned = LiveItems.TryGet(item.NetId, out LiveItems.LiveItem record) && LiveItems.KeeperOf(record) != Guid.Empty;
-        bool attached = record?.Placement == ItemPlacementKind.Attached;
+        LivePlacement before = record == null ? LivePlacement.World : (LivePlacement)(byte)record.Placement;
         if (owned && LostAndFoundServer.Collect(item, LostItemReason.ContainerCleared, $"car {car.ID} deleted"))
             return;
         if (owned)
             Multiplayer.LogWarning($"Deleted car {car.ID}: Lost and Found refused {item.name} (netId {item.NetId}); " +
                                    "it goes into the world where it is");
-        // A refused collection off a coupler put it in the world already (LostAndFoundServer.RollBack).
-        if (!(owned && attached && record.Placement == ItemPlacementKind.World))
+        // A refused collection off a coupler, a hanger or a magazine put it in the world already
+        // (LostAndFoundServer.RollBack): once is enough.
+        if (!(owned && LostItemCollectionPolicy.RolledBackIntoWorld(before, (LivePlacement)(byte)record.Placement)))
             IntoWorld(item, record, $"car {car.ID} deleted, left beside the track");
     }
 

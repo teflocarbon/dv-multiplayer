@@ -25,6 +25,12 @@ namespace Dvmp.Scenarios
     /// given no state, instead of <c>MadeFromRow</c>) it comes back fresh, its lid shut, and the state
     /// check fails. A remote client only: the host's own player's rows are drawn in process
     /// (<c>HostInventory.Draw</c>); either kind of host.
+    ///
+    /// LOADED=1 makes the item a tool with its ammo loaded (a Boombox and its cassette, the first
+    /// vanilla magazine stash-state finds unless PREFAB names one): the ammo's rows ride in the
+    /// tool's state under their own key, and the object must come back holding them. Without the
+    /// fix (<c>MadeFromRow</c> handing the whole state to the object, ammo key and all, with no
+    /// <c>MakeAmmo</c>) it comes back empty and the contents check fails.
     /// </summary>
     [Scenario("join-row-object", "A join row the client keeps as an object (as a VR belt row) is made with its saved state, not fresh (OI-COLD-13)")]
     [Needs(Need.RestartsGames)]
@@ -35,16 +41,30 @@ namespace Dvmp.Scenarios
         {
             /// <summary>The item, changed in the hand as stash-state changes it (a lighter's lid, a lantern's wick).</summary>
             public string Prefab = "lighter";
+            /// <summary>A tool loaded with its ammo instead (OI-COLD-13's ammo; PREFAB a magazine, else the first one found).</summary>
+            public bool Loaded;
         }
 
         protected override async Task Run(Pair pair, Options o)
         {
+            string ammo = "";
+            if (o.Loaded)
+            {
+                string[] magazines = await pair.Client.Run(() => StashState.InGame.Magazines());
+                string pairing = Array.Find(magazines, m => m.Split('/')[0] == o.Prefab) ?? magazines[0];
+                o.Prefab = pairing.Split('/')[0];
+                ammo = pairing.Split('/')[1];
+            }
             ushort netId = await pair.Host.Run<ushort>(s => Items.SpawnPersonal(s, o.Prefab, "client"));
-            StashState.Kept kept = await pair.Client.Run<StashState.Kept>(s => StashState.InGame.ChangeAndStash(s, netId, 0), 90);
+            ushort ammoNetId = ammo.Length > 0 ? await pair.Host.Run<ushort>(s => Items.SpawnPersonal(s, ammo, "client")) : (ushort)0;
+            StashState.Kept kept = await pair.Client.Run<StashState.Kept>(s => StashState.InGame.ChangeAndStash(s, netId, ammoNetId), 90);
             Report.Note($"{o.Prefab} {netId}, stashed: {kept}");
             Require.That(kept.StandIn, $"the {o.Prefab} is a stand-in in the client's slot");
             Require.That(kept.State.Length > 0, $"the {o.Prefab} has a saved state");
+            if (o.Loaded)
+                Require.That(kept.StoredContents.Length > 0, $"the {o.Prefab}'s ammo nested in its stand-in", kept.ToString());
             string id = await pair.Host.Run(() => Owned.IdOf(netId));
+            string ammoId = ammoNetId != 0 ? await pair.Host.Run(() => Owned.IdOf(ammoNetId)) : "";
 
             await pair.Client.Quit();
             await Task.Delay(4000);
@@ -56,6 +76,12 @@ namespace Dvmp.Scenarios
             Require.That(now != 0, $"the server has the {o.Prefab} again, as a row");
             await pair.Host.Run(() => Ledger.Track(now));
             pair.Cleanup(async () => await pair.Host.Run<ushort[]>(s => Items.Destroy(s, new[] { now }), 30));
+            if (ammoId.Length > 0)
+                pair.Cleanup(async () =>
+                {
+                    ushort spare = await pair.Host.Run(() => Owned.NetIdOf(ammoId));
+                    if (spare != 0) await pair.Host.Run<ushort[]>(s => Items.Destroy(s, new[] { spare }), 30);
+                });
             Report.Note($"{held} row(s) held back; the {o.Prefab} is {now} now");
 
             await pair.Client.Run(() => InGame.KeepAsObject(now));
@@ -69,6 +95,8 @@ namespace Dvmp.Scenarios
             if (!seen.Object)
                 Report.Note($"the {o.Prefab} was put away since as a stand-in: its state is the object's it was made as");
             Expect.Equal(kept.State, seen.State, $"the {o.Prefab}'s state, made from its row, against its state when stashed");
+            if (o.Loaded)
+                Expect.Equal(kept.Contents, seen.Contents, $"the {o.Prefab}'s ammo, made from its row, against what it held when stashed");
         }
 
         public sealed class Seen
@@ -77,11 +105,11 @@ namespace Dvmp.Scenarios
             public int Slot = -1;
             /// <summary>How many times the client's game was refused a stand-in for the item (the prefix).</summary>
             public int Refused;
-            public string State = "";
+            public string State = "", Contents = "";
 
             public override string ToString() =>
                 $"{(Object ? "an object" : StandIn ? "a stand-in" : "nothing")}{(InSlot ? " in slot " + Slot : "")}, " +
-                $"refused a stand-in {Refused} time(s), state {State}";
+                $"refused a stand-in {Refused} time(s), state {State}" + (Contents.Length > 0 ? $", holds {Contents}" : "");
         }
 
         // ---- runs inside the games
@@ -192,6 +220,7 @@ namespace Dvmp.Scenarios
                 // An object put away by this game since is a stand-in with the object's state.
                 seen.State = seen.Object ? StashState.InGame.Normal(ItemStateText.Capture(item.gameObject))
                     : seen.StandIn ? StashState.InGame.Normal(StandInAmmo.Without(standIn.State)) : "";
+                seen.Contents = seen.Object ? StashState.InGame.Contents(item.gameObject) : seen.StandIn ? StashState.InGame.StoredContents(netId) : "";
                 seen.Refused = refused;
                 step.Result = seen;
             }

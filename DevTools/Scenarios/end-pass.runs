@@ -108,12 +108,16 @@ stash-state-host @player
 join-rows
 join-rows-host @player
 join-row-object
+join-row-object-loaded
 save-invariant
 lost-and-found-moved
 car-delete-attached
 car-delete-attached-slow
 attached-offline
 snapped-restart
+hanger-interest
+snap-gadget-gone
+snap-gadget-gone-owned
 booklet-not-owned
 retrieve-busy-box
 retrieve-busy-box-deposit
@@ -177,3 +181,22 @@ stashed-cassette
 stashed-cassette-host @player
 overview-rejoin
 expired-report-slot
+
+# 4. The checkpoint's runs (OI-REF-02): every other gate run a checklist row names as its proof. They
+#    came in before R4C and were ticked on a player host after R4; their dedicated run is here.
+old-save
+unloadable-item
+cold-homes
+inventory-slots
+booklet-restart
+item-request-repeat
+ledger-repair
+ledger-rows
+red
+rekey
+save-homes
+leave-full-inventory
+lost-and-found-duplicate-id
+owned-list-shelf @player
+client-shelf
+shelf-unseen @player

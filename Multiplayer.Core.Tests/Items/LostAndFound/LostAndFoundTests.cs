@@ -364,6 +364,29 @@ public sealed class LostAndFoundTests
         Assert.That(registry.RekeyOwner("owner-a", string.Empty), Is.Zero);
     }
 
+    [Test]
+    public void RekeyItem_ARemintedCopyIsFoundByItsNewId_AndTheOldIdIsFree()
+    {
+        // A copy in Lost and Found re-minted by the one-home repair (D7): before, its record kept the
+        // old id, so it was saved under neither and the old id's lookups returned the copy.
+        LostItemRegistry registry = new();
+        LostItemRecord copy = Record();
+        Guid from = copy.PersistentItemId, fresh = Guid.NewGuid();
+        registry.Add(copy);
+
+        Assert.That(registry.RekeyItem(copy.NetId, fresh), Is.True);
+
+        Assert.That(registry.TryGetByPersistentId(fresh, out LostItemRecord found) && found.NetId == copy.NetId, Is.True);
+        Assert.That(registry.TryGet(copy.NetId, out LostItemRecord now) ? now.PersistentItemId : Guid.Empty, Is.EqualTo(fresh));
+        Assert.That(registry.TryGetByPersistentId(from, out _), Is.False);
+        LostItemRecord original = Record();
+        original.NetId = 43;
+        Assert.That(registry.Add(original), Is.EqualTo(LostItemRegistryResult.Added), "the old id is the original's to take");
+
+        Assert.That(registry.RekeyItem(43, fresh), Is.False, "another item's id");
+        Assert.That(registry.RekeyItem(99, Guid.NewGuid()), Is.False, "no record");
+    }
+
     [TestCase(null)]
     [TestCase(LivePlacement.LostAndFound)]
     [TestCase(LivePlacement.World)]
@@ -447,6 +470,14 @@ public sealed class LostAndFoundTests
     [TestCase(LivePlacement.StaticParent)]
     public void ARefusedCollectionFromWhereItLayStaysThere(LivePlacement previous) =>
         Assert.That(LostItemCollectionPolicy.RollsBackIntoWorld(previous), Is.False);
+
+    [TestCase(LivePlacement.Attached, LivePlacement.World, true)]
+    [TestCase(LivePlacement.SnappedAttachment, LivePlacement.World, true)]   // a deleted car's hanger: once, not twice
+    [TestCase(LivePlacement.Magazine, LivePlacement.World, true)]
+    [TestCase(LivePlacement.SnappedAttachment, LivePlacement.SnappedAttachment, false)]
+    [TestCase(LivePlacement.TrainInterior, LivePlacement.World, false)]
+    public void ADeletedCarsItemTheRollbackPutInTheWorld_IsntPutThereAgain(LivePlacement before, LivePlacement now, bool already) =>
+        Assert.That(LostItemCollectionPolicy.RolledBackIntoWorld(before, now), Is.EqualTo(already));
 
     // Owners are identities, numbered here for short.
     private static string O(int number) => new Guid(number, 0, 0, new byte[8]).ToString("D");

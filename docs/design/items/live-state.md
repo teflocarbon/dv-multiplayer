@@ -250,7 +250,8 @@ kind of snap point:
 the item onto it (`NetworkedItem.SnapToGadget`, from `HandleAttachedState`). At a load the gadget is
 found by its id (`ServerLedger.NetIdOf`); one not there yet is waited for up to 30 s
 (`ItemSaveLoad.SnapWhenItsGadgetIs`), then the item goes to its owner's Lost and Found
-(`SaveRecovery`), as an item whose car is gone does. Before R8 a live gadget snap was `Attached` with
+(`SaveRecovery`), as an item whose car is gone does; an unowned one, or one Lost and Found refuses,
+into the world where it is (`DeletedCarItems.IntoWorld`), never left snapped to nothing. Before R8 a live gadget snap was `Attached` with
 car 0, so its home was `Attached` with no car, and every load sent it to Lost and Found.
 
 ## Not on this page
