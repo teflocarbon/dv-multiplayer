@@ -138,8 +138,8 @@ tool. Its ammo has a home in each of the tool's forms (CN1 and OI-CON-16; R5 C7 
   `AddItem` and `RemoveItem`) observes it as any change: a client may send it while it holds or
   stashes the tool, and a client's load is a `LoadMagazine` request with the tool and the slot
   ([wire.md](wire.md#one-request-one-result)). The server takes it from the ammo's holder (`SenderPossesses`), or
-  from the world: ammo lying in the world, a car or on a shelf, loaded into a tool the sender holds or
-  has stashed, is vanilla's load by use (a sprayer aimed at a can on the ground), a take from the
+  from the world: ammo lying in the world, a car or on a shelf, loaded into a tool in the sender's
+  hand (not one stashed: the load by use needs it held), is vanilla's load by use (a sprayer aimed at a can on the ground), a take from the
   world held to the pickup's reach and asked of `ItemAccess` as one (`IsLoadFromWorld`; refused for
   want of possession before the end pass, `use-up`). It checks
   the tool (not one another player holds), the slot and that the magazine takes that item

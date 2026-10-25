@@ -246,8 +246,8 @@ public static class NetworkedItemServer
         return reason;
     }
 
-    // Ammo lying where anyone may take it, loaded into a tool the sender holds or has stashed: vanilla's
-    // load by use (a sprayer aimed at a can on the ground; PaintSprayer.IsUseCompatible). It's a take
+    // Ammo lying where anyone may take it, loaded into a tool in the sender's hand: vanilla's load by use
+    // (a sprayer aimed at a can on the ground; PaintSprayer.IsUseCompatible), which needs the tool held. It's a take
     // from the world, as a pickup is, so it's held to the pickup's reach; the magazine's own checks
     // follow (LiveItems.MagazineRefusal). Before the end pass it was refused for want of possession
     // (use-up).
@@ -256,7 +256,7 @@ public static class NetworkedItemServer
         ItemUpdate.IncludesItemState(snapshot.UpdateType) && snapshot.ItemState == ItemState.InMagazine &&
         authority != null && authority.Placement is ItemPlacementKind.World or ItemPlacementKind.TrainInterior or ItemPlacementKind.StaticParent &&
         LiveItems.TryGet(snapshot.MagazineNetId, out LiveItems.LiveItem tool) && tool.NetId != item.NetId &&
-        tool.Holder == senderPlayer.Guid && tool.Placement is ItemPlacementKind.PlayerHand or ItemPlacementKind.PlayerInventory;
+        tool.Holder == senderPlayer.Guid && tool.Placement == ItemPlacementKind.PlayerHand;
 
     private static bool SenderPossesses(this NetworkedItem item, ServerPlayer senderPlayer) =>
         senderPlayer != null &&

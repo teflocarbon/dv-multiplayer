@@ -37,7 +37,7 @@ internal sealed class AuthoredProjections
     internal void DetachForPossession(NetworkedItem item, ItemUpdate snapshot)
     {
         if (item == null || snapshot == null ||
-            snapshot.ItemState is not (ItemState.InHand or ItemState.InInventory) ||
+            snapshot.ItemState is not (ItemState.InHand or ItemState.InInventory or ItemState.InMagazine) ||
             !AuthoredItems.IsEligibleOfficeProp(item))
             return;
         string key = item.DetachAuthoredItemKey();
