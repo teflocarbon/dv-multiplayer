@@ -229,17 +229,27 @@ internal sealed partial class ClientItemManager
             }, entry.State?.ToString(Newtonsoft.Json.Formatting.None));
             if (ammo == null)
                 continue;
-            ammo.ReceiveSnapshot(new ItemUpdate
+            // One that won't load stays loose, and the tool is still placed: a throw here left it
+            // unplaced at the safety position, where its own drop was refused again and again.
+            try
             {
-                UpdateType = ItemUpdate.ItemUpdateType.ItemState,
-                ItemNetId = entry.NetId,
-                PrefabName = entry.PrefabName,
-                AuthorityRevision = entry.Revision,
-                ItemState = ItemState.InMagazine,
-                PlayerHand = PlayerHand.None,
-                MagazineNetId = tool.NetId,
-                MagazineSlot = entry.Slot
-            });
+                ammo.ReceiveSnapshot(new ItemUpdate
+                {
+                    UpdateType = ItemUpdate.ItemUpdateType.ItemState,
+                    ItemNetId = entry.NetId,
+                    PrefabName = entry.PrefabName,
+                    AuthorityRevision = entry.Revision,
+                    ItemState = ItemState.InMagazine,
+                    PlayerHand = PlayerHand.None,
+                    MagazineNetId = tool.NetId,
+                    MagazineSlot = entry.Slot
+                });
+            }
+            catch (System.Exception exception)
+            {
+                Multiplayer.LogException($"Inventory: {entry.PrefabName} (netId {entry.NetId}) didn't load into " +
+                                         $"{tool.name} (netId {tool.NetId})", exception);
+            }
         }
     }
 
