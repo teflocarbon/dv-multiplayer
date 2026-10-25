@@ -157,6 +157,8 @@ runs=( # name | scenario | variables | pair kind it prefers (default player)
   "projection-acks-late-retire|projection-acks|MODE=late-retire"
   "projection-acks-cause|projection-acks|MODE=cause"
   "projection-acks-collision|projection-acks|MODE=collision"
+  "office-stock-loading|office-stock|"
+  "office-stock-knocked|office-stock|MODE=knocked"
   "magazine-ammo|item-bug-magazine-ammo|"
   "magazine-tools|magazine-tools|"
   "containers-host|containers|WHO=host|player"
