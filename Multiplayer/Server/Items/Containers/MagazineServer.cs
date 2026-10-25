@@ -173,6 +173,8 @@ internal static class MagazineServer
     // As a deposit retires an item: its Destroy goes now, by interest, then its object goes.
     private static void Retire(NetworkedItem item, LiveItems.LiveItem loaded, ChangeCause<ItemRemovalReason> cause)
     {
+        if (InstalledItems.RefuseDestroy(item, "loaded into a magazine: " + cause))
+            return;
         ItemUpdate destroy = item.CreateUpdateData(ItemUpdate.ItemUpdateType.Destroy);
         if (destroy != null)
         {

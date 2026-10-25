@@ -327,6 +327,10 @@ internal static partial class ItemSaveLoad
     /// </summary>
     internal static IEnumerator RemakeFresh(NetworkedItem broken, Guid id, string prefab, string error)
     {
+        // An installed gadget's item is the gadget code's (OI-GAD-06): it stays, and the refusal
+        // is logged.
+        if (broken != null && InstalledItems.RefuseDestroy(broken, "remade fresh: " + error))
+            yield break;
         Guid owner = ServerLedger.OwnerOf(id);
         Multiplayer.LogError($"item.state-unloadable: {prefab} ({id:D})'s saved state won't load ({error}); " +
                              $"made again fresh, with the same id, in {ItemChangeLog.PlayerName(owner)}'s Lost and Found");

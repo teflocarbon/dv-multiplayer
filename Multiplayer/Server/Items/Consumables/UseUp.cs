@@ -35,6 +35,8 @@ internal static class UseUp
     /// <summary>A player's request: empty when it is used up, else why not.</summary>
     internal static string Carry(ServerPlayer player, NetworkedItem item, NetworkedItem tool)
     {
+        if (InstalledItems.RefuseDestroy(item, "used up by " + (player?.Username ?? "the server")))
+            return "item-installed";
         if (!LiveItems.TryGet(item.NetId, out LiveItems.LiveItem record))
             return "item-unknown";
         if (item.TryGetComponent(out PadlockKey key))

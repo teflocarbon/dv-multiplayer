@@ -192,6 +192,12 @@ public static class NetworkedItemServer
         if (!senderPossesses && ItemUpdate.IncludesItemState(snapshot.UpdateType) &&
             snapshot.ItemState is not (ItemState.InHand or ItemState.InInventory))
             return Refused(item, "world-transition-requires-possession");
+        // A pickup is from where the server has the item, within reach of the player (OI-PHY-08).
+        if (!senderPossesses && authority != null && ItemUpdate.IncludesItemState(snapshot.UpdateType) &&
+            snapshot.ItemState is ItemState.InHand or ItemState.InInventory &&
+            !PickupReach.Within((Core.Items.LiveState.LivePlacement)(byte)authority.Placement,
+                (item.transform.position - WorldMover.currentMove - senderPlayer.AbsoluteWorldPosition).sqrMagnitude))
+            return Refused(item, "pickup-out-of-reach");
 
         if (ItemUpdate.IncludesItemState(snapshot.UpdateType) &&
             snapshot.ItemState is ItemState.Dropped or ItemState.Thrown)

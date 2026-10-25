@@ -28,6 +28,8 @@ internal static partial class PlayerItems
     /// </summary>
     internal static SavedItemRow ToLostData(LiveItems.LiveItem record, NetworkedItem item)
     {
+        if (InstalledItems.RefuseDestroy(item, "kept as data in Lost and Found"))
+            return null;
         if (record == null || item == null || record.PersistentItemId == Guid.Empty ||
             materializing.Contains(record.NetId) || ItemSaveLoad.IsRestorePending(item) || !AmmoCanGoData(item) ||
             !CanBeLostData(record, item))

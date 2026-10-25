@@ -200,6 +200,8 @@ internal static partial class PlayerItems
 
     private static void GoData(LiveItems.LiveItem record, NetworkedItem item, ServerPlayer holder, bool sendRow = false)
     {
+        if (InstalledItems.RefuseDestroy(item, "kept as data in " + holder?.Username + "'s inventory"))
+            return;
         MakeOrdinary(item);
         if (record.PersistentItemId == Guid.Empty)
             return;

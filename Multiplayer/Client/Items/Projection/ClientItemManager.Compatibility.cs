@@ -129,7 +129,7 @@ internal sealed partial class ClientItemManager
 
     internal void RetireClientProjection(NetworkedItem netItem, string reason)
     {
-        if (netItem == null)
+        if (netItem == null || InstalledItems.RefuseDestroy(netItem, "retired here: " + reason))
             return;
 
         bool authored = netItem.IsSceneAuthored;

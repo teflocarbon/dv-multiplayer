@@ -101,6 +101,9 @@ internal sealed partial class ServerItemManager : IItemManagerServerPart
 
     public void ForgetRecord(ushort itemNetId) => LiveItems.Remove(itemNetId);
 
+    public bool IsInstalled(ushort itemNetId) =>
+        LiveItems.TryGet(itemNetId, out LiveItems.LiveItem record) && record.Placement == ItemPlacementKind.Installed;
+
     public void OnTrainItemRemoved(ushort itemNetId) => TrainItemWake.OnItemRemoved(itemNetId);
 
     public void ReceiveLocalTrainWakeWitness(ServerboundItemTrainWakeWitnessPacket packet)

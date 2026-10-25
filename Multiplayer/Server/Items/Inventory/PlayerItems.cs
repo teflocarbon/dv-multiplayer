@@ -211,6 +211,8 @@ internal static partial class PlayerItems
     private static void Retire(NetworkedItem item, LiveItems.LiveItem record, ChangeCause<ItemRemovalReason> cause,
         ServerPlayer leaver)
     {
+        if (InstalledItems.RefuseDestroy(item, "went cold: " + cause))
+            return;
         ItemUpdate destroy = item.CreateUpdateData(ItemUpdate.ItemUpdateType.Destroy);
         if (destroy != null)
         {
