@@ -125,34 +125,46 @@ namespace Dvmp.Scenarios
         }
 
         /// <summary>
-        /// Host: a container prefab whose box takes a box of its own kind, by the running game's own
-        /// check on two live boxes (the prefab's mask may differ from a fresh object's), tried
-        /// <paramref name="preferred"/> first. Result: its prefab, or "" when none does, as in vanilla,
-        /// where no box takes its own kind (<see cref="Nesting"/> finds two kinds that nest).
+        /// Host: three container prefabs for a box in a box in a box: an outer whose box takes the
+        /// middle, whose box takes the inner, the middle tried as <paramref name="middle"/> first. No
+        /// vanilla box takes its own kind, so this is as deep as vanilla nests: the crate takes a
+        /// toolbox, the toolbox a registrator. Checked by the running game on live objects (a
+        /// prefab's mask may differ from a fresh object's). Result: "outer middle inner", or "" when
+        /// no three kinds nest.
         /// </summary>
         [Step]
-        public static IEnumerator SelfNesting(Step<string> step, string preferred)
+        public static IEnumerator Chain(Step<string> step, string middle)
         {
             var specs = DV.Globals.G.Items.items
                 .Where(spec => spec != null && spec.gameObject.GetComponentInChildren<DV.Items.ItemContainer>(true) != null)
-                .OrderBy(spec => spec.ItemPrefabName == preferred ? 0 : 1).ToList();
+                .OrderBy(spec => spec.ItemPrefabName == middle ? 0 : 1).ToList();
             Vector3 at = PlayerManager.PlayerTransform.position + Vector3.up * 50f;
+            var boxes = specs.Select((spec, i) => UnityEngine.Object.Instantiate(spec.gameObject, at + Vector3.right * 2f * i, Quaternion.identity, WorldMover.OriginShiftParent)).ToList();
+            yield return null;
+            bool Takes(int outer, int inner) => outer != inner &&
+                boxes[outer].GetComponentInChildren<DV.Items.ItemContainer>(true).ValidItem(boxes[inner]);
             step.Result = "";
-            foreach (var spec in specs)
+            for (int m = 0; m < boxes.Count && step.Result.Length == 0; m++)
             {
-                var a = UnityEngine.Object.Instantiate(spec.gameObject, at, Quaternion.identity, WorldMover.OriginShiftParent);
-                var b = UnityEngine.Object.Instantiate(spec.gameObject, at + Vector3.right, Quaternion.identity, WorldMover.OriginShiftParent);
-                yield return null;
-                bool takes = a.GetComponentInChildren<DV.Items.ItemContainer>(true).ValidItem(b);
-                UnityEngine.Object.Destroy(a);
-                UnityEngine.Object.Destroy(b);
-                yield return null;
-                if (takes)
-                {
-                    step.Result = spec.ItemPrefabName;
-                    yield break;
-                }
+                int inner = Enumerable.Range(0, boxes.Count).Where(i => i != m && Takes(m, i)).DefaultIfEmpty(-1).First();
+                int outer = inner < 0 ? -1 : Enumerable.Range(0, boxes.Count).Where(o => o != inner && Takes(o, m)).DefaultIfEmpty(-1).First();
+                if (outer >= 0)
+                    step.Result = $"{specs[outer].ItemPrefabName} {specs[m].ItemPrefabName} {specs[inner].ItemPrefabName}";
             }
+            foreach (GameObject box in boxes) UnityEngine.Object.Destroy(box);
+            yield return null;
+        }
+
+        /// <summary>
+        /// Host: sets the live graph's depth limit (<c>ContainerLimits.MaximumDepth</c>, 8 in play),
+        /// which a deposit and the graph check hold the graph to. Result: the limit it had.
+        /// </summary>
+        [Step]
+        public static int SetMaximumDepth(int depth)
+        {
+            int had = ContainerServer.Graph.Limits.MaximumDepth;
+            ContainerServer.Graph.Limits.MaximumDepth = depth;
+            return had;
         }
 
         /// <summary>

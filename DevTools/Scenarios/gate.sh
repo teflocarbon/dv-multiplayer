@@ -140,7 +140,7 @@ runs=( # name | scenario | variables | pair kind it prefers (default player)
   "papers-in-box-host|papers-in-box|WHO=host|player"
   "old-report-row|old-report-row|"
   "old-report-row-unslotted|old-report-row|UNSLOTTED=1"
-  "old-report-row-unowned|old-report-row|UNSLOTTED=1 UNOWNED=1"
+  "old-report-row-full|old-report-row|UNSLOTTED=1 FULL=1"
   "car-delete-unowned|item-bug-car-delete-unowned|"
   "car-delete-unowned-track|item-bug-car-delete-unowned|HOW=track"
   "essential-slot-rejoin|item-bug-essential-slot-rejoin|"
