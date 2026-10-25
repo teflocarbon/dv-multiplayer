@@ -158,6 +158,8 @@ internal sealed class OfficeStockReplenishment
                 continue;
 
             abandonedForkEmptySince.Remove(record.NetId);
+            if (InstalledItems.RefuseDestroy(item, "an abandoned stock fork"))
+                continue;
             DebugRuntime.Publish("item-world", "world-item.abandoned-stock-fork-removed",
                 DebugRuntimeSide.Server, entityType: "Item", entityId: record.NetId.ToString(), data: new()
                 {

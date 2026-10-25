@@ -35,4 +35,7 @@ public interface IItemManagerServerPart
     void ReceiveLocalTrainWakeWitness(ServerboundItemTrainWakeWitnessPacket packet);
 
     void AppendTrainWakeDebugState(ushort itemNetId, Dictionary<string, object> state);
+
+    /// <summary>The server's record has the item installed (InstalledItems).</summary>
+    bool IsInstalled(ushort itemNetId);
 }

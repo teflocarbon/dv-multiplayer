@@ -55,7 +55,8 @@ internal sealed class AuthoredItems
     internal void Replace(string key, NetworkedItem item)
     {
         Ensure();
-        if (Catalogue.TryGet(key, out NetworkedItem existing) && existing != null && existing != item)
+        if (Catalogue.TryGet(key, out NetworkedItem existing) && existing != null && existing != item &&
+            !InstalledItems.RefuseDestroy(existing, $"its authored slot {key} taken by netId {item?.NetId ?? 0}"))
         {
             manager.ServerPart?.UnregisterHostWorldItem(existing);
             existing.NoteRemovalCause(new ChangeCause<ItemRemovalReason>(ItemRemovalReason.AuthoredSlotReplaced,

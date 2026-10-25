@@ -165,6 +165,10 @@ internal sealed partial class ClientItemManager
             bool dormantJobDocument =
                 snapshot.TransitionReason == ItemTransitionReason.InterestRetirement &&
                 netItem != null && shell.DoNotCreateItem(netItem);
+            // An installed gadget's item goes only with its gadget, never with an item Destroy
+            // (OI-GAD-06).
+            bool installedKept = netItem != null && !lostAndFoundProjection &&
+                InstalledItems.RefuseDestroy(netItem, "the server's destroy (" + snapshot.TransitionReason + ")");
             if (lostAndFoundProjection)
             {
                 ClientLostAndFoundTombstones.Add(snapshot.ItemNetId);
@@ -173,7 +177,7 @@ internal sealed partial class ClientItemManager
                              .Distinct().ToArray())
                     representation.Client()?.ApplyLostAndFoundProjection(snapshot);
             }
-            else
+            else if (!installedKept)
             {
                 ClientLostAndFoundTombstones.Remove(snapshot.ItemNetId);
                 if (netItem != null)
@@ -189,8 +193,9 @@ internal sealed partial class ClientItemManager
                 else
                     RetireClientProjection(netItem, snapshot.TransitionReason.ToString());
             }
-            destroyData["destroyApplied"] = true;
+            destroyData["destroyApplied"] = !installedKept;
             destroyData["applyResult"] = netItem == null ? "already-absent" :
+                installedKept ? "installed-kept" :
                 lostAndFoundProjection ? "lost-and-found-projection" :
                 dormantJobDocument ? "job-document-projection-dormant" :
                 netItem.IsSceneAuthored ? "authored-projection-dormant" : "dynamic-projection-destroyed";
