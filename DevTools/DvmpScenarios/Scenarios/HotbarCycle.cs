@@ -103,10 +103,15 @@ namespace Dvmp.Scenarios
         // ---- runs inside the games
         public static class InGame
         {
-            /// <summary>Every vanilla item a client keeps as a stand-in when stored, but cash and the essentials.</summary>
+            /// <summary>
+            /// Every vanilla item a client keeps as a stand-in when stored, but cash, the essentials and
+            /// job papers: a paper is made from its job, never bare (the client waits for the job, the
+            /// host keeps a jobless one an object); item-bug-booklet-restart and overview-rejoin stash real ones.
+            /// </summary>
             [Step]
             public static string[] Prefabs() =>
                 DV.Globals.G.Items.items.Where(s => s != null && !s.IsEssential && s.GetComponent<Money>() == null &&
+                                                    !Multiplayer.Shared.Jobs.JobPapers.IsPaper(s.ItemPrefabName) &&
                                                     InventoryStandIn.CanStandIn(s.ItemPrefabName))
                     .Select(s => s.ItemPrefabName).Distinct().OrderBy(p => p, StringComparer.Ordinal).ToArray();
 

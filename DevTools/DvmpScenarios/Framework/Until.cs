@@ -1,5 +1,7 @@
 using System;
+using System.Collections;
 using System.Diagnostics;
+using System.Linq;
 using System.Threading.Tasks;
 
 namespace Dvmp.Scenarios
@@ -29,13 +31,17 @@ namespace Dvmp.Scenarios
                 }
             }
             bool ok = done(value);
-            run.Out.Line("until", what, ok ? "ok" : "FAIL", clock.Elapsed, new[] { $"{reads} read(s), last {value}" });
-            if (!ok) Require.That(false, what, $"still {value} after {seconds} s");
+            run.Out.Line("until", what, ok ? "ok" : "FAIL", clock.Elapsed, new[] { $"{reads} read(s), last {Show(value)}" });
+            if (!ok) Require.That(false, what, $"still {Show(value)} after {seconds} s");
             return value;
         }
 
         /// <summary>The same for a yes/no condition.</summary>
         public static Task True(Func<Task<bool>> condition, int seconds, string what, double everySeconds = 1) =>
             Value(condition, v => v, seconds, what, everySeconds);
+
+        // An array's elements, not its type's name.
+        private static string Show(object value) =>
+            value is IEnumerable items && value is not string ? "[" + string.Join("; ", items.Cast<object>()) + "]" : $"{value}";
     }
 }

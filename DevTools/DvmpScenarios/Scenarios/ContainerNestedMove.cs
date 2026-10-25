@@ -17,17 +17,17 @@ namespace Dvmp.Scenarios
     {
         public sealed class Options
         {
-            /// <summary>The container's prefab, tried first for one that takes a box of its own kind.</summary>
+            /// <summary>The inner box's prefab, tried first; the outer is one whose box takes it.</summary>
             public string Container = "ItemContainerToolbox";
         }
 
         protected override async Task Run(Pair pair, Options o)
         {
             await Task.Delay(10000);   // a just-joined client is still receiving its items
-            string prefab = await pair.Host.Run<string>(s => Boxes.SelfNesting(s, o.Container), 120);
-            if (prefab.Length == 0) throw new HarnessException("no container prefab takes a box of its own kind");
-            ushort outer = await pair.Host.Run<ushort>(s => Items.SpawnPersonal(s, prefab, "client"));
-            ushort inner = await pair.Host.Run<ushort>(s => Items.SpawnPersonal(s, prefab, "client"));
+            string[] nest = (await pair.Host.Run<string>(s => Boxes.Nesting(s, o.Container, "Mug"), 120)).Split(' ');
+            if (nest.Length != 2) throw new HarnessException("no container the game has takes another that takes a mug");
+            ushort outer = await pair.Host.Run<ushort>(s => Items.SpawnPersonal(s, nest[0], "client"));
+            ushort inner = await pair.Host.Run<ushort>(s => Items.SpawnPersonal(s, nest[1], "client"));
             ushort mug = await pair.Host.Run<ushort>(s => Items.SpawnPersonal(s, "Mug", "client"));
             await pair.Host.Run(() => Ownership.Give(mug, "client"));
             string outerId = await pair.Host.Run(() => Owned.IdOf(outer));

@@ -250,10 +250,18 @@ namespace Dvmp.Scenarios
             }
 
             // The state as compact JSON with its keys sorted, so two reads compare (join-row-object too).
+            // Without the item's id (ItemIdentityPatch.Key): the server's, it rides in the row to the
+            // holder's game (inventory.md, "State"), so an object made from a row has it and the one
+            // stashed before may not. Nor a boombox's place in its tape (StashedCassette's keys,
+            // inventory.md "Where the cassette had got to"), which its row adds and stashed-cassette checks.
             internal static string Normal(string state)
             {
                 if (string.IsNullOrEmpty(state)) return "";
-                return Sorted(JToken.Parse(state)).ToString(Newtonsoft.Json.Formatting.None);
+                JToken token = JToken.Parse(state);
+                (token as JObject)?.Remove("dvmpPersistentWorldItemId");
+                (token as JObject)?.Remove(Multiplayer.Shared.Items.Inventory.StashedCassette.SeekKey);
+                (token as JObject)?.Remove(Multiplayer.Shared.Items.Inventory.StashedCassette.EndedKey);
+                return Sorted(token).ToString(Newtonsoft.Json.Formatting.None);
             }
 
             private static JToken Sorted(JToken token) => token is JObject o

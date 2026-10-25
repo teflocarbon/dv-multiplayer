@@ -271,7 +271,7 @@ namespace Dvmp.Scenarios
         /// Host: a car of <paramref name="livery"/> (an ID, or the first livery whose ID starts with
         /// it: "Flatbed") on the track nearest a point around a player, <paramref name="near"/>
         /// "host" or "client" (on a dedicated host, the host's player transform follows the client), as
-        /// Trains.SpawnNearPlayer does around the host's. Result: its ID, 120 frames later.
+        /// Trains.SpawnNearPlayer does around the host's, its handbrake on. Result: its ID, 120 frames later.
         /// </summary>
         [Step]
         public static IEnumerator SpawnCarNear(Step<string> step, string livery, string near)
@@ -290,6 +290,9 @@ namespace Dvmp.Scenarios
                 if (car == null)
                     car = CarSpawner.Instance.SpawnCarOnClosestTrack(player.position + dir * distance, l, false, true, false);
             if (car == null) throw new Exception($"no room to spawn {l.id} near the {near}");
+            // Its handbrake on, so it stays beside the player: one spawned on a grade rolled 150 m
+            // away in 20 s (attached-offline). Cars.Push releases it to move the car.
+            if (car.brakeSystem != null && car.brakeSystem.hasHandbrake) car.brakeSystem.SetHandbrakePosition(1f);
             spawned.Add(car.ID);
             for (int i = 0; i < 120; i++) yield return null;
             step.Result = car.ID;

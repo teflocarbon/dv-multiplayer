@@ -94,14 +94,15 @@ namespace Dvmp.Scenarios
         private static async Task Proxies(Pair pair, Options o)
         {
             if (o.Who != "client") throw new ArgumentException("MODE=proxies is the client's view: WHO=client");
-            // A box that takes a box of its kind, so one row is a box and gets a ColdProxyContainer.
-            string boxPrefab = await pair.Host.Run<string>(s => Boxes.SelfNesting(s, o.Container));
-            if (boxPrefab.Length == 0) throw new HarnessException("no container the game has takes a box of its own kind");
-            ushort box = await pair.Host.Run<ushort>(s => Items.SpawnPersonal(s, boxPrefab, "client"));
-            ushort inner = await pair.Host.Run<ushort>(s => Items.SpawnPersonal(s, boxPrefab, "client"));
+            // A box that takes another box (CONTAINER) as well as the items, so one row is a box and
+            // gets a ColdProxyContainer.
+            string[] nest = (await pair.Host.Run<string>(s => Boxes.Nesting(s, o.Container, o.Prefab), 120)).Split(' ');
+            if (nest.Length != 2) throw new HarnessException("no container the game has takes another that takes the item");
+            ushort box = await pair.Host.Run<ushort>(s => Items.SpawnPersonal(s, nest[0], "client"));
+            ushort inner = await pair.Host.Run<ushort>(s => Items.SpawnPersonal(s, nest[1], "client"));
             ushort first = await pair.Host.Run<ushort>(s => Items.SpawnPersonal(s, o.Prefab, "client"));
             ushort second = await pair.Host.Run<ushort>(s => Items.SpawnPersonal(s, o.Prefab, "client"));
-            Report.Note($"{boxPrefab} {box} gets {o.Prefab} {first}, {o.Prefab} {second} and {boxPrefab} {inner}");
+            Report.Note($"{nest[0]} {box} gets {o.Prefab} {first}, {o.Prefab} {second} and {nest[1]} {inner}");
             foreach (ushort stored in new[] { first, second, inner })
                 Require.Equal(Boxes.Accepted, await pair.Client.Run<string>(s => Boxes.Deposit(s, box, stored), 120), $"the deposit of {stored}");
 

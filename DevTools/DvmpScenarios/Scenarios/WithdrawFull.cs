@@ -57,7 +57,9 @@ namespace Dvmp.Scenarios
             Report.Note($"the box: the player's mug in slot {ownedSlot}, the unowned one in slot {unownedSlot}");
             Require.That(ownedSlot >= 0 && unownedSlot >= 0, "both mugs are in the box");
 
-            // Every slot of the inventory taken.
+            // Every slot of the inventory taken, the box down first: held, it takes the selected
+            // hotbar slot, which the fill's first pickup frees.
+            await pair.Client.Run(() => Items.Drop(), 10);
             int taken = (await pair.Client.Run(() => LeaveFullInventory.InGame.Occupied())).Length;
             await LeaveFullInventory.Fill(pair, ids, LeaveFullInventory.Capacity - taken, false);
             Require.Zero(LeaveFullInventory.Capacity - (await pair.Client.Run(() => LeaveFullInventory.InGame.Occupied())).Length, "free slots in the player's inventory");

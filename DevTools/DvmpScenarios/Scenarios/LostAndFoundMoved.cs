@@ -67,7 +67,9 @@ namespace Dvmp.Scenarios
             await Task.Delay(o.Hold * 1000);   // many grace periods, with the client by the mug
             Expect.That(!(await pair.Host.Run(() => Items.Record(mug))).Lost, $"with the client within {o.Nearby} m the mug isn't collected");
 
-            // The loco goes far away, the mug with it; nobody moves.
+            // The loco goes far away, the mug with it; nobody moves. A long grace meanwhile, so the mug
+            // is still an object to measure (a collected one is data), then the short one again.
+            await pair.Host.Run(() => LostAndFound.InGame.SetPolicy(new LostAndFound.Policy { Owner = 50, Nearby = o.Nearby, Grace = 900 }));
             Moved moved = await pair.Host.Run<Moved>(s => InGame.MoveFar(s, loco, o.Far), 60);
             Report.Note($"moved {loco} {moved.Distance:0} m, from {moved.From} to {moved.To} (track {moved.Track})");
             Where far = await pair.Host.Run(() => InGame.Measure(mug, loco, drop));
@@ -78,6 +80,7 @@ namespace Dvmp.Scenarios
             // What makes the check mean something: a player still protects the drop spot. Measured
             // from there (or from a position the record kept), the mug would never be collected.
             Require.AtMost(far.NearestToDrop, o.Nearby - 10, "the nearest player to where the mug was dropped (m)");
+            await pair.Host.Run(() => LostAndFound.InGame.SetPolicy(new LostAndFound.Policy { Owner = 50, Nearby = o.Nearby, Grace = 1 }));
 
             await Until.Value(() => pair.Host.Run(() => Items.Record(mug)), r => r.Lost, 30,
                 "the mug collected once its loco is far from every player (else distance came from somewhere other than where it is)");

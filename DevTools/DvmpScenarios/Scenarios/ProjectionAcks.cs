@@ -199,8 +199,6 @@ namespace Dvmp.Scenarios
             private static string failPrefab = "";
             private static bool failAlways;
             private static int failures;
-            private static ushort watched;
-            private static string removal = "";
 
             /// <summary>Client: fails the next Create of this prefab ("" stops).</summary>
             [Step]
@@ -324,28 +322,28 @@ namespace Dvmp.Scenarios
                     ? cause.Reason + ": " + cause.Detail
                     : "";
 
-            /// <summary>Client: records the next removal cause given to this item (0 stops).</summary>
+            private static NetworkedItem watchedItem;
+
+            /// <summary>
+            /// Client: watches this item for the removal cause its retirement gives it (0 stops). It
+            /// keeps the item itself and reads its cause: the setter is a one-liner Mono inlines into
+            /// callers compiled long before, so a patch on it never ran.
+            /// </summary>
             [Step]
             public static bool WatchRemovals(ushort netId)
             {
-                var harmony = new Harmony(HarmonyId + ".removal");
-                harmony.UnpatchAll(HarmonyId + ".removal");
-                watched = netId;
-                removal = "";
-                if (netId != 0)
-                    harmony.Patch(AccessTools.Method(typeof(NetworkedItem), nameof(NetworkedItem.SetLastRemovalCause)),
-                        postfix: new HarmonyMethod(typeof(InGame).GetMethod(nameof(SawRemoval))));
+                watchedItem = netId != 0 && NetworkedItem.TryGet(netId, out NetworkedItem item) && item != null &&
+                              !item.LastRemovalCause.HasValue ? item : null;
                 return true;
             }
 
-            public static void SawRemoval(NetworkedItem __instance, ChangeCause<ItemRemovalReason> cause)
-            {
-                if (__instance != null && __instance.NetId == watched && removal.Length == 0)
-                    removal = cause.Reason + ": " + cause.Detail;
-            }
-
+            /// <summary>Client: the watched item's removal cause, as "Reason: detail", once it has one.</summary>
             [Step]
-            public static string Removal() => removal;
+            public static string Removal() =>
+                // A retired copy is a destroyed object; its managed fields still read.
+                !ReferenceEquals(watchedItem, null) && watchedItem.LastRemovalCause is { } cause
+                    ? cause.Reason + ": " + cause.Detail
+                    : "";
 
             private static GameObject twinHolder;
 

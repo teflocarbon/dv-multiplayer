@@ -1,5 +1,10 @@
+using System.Linq;
 using System.Threading.Tasks;
+using DV.Customization.Gadgets.Implementations;
 using Dvmp.Lib;
+using HarmonyLib;
+using Multiplayer.Shared.Items.LiveState;
+using UnityEngine;
 
 namespace Dvmp.Scenarios
 {
@@ -12,6 +17,8 @@ namespace Dvmp.Scenarios
     /// goes to the loco: it must have the item again, snapped to the hanger. A gadget's snap sends no
     /// car (only the gadget), so before the fix interest fell back to where the item was hung: it
     /// stayed with the client left behind, and never reached the client by the loco. Both host kinds.
+    /// The hanger's dangler (which the server runs) is held still on the host while the loco is moved
+    /// and settles: the teleport is a jolt that swings it upside down, and vanilla then drops the item.
     /// </summary>
     [Scenario("hanger-interest", "An item on a hanger in a loco's cab follows the loco for interest: it leaves a client the loco is moved away from, and reaches it by the loco")]
     [Budget(400)]
@@ -49,8 +56,13 @@ namespace Dvmp.Scenarios
                 "the item in the client's interest on the server, the loco beside it");
 
             // The loco goes far away, the hanger and its item with it; the client stays.
+            ushort hanger = hung.HangerNetId;
+            Require.That(await pair.Host.Run(() => InGame.HoldDangler(hanger, true)), "the host holds the hanger's dangler still");
+            pair.Cleanup(() => pair.Host.Run(() => InGame.HoldDangler(hanger, false)));
             LostAndFoundMoved.Moved moved = await pair.Host.Run<LostAndFoundMoved.Moved>(s => LostAndFoundMoved.InGame.MoveFar(s, loco, o.Far), 60);
             Report.Note($"moved {loco} {moved.Distance:0} m, from {moved.From} to {moved.To} (track {moved.Track})");
+            await Task.Delay(5000);   // the loco settles on its new track
+            await pair.Host.Run(() => InGame.HoldDangler(hanger, false));
             await Until.Value(() => pair.Host.Run(() => InterestCellsMoves.InGame.ServerView(hung.Item)), s => !s.Nearby && !s.Known, o.Within,
                 "the item out of the client's interest once its loco is far (else interest read where it was hung)");
             Expect.That(!await pair.Client.Run(() => InterestCellsMoves.InGame.Has(hung.Item)), "the client left behind no longer has the item");
@@ -62,6 +74,29 @@ namespace Dvmp.Scenarios
                 "the item in the client's interest by the loco (else interest read where it was hung)");
             Expect.Equal("", await pair.Client.Run<string>(s => SnappedRestart.InGame.OnHanger(s, hung.Item, hung.HangerNetId, 20f), 40),
                 "the client by the loco has the item on the hanger again");
+        }
+
+        // ---- runs inside the games
+        public static class InGame
+        {
+            /// <summary>
+            /// Host: holds the hanger's dangler still (disabled), or lets it swing again from rest, the
+            /// car's velocity now its starting point. Result: the hanger has a dangler.
+            /// </summary>
+            [Step]
+            public static bool HoldDangler(ushort hanger, bool hold)
+            {
+                var point = GadgetSnapPoints.PointOf(hanger);
+                Dangler dangler = point == null ? null : Object.FindObjectsOfType<Dangler>().FirstOrDefault(d => d.snapPointGadget == point);
+                if (dangler == null) return false;
+                if (hold) { dangler.enabled = false; return true; }
+                dangler.angularVelocity = Vector3.zero;
+                if (dangler.attachedCustomizer.IsOnTrainCar)
+                    Traverse.Create(dangler).Field("lastPointVelocity").SetValue(
+                        dangler.attachedCustomizer.TrainCar.rb.GetPointVelocity(dangler.transform.position) * dangler.trainMult);
+                dangler.enabled = point.SnappedItem != null;
+                return true;
+            }
         }
     }
 }

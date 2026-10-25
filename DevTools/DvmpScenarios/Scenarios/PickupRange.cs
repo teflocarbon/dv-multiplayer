@@ -51,6 +51,10 @@ namespace Dvmp.Scenarios
             Expect.Equal(place, after.Placement, "where the item lies after the far pickup");
             Expect.Equal(lying.Revision, after.Revision, "the record's revision");
 
+            // Back beside it first, and the server told, as for the far ask: a pickup straight after
+            // the 40 m teleport was asked before the server heard the player had moved (refused out of reach).
+            await pair.Client.Run(() => Owned.GoTo(item), 60);
+            await Task.Delay(2000);
             await pair.Client.Run(() => Items.Pickup(item), 60);
             ItemRecord taken = await Until.Value(() => pair.Host.Run(() => Items.Record(item)),
                 r => r.Placement == "PlayerHand", 15, "the pickup from beside it taken");

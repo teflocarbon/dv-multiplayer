@@ -67,9 +67,12 @@ namespace Dvmp.Scenarios
             Report.Note($"wick {wick}; retrieved into slot {slot}: {stored}");
             Expect.That(stored.StandIn, "the retrieved lantern is a stand-in in the client's slot");
             Expect.That(stored.State.Length > 0, "the stand-in has its row's state (A2)", stored.State.Length > 0 ? stored.State : "none");
+            // The wick its row saved: the knob turns in steps, so it lands near the one asked for (0.2 for 0.15).
+            float saved = stored.State.Length > 0 && JObject.Parse(stored.State)["Wick_state"] is JToken w ? (float)w : 1f;
+            Expect.AtMost(Off(saved, wick), 0.06, $"the wick its row saved, off {wick}");
 
             ItemRelease.LanternState held = await pair.Client.Run<ItemRelease.LanternState>(s => InGame.TakeOutAndDrop(s, lantern), 60);
-            Expect.AtMost(Off(held.Wick, wick), 0.05, $"the client's wick off {wick}, taken out");
+            Expect.AtMost(Off(held.Wick, saved), 0.02, $"the client's wick off its row's {saved}, taken out");
             await Task.Delay(2000);   // the drop settles on the host
             Seen dropped = await pair.Client.Run(() => InGame.Look(lantern));
             Report.Note($"dropped: client {dropped}");
@@ -80,7 +83,7 @@ namespace Dvmp.Scenarios
             Report.Note($"host: {h}, {server.State}, wick {server.Wick:0.##}");
             Expect.That(h.Placement == "World" && !h.Lost, "the host has the lantern in the world, not in Lost and Found", h.ToString());
             Expect.Equal("Dropped", server.State, "the host's lantern's state");
-            Expect.AtMost(Off(server.Wick, wick), 0.05, $"the host's wick off {wick}");
+            Expect.AtMost(Off(server.Wick, saved), 0.02, $"the host's wick off its row's {saved}");
             ItemPose objectAfter = await pair.Host.Run(() => Items.Pose(lantern));
             Report.Note($"the host's lantern object: instance {objectBefore.Instance} before Lost and Found, {objectAfter.Instance} now");
             Expect.That(objectAfter.Present && objectAfter.Instance != objectBefore.Instance,

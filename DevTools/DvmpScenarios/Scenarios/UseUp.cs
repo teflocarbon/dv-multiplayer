@@ -140,6 +140,10 @@ namespace Dvmp.Scenarios
                         : i.GetComponent<PaintCan>() is { } c && c.theme != null && c.emptyCanPrefab != null)
                     ?? throw new Exception("no item spec for a " + kind);
                 yield return Items.SpawnPersonal(step, spec.ItemPrefabName, near);
+                // Out of the way of the can, which spawns where it lay: a can that falls on a sprayer
+                // is loaded by it (its reload on touch), and the player's own load was refused.
+                if (kind == "sprayer")
+                    Items.Find(step.Result).transform.position += Vector3.forward * 1.5f;
             }
 
             /// <summary>Host: a fresh garage key that opens <paramref name="keyType"/>'s padlock, beside the client.</summary>

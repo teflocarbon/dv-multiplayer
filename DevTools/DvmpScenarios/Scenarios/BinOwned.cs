@@ -138,6 +138,9 @@ namespace Dvmp.Scenarios
                 Bounds b = bin.GetComponent<Collider>()?.bounds ?? new Bounds(bin.transform.position, Vector3.one);
                 Vector3 side = Dev.Abs(b.center) + new Vector3(b.extents.x + 1.2f, 0f, 0f);
                 yield return LocalPlayer.TeleportToGround(side.x, side.z);
+                // Again: a teleport that far shifts the world's origin, and the bounds read before it
+                // put the mug ~820 m from the player, a drop the server refused as out of its reach.
+                b = bin.GetComponent<Collider>()?.bounds ?? new Bounds(bin.transform.position, Vector3.one);
                 NetworkedItem.TryGet(netId, out NetworkedItem item);
                 if (Hands.Held != item) throw new Exception($"not holding item {netId}");
                 yield return Hands.Drop();

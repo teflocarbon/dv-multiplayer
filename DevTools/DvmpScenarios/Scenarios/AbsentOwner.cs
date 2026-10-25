@@ -78,12 +78,19 @@ namespace Dvmp.Scenarios
         // ---- runs inside the games
         public static class InGame
         {
-            /// <summary>Host: makes the item a player's who isn't here (a new identity). Result: its id and owner.</summary>
+            /// <summary>
+            /// Host: makes the item a player's who isn't here (a new identity). Result: its id and owner.
+            /// <c>Own</c> only makes an unowned item owned (the ledger never changes an owner), so an
+            /// owned one is made theirs in the ledger itself, as a test can and no game path does.
+            /// </summary>
             [Step]
             public static Absent GiveToAbsent(ushort netId)
             {
                 LiveItems.TryGet(netId, out var record);
-                ServerLedger.Own(record, System.Guid.NewGuid(), BirthReason.Granted, System.Guid.Empty, "absent-owner scenario");
+                if (record != null && ServerLedger.Ledger.IsLive(record.PersistentItemId))
+                    RetrieveFromForeignBox.InGame.ReownToAbsent(record.PersistentItemId.ToString("D"));
+                else
+                    ServerLedger.Own(record, System.Guid.NewGuid(), BirthReason.Granted, System.Guid.Empty, "absent-owner scenario");
                 return Read(netId);
             }
 

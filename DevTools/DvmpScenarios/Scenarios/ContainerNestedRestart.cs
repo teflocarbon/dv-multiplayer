@@ -17,7 +17,7 @@ namespace Dvmp.Scenarios
     {
         public sealed class Options
         {
-            /// <summary>The container prefab to prefer, if it takes a box of its own kind.</summary>
+            /// <summary>The inner box's prefab, tried first; the outer is one whose box takes it.</summary>
             public string Container = "ItemContainerToolbox";
             /// <summary>The item to store.</summary>
             public string Prefab = "Mug";
@@ -32,15 +32,15 @@ namespace Dvmp.Scenarios
             if (o.Who == "host" && pair.Dedicated) throw new HarnessException("WHO=host needs a player host");
             await Task.Delay(10000);   // a just-joined client is still receiving its items
             Peer who = o.Who == "host" ? pair.Host : pair.Client;
-            string prefab = await pair.Host.Run<string>(s => Boxes.SelfNesting(s, o.Container), 120);
-            if (prefab.Length == 0) throw new HarnessException("no container prefab takes a box of its own kind");
-            ushort outer = await pair.Host.Run<ushort>(s => Items.SpawnPersonal(s, prefab, o.Who));
-            ushort inner = await pair.Host.Run<ushort>(s => Items.SpawnPersonal(s, prefab, o.Who));
+            string[] nest = (await pair.Host.Run<string>(s => Boxes.Nesting(s, o.Container, o.Prefab), 120)).Split(' ');
+            if (nest.Length != 2) throw new HarnessException("no container the game has takes another that takes the item");
+            ushort outer = await pair.Host.Run<ushort>(s => Items.SpawnPersonal(s, nest[0], o.Who));
+            ushort inner = await pair.Host.Run<ushort>(s => Items.SpawnPersonal(s, nest[1], o.Who));
             ushort item = await pair.Host.Run<ushort>(s => Items.SpawnPersonal(s, o.Prefab, o.Who));
             string outerId = await pair.Host.Run(() => Owned.IdOf(outer));
             string innerId = await pair.Host.Run(() => Owned.IdOf(inner));
             string itemId = await pair.Host.Run(() => Owned.IdOf(item));
-            Report.Note($"boxes {prefab}: outer {outer} ({outerId}), inner {inner} ({innerId}); {o.Prefab} {item} ({itemId})");
+            Report.Note($"boxes: outer {nest[0]} {outer} ({outerId}), inner {nest[1]} {inner} ({innerId}); {o.Prefab} {item} ({itemId})");
             var after = new List<ushort>();
             pair.Cleanup(async () =>
             {

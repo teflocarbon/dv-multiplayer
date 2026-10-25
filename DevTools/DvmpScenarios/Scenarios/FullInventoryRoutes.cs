@@ -77,9 +77,13 @@ namespace Dvmp.Scenarios
             Require.Equal(Boxes.Accepted, await pair.Client.Run<string>(s => Boxes.Deposit(s, box, boxMug), 120), "the deposit of the client's mug");
             int boxSlot = await pair.Host.Run(() => Boxes.StoredSlot(boxId));
             Require.That(boxSlot >= 0, "the mug is in the box", $"slot {boxSlot}");
+            // The box down: held, it takes the selected hotbar slot, which the fill's first pickup frees.
+            await pair.Client.Run(() => Items.Drop(), 10);
 
-            // Its essential dropped: the silhouette keeps its slot.
+            // Its essential dropped: the silhouette keeps its slot. Back after a failed run too, so
+            // the pair's later runs find it in the inventory.
             await Recall.EssentialToInventory(pair);
+            pair.Cleanup(() => Recall.EssentialToInventory(pair));
             Recall.Dropped d = await pair.Client.Run<Recall.Dropped>(s => Recall.InGame.DropEssential(s, -1));
             Report.Note($"the client dropped {d.Name} {d.Item} from slot {d.Slot}: {d.State}, slot reserved {d.Reserved}");
             Require.Equal("Dropped", d.State, "the essential's state after the drop");

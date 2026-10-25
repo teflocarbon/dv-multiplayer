@@ -127,7 +127,8 @@ namespace Dvmp.Scenarios
         /// <summary>
         /// Host: a container prefab whose box takes a box of its own kind, by the running game's own
         /// check on two live boxes (the prefab's mask may differ from a fresh object's), tried
-        /// <paramref name="preferred"/> first. Result: its prefab, or "" when none does.
+        /// <paramref name="preferred"/> first. Result: its prefab, or "" when none does, as in vanilla,
+        /// where no box takes its own kind (<see cref="Nesting"/> finds two kinds that nest).
         /// </summary>
         [Step]
         public static IEnumerator SelfNesting(Step<string> step, string preferred)
@@ -152,6 +153,43 @@ namespace Dvmp.Scenarios
                     yield break;
                 }
             }
+        }
+
+        /// <summary>
+        /// Host: two container prefabs for a box in a box: an outer whose box takes the inner, both
+        /// taking <paramref name="item"/>, the inner tried as <paramref name="inner"/> first. No
+        /// vanilla box takes its own kind: the crate takes a toolbox or a briefcase, the toolbox a
+        /// registrator, the registrator a folder. Checked by the running game on live
+        /// objects (a prefab's mask may differ from a fresh object's). Result: "outer inner", or ""
+        /// when no pair nests.
+        /// </summary>
+        [Step]
+        public static IEnumerator Nesting(Step<string> step, string inner, string item)
+        {
+            var specs = DV.Globals.G.Items.items
+                .Where(spec => spec != null && spec.gameObject.GetComponentInChildren<DV.Items.ItemContainer>(true) != null)
+                .OrderBy(spec => spec.ItemPrefabName == inner ? 0 : 1).ToList();
+            var itemSpec = DV.Globals.G.Items.items.FirstOrDefault(spec => spec != null && spec.ItemPrefabName == item)
+                ?? throw new Exception($"no item prefab {item}");
+            Vector3 at = PlayerManager.PlayerTransform.position + Vector3.up * 50f;
+            var boxes = specs.Select((spec, i) => UnityEngine.Object.Instantiate(spec.gameObject, at + Vector3.right * 2f * i, Quaternion.identity, WorldMover.OriginShiftParent)).ToList();
+            var held = UnityEngine.Object.Instantiate(itemSpec.gameObject, at + Vector3.back * 2f, Quaternion.identity, WorldMover.OriginShiftParent);
+            yield return null;
+            step.Result = "";
+            for (int i = 0; i < boxes.Count && step.Result.Length == 0; i++)
+            {
+                if (!boxes[i].GetComponentInChildren<DV.Items.ItemContainer>(true).ValidItem(held)) continue;
+                for (int j = 0; j < boxes.Count; j++)
+                    if (j != i && boxes[j].GetComponentInChildren<DV.Items.ItemContainer>(true) is { } outer &&
+                        outer.ValidItem(boxes[i]) && outer.ValidItem(held))
+                    {
+                        step.Result = $"{specs[j].ItemPrefabName} {specs[i].ItemPrefabName}";
+                        break;
+                    }
+            }
+            foreach (GameObject box in boxes) UnityEngine.Object.Destroy(box);
+            UnityEngine.Object.Destroy(held);
+            yield return null;
         }
 
         /// <summary>

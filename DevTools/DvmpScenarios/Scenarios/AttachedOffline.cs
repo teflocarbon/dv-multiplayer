@@ -50,7 +50,7 @@ namespace Dvmp.Scenarios
             Require.That(!a.OwnerConnected, "the first lantern's owner is an identity with no session", a.Owner);
             Hung hung = await pair.Host.Run<Hung>(s => InGame.Hang(s, loco), 120);
             Report.Note($"on the hanger {hung.Hanger} in {loco}: a {hung.Prefab} ({hung.Item}), {hung.State}");
-            await Until.Value(() => pair.Host.Run(() => Items.Record(hung.Item)), r => r.Placement == "Attached", 20, "the host has the item on the hanger");
+            await Until.Value(() => pair.Host.Run(() => Items.Record(hung.Item)), r => r.Placement == "SnappedAttachment", 20, "the host has the item on the hanger");
             AbsentOwner.Absent b = await pair.Host.Run(() => AbsentOwner.InGame.GiveToAbsent(hung.Item));
 
             OwnedList.Rows rows = await pair.Host.Run(() => OwnedList.InGame.ServerRows(client));
@@ -101,7 +101,9 @@ namespace Dvmp.Scenarios
             /// <summary>
             /// Host: a hanger (a gadget with a snap point that installs without a mount), the client's,
             /// installed in the loco's cab as vanilla installs, and an item that hangs on it (the first
-            /// prefab whose snapping allows the hanger's type) spawned and hung there.
+            /// prefab whose spec allows the hanger's snap type, leaving out one with a magazine: the
+            /// Boombox's cassette is another item) spawned and hung there. A prefab has no
+            /// SnappableItem until its ItemBase sets one up from the spec.
             /// </summary>
             [Step]
             public static IEnumerator Hang(Step<Hung> step, string loco)
@@ -120,8 +122,9 @@ namespace Dvmp.Scenarios
                 SnapPointGadget point = installed.GetComponent<GadgetWithSnapPoint>().snapPoint;
                 InventoryItemSpec hangs = DV.Globals.G.Items.items
                     .Where(spec => spec != null && spec.GetComponent<GadgetItem>() == null &&
-                                   spec.GetComponentInChildren<SnappableItem>(true) is { } snappable &&
-                                   ((int)snappable.AllowedSnapPointTypes & (int)point.SnapPointType) != 0)
+                                   spec.GetComponentInChildren<ItemMagazine>(true) == null &&
+                                   spec.GetComponent<DV.CabControls.Spec.Item>() is { } snapping &&
+                                   ((int)snapping.allowedSnapPointTypes & (int)point.SnapPointType) != 0)
                     .OrderBy(spec => spec.ItemPrefabName, StringComparer.Ordinal)
                     .FirstOrDefault() ?? throw new InvalidOperationException("nothing hangs on " + hangerSpec.ItemPrefabName);
                 GameObject go = UnityEngine.Object.Instantiate(hangs.gameObject, point.transform.position + Vector3.up * 0.2f, Quaternion.identity, WorldMover.OriginShiftParent);
@@ -131,6 +134,10 @@ namespace Dvmp.Scenarios
                 Items.Track(hung.NetId);
                 for (int i = 0; i < 30; i++) yield return null;
                 if (!point.SnapItem(hung.Item, false)) throw new Exception($"the hanger refused the {hangs.ItemPrefabName}");
+                // A player's snap comes with the release that marks the item for the server's dirty
+                // pass; this bare one doesn't. In a cab whose interior isn't loaded here (the host's
+                // player far off) vanilla makes the hung item inactive, so no LateUpdate sees it either.
+                hung.MarkLocalStateDirty("snapped");
                 for (int i = 0; i < 120; i++) yield return null;
                 step.Result = new Hung
                 {

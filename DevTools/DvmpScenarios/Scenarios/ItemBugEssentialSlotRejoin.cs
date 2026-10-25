@@ -49,6 +49,9 @@ namespace Dvmp.Scenarios
             // An ordinary item of the player's own (a purchase gives one), so the run needs nothing in the inventory.
             ushort lantern = await pair.Host.Run<ushort>(s => Items.SpawnPersonal(s, "Lantern", o.Who));
             await (host ? pair.Host : pair.Client).Run<int>(s => Items.Stash(s, lantern, false), 60);
+            // Back in its slot if the run fails before the rejoin too: the pair's later runs expect it there.
+            ushort essential = await (host ? pair.Host : pair.Client).Run(() => InGame.At(o.Slot));
+            pair.Cleanup(() => (host ? pair.Host : pair.Client).Run(() => InGame.PutBack(essential, o.Slot)));
             Layout before = await (host ? pair.Host : pair.Client).Run<Layout>(s => InGame.Rearrange(s, o.Slot, lantern));
             Report.Note($"{o.Who}: {before.Essential} {before.EssentialId} moved {o.Slot}->{before.EssentialSlot}, {before.Other} {before.OtherId} moved into slot {o.Slot}");
             string record = await pair.Host.Run(() => InGame.ServerClaim(before.EssentialId));
@@ -112,6 +115,7 @@ namespace Dvmp.Scenarios
                 if (Hands.Held != null) yield return Hands.Drop();
                 GameObject essential = inv.PeekItemAtSlot(slot, false) ?? throw new Exception("slot " + slot + " is empty");
                 if (!PlayerInventory.IsEssential(essential)) throw new Exception(Name(essential) + " in slot " + slot + " isn't essential: a run before left the inventory rearranged");
+                ushort essentialId = PlayerInventory.NetIdOf(essential);
                 // On a client the slots hold stand-ins (D14), which keep their place through a move.
                 GameObject other = PlayerInventory.SlotObject(otherId);
                 int otherSlot = PlayerInventory.Slot(otherId);
@@ -122,11 +126,15 @@ namespace Dvmp.Scenarios
                 yield return new WaitForSeconds(1);
                 if (!inv.MoveItemFromTo(otherSlot, slot, false)) throw new Exception($"couldn't move {Name(other)} from {otherSlot} to {slot}");
                 yield return new WaitForSeconds(3);
-                if (inv.IndexOf(essential) != free || inv.IndexOf(other) != slot) throw new Exception("the moves didn't stick");
+                // By NetId: a slot's object and its stand-in swap places (D14), so the objects read
+                // before the moves may not be the ones in the slots now.
+                int essentialAt = PlayerInventory.Slot(essentialId), otherAt = PlayerInventory.Slot(otherId);
+                if (essentialAt != free || otherAt != slot)
+                    throw new Exception($"the moves didn't stick: {Name(essential)} in slot {essentialAt}, not {free}; {Name(other)} in slot {otherAt}, not {slot}");
                 step.Result = new Layout
                 {
-                    Essential = Name(essential), EssentialId = PlayerInventory.NetIdOf(essential), EssentialSlot = free,
-                    Other = Name(other), OtherId = PlayerInventory.NetIdOf(other)
+                    Essential = Name(essential), EssentialId = essentialId, EssentialSlot = free,
+                    Other = Name(other), OtherId = otherId
                 };
             }
 
@@ -193,7 +201,7 @@ namespace Dvmp.Scenarios
                 };
             }
 
-            /// <summary>Client, cleanup: the essential back in its own slot (whatever is there moves
+            /// <summary>Cleanup: the essential back in its own slot (whatever is there moves
             /// to the last free slot first).</summary>
             [Step]
             public static IEnumerator PutBack(ushort id, int slot)
@@ -205,6 +213,10 @@ namespace Dvmp.Scenarios
                 inv.MoveItemFromTo(now, slot, false);
                 yield return new WaitForSeconds(2);
             }
+
+            /// <summary>The item in this player's slot, its NetId (0: none).</summary>
+            [Step]
+            public static ushort At(int slot) => PlayerInventory.NetIdOf(DV.InventorySystem.Inventory.Instance.PeekItemAtSlot(slot, false));
         }
     }
 }
