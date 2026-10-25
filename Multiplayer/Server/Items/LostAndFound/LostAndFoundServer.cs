@@ -50,6 +50,10 @@ public static class LostAndFoundServer
         registry.TryGet(itemNetId, out LostItemRecord record) ? record.PersistentItemId : Guid.Empty;
     public static int Count => registry.Count;
 
+    /// <summary>Whose entry an item's is: its owner, or the player a booklet was issued to (OI-LF-17).</summary>
+    public static Guid KeeperOf(ushort itemNetId) =>
+        registry.TryGet(itemNetId, out LostItemRecord lost) ? OwnerOf(lost) : Guid.Empty;
+
     public static bool TryCreateCollectionProjection(NetworkedItem item,
         out ItemUpdate snapshot)
     {
@@ -315,7 +319,9 @@ public static class LostAndFoundServer
             return false;
         // An owned item, by the ledger: vanilla's BelongsToPlayer flips in the dumpster, the shop and
         // a withdrawal, so nothing decides on it (docs/design/item-refactor.md, "Every vanilla path").
-        if (!LiveItems.TryGet(item.NetId, out LiveItems.LiveItem owned) || owned.Owner == Guid.Empty)
+        // A booklet, which nobody owns, is kept for the player it was issued to (OI-LF-17).
+        Guid keeper = LiveItems.TryGet(item.NetId, out LiveItems.LiveItem owned) ? LiveItems.KeeperOf(owned) : Guid.Empty;
+        if (keeper == Guid.Empty)
         {
             Publish("item.lost-and-found-collection-rejected", item,
                 new() { ["rejectionReason"] = "item-has-no-owner" }, DebugSeverity.Warning);
@@ -347,7 +353,7 @@ public static class LostAndFoundServer
         }
         // Distance collection takes only loose world items, except for an owner who isn't here, whose
         // items in trains and on shelves go too (owned-items.md, PR 3).
-        bool ownerAway = !PlayerNumbers.IsConnected(previousAuthority.Owner);
+        bool ownerAway = !PlayerNumbers.IsConnected(keeper);
         if (!LiveItems.TryMoveToLostAndFound(item,
                 out LiveItems.LiveItem authority, out string rejectionReason,
                 allowRecoveryPlacement: reason != LostItemReason.OwnerDistance || ownerAway))
@@ -362,7 +368,7 @@ public static class LostAndFoundServer
             PersistentItemId = authority.PersistentItemId != Guid.Empty ? authority.PersistentItemId : Guid.NewGuid(),
             NetId = item.NetId,
             Revision = authority.Revision,
-            OwnerIdentity = authority.Owner.ToString("D"),
+            OwnerIdentity = keeper.ToString("D"),
             PrefabName = authority.PrefabName,
             DisplayName = item.Item?.name ?? authority.PrefabName,
             AuthoredItemKey = item.AuthoredItemKey ?? string.Empty,
@@ -381,7 +387,7 @@ public static class LostAndFoundServer
                 previousPlacement, previousHolder, previousReason);
             return false;
         }
-        ChangeCause<ItemRemovalReason> cause = CollectionCause(reason, authority.Owner,
+        ChangeCause<ItemRemovalReason> cause = CollectionCause(reason, keeper,
             ItemChangeCauses.Detail("was " + previousPlacement, detail));
         ItemUpdate destroy = item.CreateUpdateData(ItemUpdate.ItemUpdateType.Destroy);
         if (destroy != null)
@@ -398,7 +404,7 @@ public static class LostAndFoundServer
         }
         catch (Exception exception)
         {
-            registry.RemoveForRetrieval(item.NetId, authority.Owner.ToString("D"),
+            registry.RemoveForRetrieval(item.NetId, keeper.ToString("D"),
                 authority.Revision, out _);
             LiveItems.RollbackLostAndFoundCollection(item, previousRevision,
                 previousPlacement, previousHolder, previousReason);
@@ -416,12 +422,12 @@ public static class LostAndFoundServer
         }
         if (destroy != null)
             NetworkServer.Instance.SendItemUpdate(destroy);
-        if (PlayerNumbers.TryGetSession(authority.Owner,
+        if (PlayerNumbers.TryGetSession(keeper,
                 out ServerPlayer owner))
             NetworkServer.Instance.SendLostAndFoundList(owner);
         Publish("item.lost-and-found-collected", item, new()
         {
-            ["ownerPlayerId"] = PlayerNumbers.Of(authority.Owner),
+            ["ownerPlayerId"] = PlayerNumbers.Of(keeper),
             ["reason"] = reason.ToString(),
             ["generation"] = generation
         });
@@ -545,12 +551,13 @@ public static class LostAndFoundServer
     private static LostItemCandidate BuildCandidate(NetworkedItem item,
         LiveItems.LiveItem authority, float now)
     {
+        Guid keeper = LiveItems.KeeperOf(authority);
         // A just-joined owner's items were collected seconds after they loaded (ledger-save on a
         // dedicated host, 2026-10-21): before their game sends a position it reads as the origin, and
         // its first ones can be from before it put the player at their saved spot. An owner's
         // position counts once they have been loaded for a grace period.
         bool ownerKnown = PlayerNumbers.TryGetSession(
-            authority.Owner, out ServerPlayer owner) && HasSettledPosition(owner, now);
+            keeper, out ServerPlayer owner) && HasSettledPosition(owner, now);
         List<ServerPlayer> players = NetworkServer.Instance.ServerPlayers
             .Where(player => player != null && player.LoadingState >= PlayerLoadingState.ReadyForItems && HasPosition(player))
             .ToList();
@@ -563,8 +570,8 @@ public static class LostAndFoundServer
         {
             NetId = item.NetId,
             Revision = authority.Revision,
-            Owner = authority.Owner,
-            OwnerConnected = PlayerNumbers.IsConnected(authority.Owner),
+            Owner = keeper,
+            OwnerConnected = PlayerNumbers.IsConnected(keeper),
             Placement = (LivePlacement)(byte)authority.Placement,
             IsGrabbed = item.Item?.IsGrabbed() == true,
             IsSnapped = item.Item?.SnappableItem?.SnappedTo != null,

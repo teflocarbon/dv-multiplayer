@@ -65,8 +65,8 @@ public class JobData
             JobBooklets = networkedJob.JobBooklets.Select(item => new JobBookletCopyData
             {
                 ItemNetId = item.NetId,
-                IssuedToPlayerId = networkedJob.TryGetIssuedPlayer(item.NetId, out byte playerId)
-                    ? playerId : (byte)0,
+                IssuedToPlayerId = networkedJob.TryGetIssuedPlayer(item.NetId, out Guid issuedTo)
+                    ? JobServer.Current?.PlayerNumberOf(issuedTo) ?? 0 : (byte)0,
                 Position = ItemPositionData.FromItem(item)
             }).ToArray()
         };

@@ -53,7 +53,7 @@ internal static class JobPaperRows
             return;
         if (prefabName == nameof(JobBooklet))
         {
-            job.RegisterBookletRow(record.NetId, holder?.PlayerId ?? 0);
+            job.RegisterBookletRow(record.NetId, holder?.Guid ?? Guid.Empty);
             return;
         }
         if (prefabName != nameof(JobOverview))

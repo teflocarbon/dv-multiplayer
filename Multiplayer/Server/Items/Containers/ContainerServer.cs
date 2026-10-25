@@ -235,7 +235,8 @@ public static class ContainerServer
             ExpectedDestinationRevision = expectedRevision,
             DestinationSlot = slot,
             PhysicalNetId = itemNetId,
-            Item = record
+            Item = record,
+            JobPaper = paper
         };
         ContainerOperationResult check = graph.CheckDeposit(command);
         if (!check.Accepted)
@@ -421,7 +422,7 @@ public static class ContainerServer
             // The deposit let the job forget this booklet, so a validator may have printed the
             // withdrawer another since: theirs is that one, and this copy goes (H2).
             if (paper && record.PrefabName == nameof(JobBooklet) && paperJob != null &&
-                paperJob.TryGetIssuedJobBooklet(actor.PlayerId, out _))
+                paperJob.TryGetIssuedJobBooklet(actor.Guid, out _))
                 throw new InvalidOperationException(PaperCopyIssued);
             row.OwnerIdentity = owner;
             slot = ServerLedger.FreeSlot(row.PersistentItemId, owner, ServerLedger.ClaimOf(row.PersistentItemId),

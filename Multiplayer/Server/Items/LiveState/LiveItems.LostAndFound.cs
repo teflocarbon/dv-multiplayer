@@ -1,3 +1,4 @@
+using DV.Booklets;
 using DV.InventorySystem;
 using Multiplayer.Core.Items.Access;
 using Multiplayer.Core.Items.ChangeCauses;
@@ -15,6 +16,7 @@ using Multiplayer.Server.Session;
 using Multiplayer.Shared.Debugging;
 using Multiplayer.Shared.Items.ChangeCauses;
 using Multiplayer.Shared.Items.LiveState;
+using Multiplayer.Shared.Jobs;
 using Multiplayer.Shared.Protocol.Data;
 using Multiplayer.Shared.Protocol.Data.Items;
 using Multiplayer.Shared.Session;
@@ -31,6 +33,21 @@ namespace Multiplayer.Server.Items.LiveState;
 // Into and out of Lost and Found, and a refused collection put back.
 public static partial class LiveItems
 {
+    /// <summary>
+    /// Whose Lost and Found an item goes to: its owner's, or for a job booklet, which nobody owns (D5),
+    /// the player it was issued to, by identity (OI-LF-17). Empty when nobody's: an unowned item never
+    /// goes to a Lost and Found.
+    /// </summary>
+    public static Guid KeeperOf(LiveItem record)
+    {
+        if (record == null || record.Owner != Guid.Empty)
+            return record?.Owner ?? Guid.Empty;
+        return record.PrefabName == nameof(JobBooklet) && NetworkedItem.TryGet(record.NetId, out NetworkedItem item) &&
+               item != null && item.GetTrackedItem<JobBooklet>()?.job is { } job &&
+               NetworkedJob.TryGetFromJob(job, out NetworkedJob networkedJob) &&
+               networkedJob.TryGetIssuedPlayer(record.NetId, out Guid issued) ? issued : Guid.Empty;
+    }
+
     public static bool TryMoveToLostAndFound(NetworkedItem item, out LiveItem record,
         out string rejectionReason, bool allowRecoveryPlacement = false)
     {
@@ -41,7 +58,7 @@ public static partial class LiveItems
             rejectionReason = "unknown-network-entity";
             return false;
         }
-        if (record.Owner == Guid.Empty)
+        if (KeeperOf(record) == Guid.Empty)
         {
             rejectionReason = "item-has-no-persistent-owner";
             return false;
@@ -97,7 +114,9 @@ public static partial class LiveItems
             rejectionReason = "item-not-in-lost-and-found";
             return false;
         }
-        if (record.Owner == Guid.Empty || record.Owner != requester.Guid)
+        // The entry's keeper: its owner, or the player a booklet was issued to (OI-LF-17).
+        Guid keeper = record.Owner != Guid.Empty ? record.Owner : LostAndFoundServer.KeeperOf(item.NetId);
+        if (keeper == Guid.Empty || keeper != requester.Guid)
         {
             rejectionReason = "requester-not-persistent-owner";
             return false;

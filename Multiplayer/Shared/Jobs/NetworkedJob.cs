@@ -120,31 +120,33 @@ public class NetworkedJob : IdMonoBehaviour<ushort, NetworkedJob>
     /// <summary>Every booklet copy's NetId, objects and rows.</summary>
     public IReadOnlyCollection<ushort> JobBookletNetIds => jobBooklets.ToArray();
     public NetworkedItem LastChangedJobBooklet { get; private set; }
-    public byte LastChangedJobBookletIssuedToPlayerId { get; private set; }
-    public byte PendingBookletIssuedToPlayerId { get; set; }
+    // Issuance is by identity, so a player who rejoins keeps their copy and a lost one goes to their
+    // Lost and Found (OI-LF-17); only the server issues, and a client registers its copies unissued.
+    public Guid LastChangedJobBookletIssuedTo { get; private set; }
+    public Guid PendingBookletIssuedTo { get; set; }
 
-    public bool RegisterJobBooklet(NetworkedItem item, byte issuedToPlayerId)
+    public bool RegisterJobBooklet(NetworkedItem item, Guid issuedTo)
     {
         if (item == null || item.NetId == 0 || item.GetTrackedItem<JobBooklet>() == null)
             return false;
         jobBooklets.Add(item.NetId);
-        if (issuedToPlayerId != 0)
-            issuedBooklets.Assign(issuedToPlayerId, item.NetId);
+        if (issuedTo != Guid.Empty)
+            issuedBooklets.Assign(issuedTo, item.NetId);
         LastChangedJobBooklet = item;
-        LastChangedJobBookletIssuedToPlayerId = issuedToPlayerId;
+        LastChangedJobBookletIssuedTo = issuedTo;
         Cause = DirtyCause.JobBooklet;
         OnJobDirty?.Invoke(this);
         return true;
     }
 
     /// <summary>A booklet copy that is a row in an inventory (its object is made from it later).</summary>
-    public void RegisterBookletRow(ushort netId, byte issuedToPlayerId)
+    public void RegisterBookletRow(ushort netId, Guid issuedTo)
     {
         if (netId == 0)
             return;
         jobBooklets.Add(netId);
-        if (issuedToPlayerId != 0)
-            issuedBooklets.Assign(issuedToPlayerId, netId);
+        if (issuedTo != Guid.Empty)
+            issuedBooklets.Assign(issuedTo, netId);
     }
 
     public bool HasJobBooklet(ushort itemNetId) => jobBooklets.Contains(itemNetId);
@@ -156,13 +158,11 @@ public class NetworkedJob : IdMonoBehaviour<ushort, NetworkedJob>
     }
 
     /// <summary>The NetId of the player's own copy, an object or a row.</summary>
-    public bool TryGetIssuedJobBooklet(byte playerId, out ushort itemNetId) =>
-        issuedBooklets.TryGetItem(playerId, out itemNetId) && jobBooklets.Contains(itemNetId);
+    public bool TryGetIssuedJobBooklet(Guid player, out ushort itemNetId) =>
+        issuedBooklets.TryGetItem(player, out itemNetId) && jobBooklets.Contains(itemNetId);
 
-    public bool TryGetIssuedPlayer(ushort itemNetId, out byte playerId)
-    {
-        return issuedBooklets.TryGetPlayer(itemNetId, out playerId);
-    }
+    public bool TryGetIssuedPlayer(ushort itemNetId, out Guid player) =>
+        issuedBooklets.TryGetPlayer(itemNetId, out player);
 
     public void UnregisterJobBooklet(NetworkedItem item)
     {

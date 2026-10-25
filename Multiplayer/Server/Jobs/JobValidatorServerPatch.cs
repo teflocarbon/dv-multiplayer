@@ -1,3 +1,4 @@
+using System;
 using HarmonyLib;
 using Multiplayer.Shared.Jobs;
 using Multiplayer.Shared.Session;
@@ -25,9 +26,8 @@ public static class JobValidator_ServerPatch
         Multiplayer.Log($"Processing JobOverview {jobOverview?.job?.ID}");
         networkedJob.JobValidator = __instance;
         // A client's request has set who the booklet is for; otherwise it's the host's own player.
-        if (networkedJob.PendingBookletIssuedToPlayerId == 0)
-            networkedJob.PendingBookletIssuedToPlayerId =
-                NetworkServer.Instance.LocalPlayer?.PlayerId ?? 0;
+        if (networkedJob.PendingBookletIssuedTo == Guid.Empty)
+            networkedJob.PendingBookletIssuedTo = NetworkServer.Instance.LocalPlayer?.Guid ?? Guid.Empty;
         return true;
     }
 
@@ -37,7 +37,7 @@ public static class JobValidator_ServerPatch
     {
         if (NetworkLifecycle.Instance.IsHost() && jobOverview?.job != null &&
             NetworkedJob.TryGetFromJob(jobOverview.job, out NetworkedJob networkedJob))
-            networkedJob.PendingBookletIssuedToPlayerId = 0;
+            networkedJob.PendingBookletIssuedTo = Guid.Empty;
     }
 
     [HarmonyPatch(nameof(JobValidator.ValidateJob))]

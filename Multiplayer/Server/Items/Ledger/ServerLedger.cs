@@ -184,6 +184,9 @@ public static partial class ServerLedger
     {
         if (record == null || owner == Guid.Empty || record.PersistentItemId == Guid.Empty)
             return "item-has-no-id";
+        // A job paper is its job's, never owned or in the ledger (D5, OI-ID-12): nothing to own.
+        if (Shared.Jobs.JobPapers.IsPaper(record.PrefabName))
+            return string.Empty;
         if (ledger.IsLive(record.PersistentItemId))
             return string.Empty;
         if (!restored)

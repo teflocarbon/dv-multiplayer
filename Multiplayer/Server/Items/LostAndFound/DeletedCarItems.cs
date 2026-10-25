@@ -79,7 +79,8 @@ public static class DeletedCarItems
             return;
         item.LeaveSnapPoint();
         item.transform.SetParent(WorldMover.OriginShiftParent, true);
-        bool owned = LiveItems.TryGet(item.NetId, out LiveItems.LiveItem record) && record.Owner != Guid.Empty;
+        // Owned, or a booklet kept for the player it was issued to (OI-LF-17).
+        bool owned = LiveItems.TryGet(item.NetId, out LiveItems.LiveItem record) && LiveItems.KeeperOf(record) != Guid.Empty;
         if (owned && LostAndFoundServer.Collect(item, LostItemReason.ContainerCleared, $"car {car.ID} deleted"))
             return;
         if (owned)

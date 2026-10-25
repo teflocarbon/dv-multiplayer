@@ -314,7 +314,8 @@ public static partial class LiveItems
             RequestedPlacement = (LivePlacement)(byte)requestedPlacement,
             ClearRetrievalClaim = clearRetrievalClaim,
             GadgetTransition = gadgetTransition,
-            MayEstablishPersistentOwner = item.Item?.InventorySpecs?.BelongsToPlayer == true,
+            // Never a job paper: it is its job's (D5, OI-ID-12), though a booklet is BelongsToPlayer.
+            MayEstablishPersistentOwner = item.Item?.InventorySpecs?.BelongsToPlayer == true && !Shared.Jobs.JobPapers.IsPaper(record.PrefabName),
             InventoryClaimSlot = retrievalEligible ? snapshot.InventoryClaimSlot : -1,
             InventoryClaimFlags = retrievalEligible
                 ? (ClaimFlags)(byte)snapshot.InventoryClaimFlags

@@ -165,7 +165,7 @@ internal static class JobPapers
             case JobBooklet booklet:
                 item.Initialize(booklet, netId, createDirty);
                 if (NetworkedJob.TryGetFromJob(booklet.job, out job))
-                    job.RegisterJobBooklet(item, 0);
+                    job.RegisterJobBooklet(item, Guid.Empty);
                 break;
             case JobOverview overview:
                 item.Initialize(overview, netId, createDirty);

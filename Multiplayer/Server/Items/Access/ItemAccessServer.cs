@@ -2,6 +2,7 @@ using System;
 using Multiplayer.Core.Items.Access;
 using Multiplayer.Server.Items.LiveState;
 using Multiplayer.Server.Session;
+using Multiplayer.Shared.Jobs;
 using Multiplayer.Shared.Items.LiveState;
 
 namespace Multiplayer.Server.Items.Access;
@@ -28,7 +29,8 @@ public static class ItemAccessServer
             actorOwnsItem: actor != null && record != null && record.Owner != Guid.Empty &&
                            record.Owner == actor.Guid,
             isFixture: IsFixture(item, record),
-            isEssential: item?.Item?.InventorySpecs?.IsEssential == true));
+            isEssential: item?.Item?.InventorySpecs?.IsEssential == true,
+            isJobPaper: JobPapers.IsPaper(record?.PrefabName ?? item?.Item?.InventorySpecs?.ItemPrefabName)));
         reason = decision.Reason;
         return decision.Allowed;
     }
@@ -43,7 +45,8 @@ public static class ItemAccessServer
         ItemAccessDecision decision = ItemAccess.Decide(new ItemAccessRequest(action,
             actorOwnsItem: actor != null && owner != Guid.Empty && owner == actor.Guid,
             isFixture: Fixtures.Count > 0 && Fixtures.Contains(prefab, authoredKey),
-            isEssential: essential));
+            isEssential: essential,
+            isJobPaper: JobPapers.IsPaper(prefab)));
         reason = decision.Reason;
         return decision.Allowed;
     }
