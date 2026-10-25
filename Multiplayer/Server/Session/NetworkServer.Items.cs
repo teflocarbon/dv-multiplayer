@@ -685,7 +685,7 @@ public partial class NetworkServer : IItemServer
         string reason = "unknown-lost-item";
         bool accepted = ItemHandles.TryResolve(request.ItemHandle, out Guid itemId) &&
             LostAndFoundServer.TryCollect(player, itemId, request.ExpectedRevision, request.Slot,
-                request.InventoryCapacity, request.OccupiedSlots, out snapshot, out reason);
+                out snapshot, out reason);
         Log($"[LostAndFound] P{player.PlayerId} collected row {request.ItemHandle} (revision " +
             $"{request.ExpectedRevision}, slot {request.Slot}): {(accepted ? "done" : "refused, " + reason)}");
         if (!accepted)

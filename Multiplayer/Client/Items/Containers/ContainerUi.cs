@@ -135,6 +135,32 @@ internal static class ContainerUi
             $"containerId={container.ContainerId}");
     }
 
+    /// <summary>
+    /// The box shown is no longer vanilla's active container (closed, or another opened): its view
+    /// ends and its row proxies go with it (OI-CON-10). A late answer to its list is ignored.
+    /// </summary>
+    public static void Closed(AItemContainer nowActive)
+    {
+        if (activeShellNetId == 0 && requestedShellNetId == 0 && proxies.Count == 0)
+            return;
+        if (nowActive != null &&
+            NetworkedItem.TryGetNetworkedItem(nowActive.GetComponent<ItemBase>(), out NetworkedItem shell) &&
+            shell.NetId != 0 && (shell.NetId == activeShellNetId || shell.NetId == requestedShellNetId))
+            return;
+        global::Multiplayer.Multiplayer.Log($"[Cold Container] Closed: shellNetId={activeShellNetId}, " +
+            $"proxies={proxies.Count}");
+        activeView = null;
+        activeShellNetId = 0;
+        requestedShellNetId = 0;
+        pendingRequestId = 0;
+        ClearProxies();
+    }
+
+#if DEBUG
+    /// <summary>The row proxies alive now (0 once the box closes).</summary>
+    public static int ProxyCount => proxies.Count(proxy => proxy != null);
+#endif
+
     /// <summary>Opens a container item's contents, by its row's handle.</summary>
     public static void OpenChild(uint handle)
     {

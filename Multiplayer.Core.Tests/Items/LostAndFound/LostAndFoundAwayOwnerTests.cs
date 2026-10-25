@@ -20,7 +20,6 @@ public sealed class LostAndFoundAwayOwnerTests
         // An offline owner is an identity with no session.
         Owner = new System.Guid(9, 0, 0, new byte[8]),
         OwnerConnected = false,
-        IsPersonalItem = true,
         Placement = placement,
         // An offline owner has no position.
         OwnerPositionKnown = false,

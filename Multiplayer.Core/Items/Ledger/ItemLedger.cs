@@ -289,6 +289,28 @@ public sealed class ItemLedger
     }
 
     /// <summary>
+    /// Two or more of an owner's live items claim one slot (the one-home check's claim clash, D7):
+    /// the first registered (born first, then by id) keeps it, and each other one takes the owner's
+    /// next free claim slot, or no claim when none is free. Each moved claim is raised as a
+    /// <see cref="LedgerChangeKind.ClaimSlot"/> change, which tells the owner's game.
+    /// </summary>
+    public IReadOnlyList<ClaimMove> SettleClaimClash(OwnerRef owner, int slot, LedgerCause cause = default)
+    {
+        List<ClaimMove> moves = new();
+        LedgerEntry[] clash = LiveClaims(owner).Where(entry => entry.ClaimSlot == slot)
+            .OrderBy(entry => entry.Born.UtcTicks).ThenBy(entry => entry.Id).ToArray();
+        foreach (LedgerEntry other in clash.Skip(1))
+        {
+            int free = InventorySlots.ChooseClaim(-1, ClaimedSlots(owner, other.Id),
+                s => Occupied(owner.PlayerId, s, other.Id), capacity);
+            moves.Add(new ClaimMove(other.Id, slot, free));
+            other.ClaimSlot = free;
+            Raise(LedgerChangeKind.ClaimSlot, other, other.Home, cause);
+        }
+        return moves;
+    }
+
+    /// <summary>
     /// Two items in one holder's inventory change slots (vanilla's swap), in one commit, since
     /// each slot holds one item. Refused, with nothing changed, when either isn't where the
     /// requester saw it, the homes aren't two slots of one holder, or either slot shows a third

@@ -422,6 +422,43 @@ public sealed class ItemLedgerTests
     }
 
     [Test]
+    public void AClaimClash_TheFirstRegisteredKeepsIt_TheOthersTakeTheNextFreeClaimOrNone()
+    {
+        // No commit makes two claims on one slot; a revived entry can (the one-home check's claim
+        // clash, D7). Born first keeps it, whatever the order they were restored in.
+        Birth early = new(BirthReason.Issued, 5, Liam), late = new(BirthReason.Issued, 9, Liam);
+        End lost = new(ItemRemovalReason.DestroyedByGame, 7);
+        LedgerEntry radio = new(G(1), P(Liam), "CommsRadio", Home.LostAndFound, late, claimSlot: 3);
+        LedgerEntry map = new(G(2), P(Liam), "Map", Home.LostAndFound, early, claimSlot: 3, ended: lost);
+        LedgerEntry lantern = new(G(3), P(Liam), "Lantern", Home.InSlot(Liam, 0), early);
+        ledger.Restore(new[] { radio, map, lantern }, null);
+        Assert.That(ledger.Revive(G(2), Home.LostAndFound), Is.True);
+        Assert.That(HomeInvariant.Check(ledger.All(), Array.Empty<ObservedItem>())
+            .Count(v => v.Rule == InvariantRule.OneItemPerSlot && v.Repair == null), Is.EqualTo(1), "the clash is seen");
+        changes.Clear();
+
+        IReadOnlyList<ClaimMove> moves = ledger.SettleClaimClash(P(Liam), 3);
+
+        Assert.That(ClaimOf(G(2)), Is.EqualTo(3), "born first, it keeps the claim");
+        Assert.That(ClaimOf(G(1)), Is.EqualTo(1), "the next free claim: slot 0 holds the lantern");
+        Assert.That(moves.Select(m => (m.Id, m.FromSlot, m.ToSlot)), Is.EqualTo(new[] { (G(1), 3, 1) }));
+        Assert.That(changes.Select(c => (c.Kind, c.Entry.Id)), Is.EqualTo(new[] { (LedgerChangeKind.ClaimSlot, G(1)) }),
+            "the moved claim is raised, which tells the owner's game");
+        Assert.That(HomeInvariant.Check(ledger.All(), Array.Empty<ObservedItem>())
+            .Where(v => v.Rule == InvariantRule.OneItemPerSlot), Is.Empty, "no clash left");
+
+        // With every claim slot off the belt taken, the other one is left with no claim.
+        ledger.Restore(Enumerable.Range(0, InventorySlots.FirstBeltSlot)
+            .Select(s => new LedgerEntry(G(100 + s), P(Bentgear), "Map", Home.LostAndFound, early, claimSlot: s))
+            .Append(new LedgerEntry(G(99), P(Bentgear), "CommsRadio", Home.LostAndFound, late, claimSlot: 2, ended: lost))
+            .ToArray(), null);
+        ledger.Revive(G(99), Home.LostAndFound);
+        ledger.SettleClaimClash(P(Bentgear), 2);
+        Assert.That(ClaimOf(G(102)), Is.EqualTo(2));
+        Assert.That(ClaimOf(G(99)), Is.EqualTo(-1));
+    }
+
+    [Test]
     public void Restoring_TwoItemsSavedInOneSlot_SendsTheSecondToLostAndFound_AndMovesClashingClaimsApart()
     {
         Birth born = new(BirthReason.Issued, 5, Liam);

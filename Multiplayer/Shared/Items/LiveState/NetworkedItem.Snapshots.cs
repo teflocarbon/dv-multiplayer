@@ -704,6 +704,12 @@ public partial class NetworkedItem
                 carId = itemSnapPointCoupler.Car.GetNetId();
                 frontCoupler = itemSnapPointCoupler.IsFront;
             }
+            // Any other snap point is a gadget's: named by its gadget item (live-state.md, "Attached and snapped items").
+            else if (GadgetSnapPoints.GadgetOf(snappableItem.SnappedTo) is ushort gadget && gadget != 0)
+            {
+                worldParentKind = ItemWorldParentKind.SnapPoint;
+                worldParentNetId = gadget;
+            }
         }
         else if (lastState is ItemState.Dropped or ItemState.Thrown)
         {

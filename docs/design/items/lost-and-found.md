@@ -45,9 +45,10 @@ their items are collected from the world, a train's interior, a shelf (a shed's 
 a car's end or a snap point, under the same protection and grace. With nobody connected nothing is
 collected (OI-LF-03). Unknown state protects: an owner whose position isn't known, or no player's.
 
-The policy never collects an item vanilla doesn't count as a player's: it reads vanilla's
-`BelongsToPlayer` (`IsPersonalItem` in `BuildCandidate`; `not-a-personal-item`), so an owned item
-whose flag is false stays. Nor a licence (`license-paper-excluded`), nor one grabbed or listed in
+Whose an item is, is its keeper's (`LiveItems.KeeperOf`: its ledger owner, or a booklet's issued
+player), never vanilla's `BelongsToPlayer`, which the dumpster, the shop and a withdrawal flip: an
+owned item whose flag is false is collected as any other (before R8 the policy read it, as
+`not-a-personal-item`). It never collects a licence (`license-paper-excluded`), nor one grabbed or listed in
 vanilla's `StorageItemContainers` (`actively-contained-or-interacted`).
 
 **Distances are from the item's own position** (OI-LF-18): `BuildCandidate` measures from
@@ -89,12 +90,10 @@ A collection that fails after the record has moved (Lost and Found refuses the e
 projection into inert storage throws) is rolled back whole (`LiveItems.RollbackLostAndFoundCollection`,
 J4): the record is restored from a copy taken before the move, the ledger goes back to its home, and
 its own copy of the record is set back (`ApplyAuthorityMetadata`). Nothing is sent for that: no
-game has heard of the collection yet. One that was attached to a car or loaded in a tool can't go
-back where it was, its collection having taken it off, so it goes into the world where it is, as a
-deleted car's unowned item does (`DeletedCarItems.IntoWorld`), and that move is sent to every game.
-That covers `Attached` and `Magazine` only (`LostAndFoundServer.RollBack`): a record restored as
-`SnappedAttachment` (from a save row) is unsnapped by the collection too, but its rollback doesn't
-put it into the world.
+game has heard of the collection yet. One that was on a car's end, on a gadget's snap point or loaded in a tool can't
+go back where it was, its collection having taken it off, so it goes into the world where it is, as a
+deleted car's unowned item does (`DeletedCarItems.IntoWorld`), and that move is sent to every game
+(`LostItemCollectionPolicy.RollsBackIntoWorld`: `Attached`, `SnappedAttachment`, `Magazine`).
 
 Scenario: `lost-and-found-data`.
 

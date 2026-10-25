@@ -14,6 +14,7 @@ using Multiplayer.Server.Session;
 using Multiplayer.Shared.Items.Inventory;
 using Multiplayer.Shared.Items.LiveState;
 using Multiplayer.Shared.Jobs;
+using Multiplayer.Shared.Protocol.Data;
 using Multiplayer.Shared.Protocol.Data.Items;
 using Multiplayer.Shared.Session;
 using Newtonsoft.Json;
@@ -214,6 +215,35 @@ internal static partial class PlayerItems
         }
         ColdInventories.Remove(record.PersistentItemId);
         DataGoesCold(record, null);
+    }
+
+    /// <summary>
+    /// The claim slot of an item kept as data moved (OI-ESS-01): there is no object to correct, so the
+    /// owner's game is told from the record, as an object's owner is from its snapshot. The host's
+    /// own player's stand-in takes it here; a remote owner who was shown the item gets the update.
+    /// </summary>
+    internal static void SendClaim(LiveItems.LiveItem record)
+    {
+        if (record == null || record.Owner == Guid.Empty || !IsDataOnly(record))
+            return;
+        NetworkServer server = NetworkServer.Instance;
+        if (server?.LocalPlayer != null && record.Owner == server.LocalPlayer.Guid)
+        {
+            if (InventoryStandIn.TryGet(record.NetId, out InventoryStandIn standIn))
+            {
+                standIn.ClaimSlot = record.InventoryClaimSlot;
+                standIn.ClaimFlags = record.InventoryClaimFlags;
+            }
+            return;
+        }
+        if (server == null || !PlayerNumbers.TryGetSession(record.Owner, out ServerPlayer owner) ||
+            owner.LoadingState < PlayerLoadingState.ReadyForItems ||
+            record.Holder != owner.Guid && !(knownBy.TryGetValue(record.NetId, out byte[] knowers) && knowers.Contains(owner.PlayerId)))
+            return;
+        ItemUpdate update = CreateOf(record);
+        update.UpdateType = ItemUpdate.ItemUpdateType.ItemState;
+        update.MoveCause = record.LastMove;
+        server.SendItemUpdate(update, owner);
     }
 
     // A data-only item's Create, from its record alone: there is no object to write it.

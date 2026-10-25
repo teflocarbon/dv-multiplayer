@@ -182,17 +182,18 @@ and Found entries and container rows, with vanilla's storage lists.
 | 4 `OneItemPerSlot` | one item per holder slot, owned and unowned together; one claim per owner slot |
 | 5 `VanillaAgrees` | in at most one vanilla list; nothing in a dedicated host's own inventory; only the host's player's items in its inventory list; nothing owned in its Lost and Found list unless home `LostAndFound` |
 
-`ServerLedger.CheckInvariant(when)` runs at load (`load`, from `ServerLedger.FinishLoad`), every 5 s
+`ServerLedger.CheckInvariant(when)` runs at load (`load`, from `ServerLedger.FinishLoad`), before every save
+(`before-save`, from `ItemSaveLoad.WriteSave`, after the scene items in inventories are promoted), every 5 s
 in a Debug build (`debug-tick`), on demand (`ServerLedger.CheckNow`, `asked`), and after every scenario
 run (`ScenarioRun.LeakCheckAsync` calls the `Invariant.Check` step in `DevTools/DvmpScenarios/Library/Ledger.cs`
-and fails the run on any line). It doesn't run before a save today: that call went with the old save
-key (d1c1843f). A check before every save is the decided rule (D7), and is being restored. Each breach is logged once as an error,
+and fails the run on any line). `ServerLedger.ChecksRun(when)` counts them, for scenarios. Each breach is logged once as an error,
 `item.invariant-broken (<when>): <violation>`, and published as the debug event `item.invariant-broken`
 (category `inventory`; [observability.md](../../observability.md)).
 
-A Debug build stops there, and the scenario fails. A Release build then repairs two rules only
-(`ServerLedger.Repair` in `ServerLedger.Repair.cs`, D7): `LiveAgrees`, and `NoStray` of a record whose
-store named an owner. The ledger wins on where.
+A Debug build stops there, and the scenario fails. A Release build then repairs each breach (`ServerLedger.Repair` in `ServerLedger.Repair.cs` and
+`ServerLedger.Strays.cs`, D7), once per item per check. The ledger wins on where; what isn't the
+ledger's item in its home is a stray: an owned one goes to its owner's Lost and Found, an unowned one
+into the world. An item part way into or out of a box waits for the next check (`ContainerGraph.IsSettled`).
 
 - `LiveAgrees`: `PutHome` puts the item in its ledger home. The ledger first follows the record, so
   the move commits from where the item is; a data-only item is made again first (`WithObject`).
@@ -206,15 +207,35 @@ store named an owner. The ledger wins on where.
   | the ground, a train, a shelf (the ledger keeps no pose), a container's slot, an install | the owner's Lost and Found |
 
   Where the move is refused, the item goes to its owner's Lost and Found; where that is refused too, or
-  the item has no owner, it stays and the ledger follows it. An item installed, attached, snapped or
-  loaded in a tool's magazine where it is stays, and the ledger follows: the repair doesn't take it off.
+  the item has no owner, it stays and the ledger follows it. An item on a car's end, on a gadget's snap
+  point or loaded in a tool is taken off as a retrieval takes it off (OI-LIST-14), into its owner's Lost
+  and Found (`TakeOff`), and from there recalled into its slot if its home is one. An installed item
+  stays and the ledger follows: gadget removal is paused (OI-LIST-15).
+- `OneHome`, no copy anywhere: made again fresh from its prefab, with the same id, in its owner's Lost
+  and Found (`RemakeLost`, `ItemSaveLoad.MakeLostAgain`, `SaveRecovery`), as an item whose state won't
+  load is (D9); with no player owner or no prefab it is logged only.
+- `OneHome`, two copies or more: the copy in the ledger's home keeps the id (else the first live one,
+  put home); each other live copy is a new item, re-minted as `Register` re-mints a copy (`Remint`: a
+  new id, born `Duplicate` from the first), its owner's, into their Lost and Found.
+- `NoStray` of an ended entry: each live copy is re-minted the same way, its ended entry's owner's,
+  into their Lost and Found; with no player owner, into the world. The ended entry stays ended.
 - `NoStray` of a record whose store named an owner (`StoredOwner`): registered as that owner's, born
-  `Claimed`;
-- a cold row that disagrees has no object to move: its holder's join makes it again, and the next check
-  puts it home.
+  `Claimed`.
+- `OneItemPerSlot`, two items in one holder's slot (the violation names the slot): the one the ledger
+  has there stays; another owned one goes to its own home (one whose home is this slot too, to its
+  owner's Lost and Found); an unowned one drops into the world at its holder's feet (`OneInSlot`).
+- `OneItemPerSlot`, two live entries claiming one owner slot (no slot named): the first registered
+  (born first, then by id) keeps the claim, and each other one takes its owner's next free claim slot,
+  or no claim when none is free (Core `ItemLedger.SettleClaimClash`; the user, 2026-10-25). Each moved
+  claim is a `ClaimSlot` change, which tells the owner's game, as any moved claim is
+  (`ServerLedger.OnLedgerChanged`, `PlayerItems.SendClaim`).
+- `VanillaAgrees`: the item comes out of the vanilla lists its home has no place in, and one in none
+  it may be in goes into its home's (`MirrorLists`, Core `HomeInvariant.ListsFor`): vanilla's lists
+  follow the homes. The installed list is the gadget code's and is left as it is.
 
-The other breaches are logged only, with nothing repaired: `OneHome` (an item lost or copied),
-`NoStray` of an ended entry or with no stored owner, `OneItemPerSlot` and `VanillaAgrees`.
+Not repaired, logged only: a stray or a copy that is a row, which has no object to move (the load
+re-mints a copy and registers a stray); a cold row that disagrees, whose holder's join makes it again,
+and the next check (at the latest before the save) puts home.
 
 `ServerLedger.SendToLostAndFound(id, reason, detail, out refused)` is the one way into Lost and Found by
 id (OI-LF-08). An item already there is accepted; else it is refused as `unknown-item`,

@@ -96,15 +96,16 @@ public static class Retrieval
                 return false;
             if (row != Guid.Empty)
                 return RetrieveStored(owner, row, out reason);
-            // A box mid-deposit or mid-withdrawal waits (OI-LIST-18).
-            if (!ContainerServer.Graph.IsSettled(record.PersistentItemId))
-            {
-                reason = Busy;
-                return false;
-            }
         }
         else
             record = Find(itemId);
+        // A box mid-deposit or mid-withdrawal waits (OI-LIST-18), wherever it is: in another box, in
+        // the world, in a car or in someone's hands.
+        if (record != null && !ContainerServer.Graph.IsSettled(record.PersistentItemId))
+        {
+            reason = Busy;
+            return false;
+        }
         if (record == null || !NetworkedItem.TryGet(record.NetId, out NetworkedItem item) || item == null)
         {
             reason = reason.Length > 0 ? reason : Unknown;

@@ -5,6 +5,7 @@ using System.Threading.Tasks;
 using Dvmp.Agent;
 using Dvmp.Lib;
 using Multiplayer.Client.Items.LostAndFound;
+using Multiplayer.Server.Items.LostAndFound;
 using Multiplayer.Shared.Items.LiveState;
 using Multiplayer.Shared.Protocol.Data.Items;
 using Multiplayer.Client.Items.Requests;
@@ -21,6 +22,11 @@ namespace Dvmp.Scenarios
     /// While it is tightened, other personal items both players walk away from are collected too.
     /// WHO=host: the host's own player does it instead, through its own Lost and Found requests,
     /// which the server handles in-process (checked); needs a player host.
+    /// BELONGS_TO_PLAYER=0 (OI-LF-17, OI-LF-01): once it is the owner's, the host's copy has
+    /// vanilla's <c>InventorySpecs.BelongsToPlayer</c> set false, as a dumpster, a shop or a withdrawal
+    /// flips it, and kept false every frame until it is collected. Lost and Found decides by the
+    /// ledger's keeper, so it is collected all the same. Without the fix the policy read vanilla's flag
+    /// (<c>not-a-personal-item</c>): the item is never collected and the wait for it fails.
     /// </summary>
     [Scenario("lost-and-found", "A personal item left behind is collected into Lost and Found by the host and retrieved into its owner's inventory (WHO=host: the host's own, its requests handled in-process)")]
     public sealed class LostAndFound : Scenario<LostAndFound.Options>
@@ -31,6 +37,8 @@ namespace Dvmp.Scenarios
             public string Prefab = "Mug";
             /// <summary>Whose item it is: client or host.</summary>
             public string Who = "client";
+            /// <summary>False: vanilla's BelongsToPlayer is off on the host's copy until it's collected.</summary>
+            public bool BelongsToPlayer = true;
         }
 
         protected override async Task Run(Pair pair, Options o)
@@ -46,11 +54,18 @@ namespace Dvmp.Scenarios
             ItemRecord r = await pair.Host.Run(() => Items.Record(item));
             int id = o.Who == "host" ? r.HostId : r.ClientId;
             Require.Equal(id, r.Owner, $"the item's owner (the {o.Who}'s number)");
+            Running<object> flagOff = null;
+            if (!o.BelongsToPlayer)
+            {
+                Require.That(!await pair.Host.Run(() => InGame.SetBelongsToPlayer(item, false)), "vanilla's BelongsToPlayer on the host's copy, set off");
+                flagOff = pair.Host.Start(() => InGame.KeepBelongsToPlayerOff(item, 45f), 60);
+            }
 
             // Both players walk 300 m away (a dedicated host has no player to move).
             await pair.Client.Run<Abs>(s => Walk.Away(s, 300, 0));
             if (!pair.Dedicated) await pair.Host.Run<Abs>(s => Walk.Away(s, 300, 20));
             r = await Until.Value(() => pair.Host.Run(() => Items.Record(item)), v => v.Lost, 30, "the host collects the item into Lost and Found");
+            if (flagOff != null) await flagOff;
             Report.Note($"collected: placement {r.Placement}");
             // An entry is data on the server: its object goes at the next scan (OI-COLD-08), and the
             // retrieval below makes it again.
@@ -87,6 +102,29 @@ namespace Dvmp.Scenarios
                 s.LostItemNearbyPlayerProtectionDistance = p.Nearby;
                 s.LostItemCollectionGraceSeconds = p.Grace;
                 return old;
+            }
+
+            /// <summary>Host: sets vanilla's BelongsToPlayer on the item's copy here. Result: what it is now.</summary>
+            [Step]
+            public static bool SetBelongsToPlayer(ushort id, bool value)
+            {
+                NetworkedItem item = Items.Find(id);
+                item.Item.InventorySpecs.BelongsToPlayer = value;
+                return item.Item.InventorySpecs.BelongsToPlayer;
+            }
+
+            /// <summary>Host: keeps vanilla's BelongsToPlayer off on the item's copy every frame until
+            /// Lost and Found has it (its object may go then) or <paramref name="seconds"/> pass.</summary>
+            [Step]
+            public static IEnumerator KeepBelongsToPlayerOff(ushort id, float seconds)
+            {
+                float until = Time.realtimeSinceStartup + seconds;
+                while (Time.realtimeSinceStartup < until && !LostAndFoundServer.Contains(id))
+                {
+                    if (NetworkedItem.TryGet(id, out NetworkedItem item) && item != null && item.Item?.InventorySpecs != null)
+                        item.Item.InventorySpecs.BelongsToPlayer = false;
+                    yield return null;
+                }
             }
 
             /// <summary>Picks the item up (making it this player's) and drops it at their feet.</summary>

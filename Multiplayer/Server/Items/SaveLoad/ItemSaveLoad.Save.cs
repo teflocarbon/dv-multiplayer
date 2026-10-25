@@ -47,6 +47,9 @@ internal static partial class ItemSaveLoad
         }
 
         PromoteSceneItemsInInventories();
+        // The one-home check before every save (D7, OI-LED-15): a Release build repairs what it finds
+        // before the rows are written.
+        ServerLedger.CheckInvariant("before-save");
         SaveContext context = new();
         WriteOwned(context);
         WriteUnowned(context);

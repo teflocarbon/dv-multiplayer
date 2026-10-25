@@ -278,7 +278,7 @@ public static class NetworkedItemServer
             !LiveItems.TryGet(item.NetId, out LiveItems.LiveItem authority))
             return false;
         bool itemInWorld = authority.Placement is ItemPlacementKind.World or ItemPlacementKind.TrainInterior or
-            ItemPlacementKind.StaticParent or ItemPlacementKind.Attached;
+            ItemPlacementKind.StaticParent or ItemPlacementKind.Attached or ItemPlacementKind.SnappedAttachment;
         float distance = Vector3.Distance(item.transform.position - WorldMover.currentMove,
             senderPlayer.AbsoluteWorldPosition);
         return ItemObjectStateAuthority.HostAcceptsWorldInteraction(

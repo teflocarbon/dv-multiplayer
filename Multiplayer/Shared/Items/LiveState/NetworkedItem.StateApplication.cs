@@ -646,6 +646,11 @@ public partial class NetworkedItem
         //handle attaching the item
         gameObject.SetActive(true);
         Multiplayer.LogDebug(() => $"NetworkedItem.HandleAttachedState() ItemNetId: {snapshot?.ItemNetId} attempting attachment to car {snapshot.CarNetId}, at the front {snapshot.AttachedFront}");
+        if (snapshot.WorldParentKind == ItemWorldParentKind.SnapPoint)
+        {
+            SnapToGadget(snapshot);
+            return;
+        }
 
         if (!NetworkedTrainCar.TryGet(snapshot.CarNetId, out TrainCar trainCar))
         {
@@ -673,6 +678,29 @@ public partial class NetworkedItem
         {
             DebugDiagnostics.ReportDependency("Item", NetId.ToString(), "attachment-failed", $"carNetId={snapshot.CarNetId} front={snapshot.AttachedFront}");
             Multiplayer.LogWarning($"NetworkedItem.HandleAttachedState() Attachment failed for item {snapshot?.ItemNetId} to car {snapshot.CarNetId}");
+        }
+        else DebugDiagnostics.ResolveDependency("Item", NetId.ToString(), "attachment-failed");
+    }
+
+    // Onto a gadget's snap point (a hanger, a mount), named by its gadget item (live-state.md,
+    // "Attached and snapped items"). One its gadget isn't installed for here waits as the coupler's does.
+    private void SnapToGadget(ItemUpdate snapshot)
+    {
+        DV.Items.Snapping.ItemSnapPointBase point = GadgetSnapPoints.PointOf(snapshot.WorldParentNetId);
+        if (point == null)
+        {
+            DebugDiagnostics.ReportDependency("Item", NetId.ToString(), "missing-snap-point", $"gadgetNetId={snapshot.WorldParentNetId}");
+            Multiplayer.LogWarning($"NetworkedItem.SnapToGadget() ItemNetId: {snapshot.ItemNetId}. No snap point on gadget item {snapshot.WorldParentNetId}");
+            return;
+        }
+        DebugDiagnostics.ResolveDependency("Item", NetId.ToString(), "missing-snap-point");
+        if (snappableItem?.SnappedTo == point)
+            return;
+        Item.ItemRigidbody.isKinematic = false;
+        if (!point.SnapItem(Item, false))
+        {
+            DebugDiagnostics.ReportDependency("Item", NetId.ToString(), "attachment-failed", $"gadgetNetId={snapshot.WorldParentNetId}");
+            Multiplayer.LogWarning($"NetworkedItem.SnapToGadget() Snapping item {snapshot.ItemNetId} to gadget item {snapshot.WorldParentNetId} failed");
         }
         else DebugDiagnostics.ResolveDependency("Item", NetId.ToString(), "attachment-failed");
     }

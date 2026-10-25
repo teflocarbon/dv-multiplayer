@@ -100,6 +100,13 @@ public static class ContainerUiPatch
             ContainerUi.Open(__instance);
     }
 
+    // Vanilla closes a box (or opens another) by changing the active container; the shown box's
+    // view and row proxies go then, not at the next open (OI-CON-10).
+    [HarmonyPatch(typeof(ItemContainerRegistry), nameof(ItemContainerRegistry.ActiveContainer), MethodType.Setter)]
+    [HarmonyPostfix]
+    private static void ActiveContainerSet(ItemContainerRegistry __instance) =>
+        ContainerUi.Closed(__instance.ActiveContainer);
+
     [HarmonyPatch(typeof(ItemContainer), nameof(ItemContainer.AddItem))]
     [HarmonyPrefix]
     private static bool AddItem(ItemContainer __instance, GameObject item, int index,

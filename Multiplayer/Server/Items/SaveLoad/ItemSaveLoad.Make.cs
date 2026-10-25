@@ -2,6 +2,7 @@ using DV;
 using DV.CabControls;
 using DV.Utils;
 using Multiplayer.Core.Items.ChangeCauses;
+using Multiplayer.Core.Items.LiveState;
 using Multiplayer.Core.Items.LostAndFound;
 using Multiplayer.Server.Gadgets;
 using Multiplayer.Server.Items.ChangeCauses;
@@ -105,12 +106,21 @@ internal static partial class ItemSaveLoad
         seed.PlayerId = 0;
         seed.ItemPosition = row.Position;
         seed.ItemRotation = row.Rotation;
+        // On a gadget's snap point: the gadget by its item's id, now live under a NetId of its own.
+        if (row.Placement == ItemPlacementKind.SnappedAttachment)
+        {
+            seed.WorldParentKind = ItemWorldParentKind.SnapPoint;
+            seed.WorldParentKey = row.WorldParentKey ?? string.Empty;
+            seed.WorldParentNetId = GadgetNetIdOf(row.WorldParentKey);
+        }
         LiveItems.LiveItem record = made = LiveItems.Ensure(item, null, seed);
         if (record == null)
             return false;
         ApplySavedRecord(record, row);
         LiveItems.WriteToSnapshot(record, seed, ItemTransitionReason.PersistenceRestore);
         item.ApplyServerCanonicalSnapshot(seed);
+        if (row.Placement == ItemPlacementKind.SnappedAttachment && GadgetSnapPoints.PointOf(seed.WorldParentNetId) == null)
+            SingletonBehaviour<CoroutineManager>.Instance.StartCoroutine(SnapWhenItsGadgetIs(item, record));
         if (row.State != null)
             DeferItemStateRestore(item, row);
         else
@@ -220,6 +230,11 @@ internal static partial class ItemSaveLoad
         if (record.Placement == ItemPlacementKind.Attached &&
             TryResolveTrain(record.AttachedCarPersistentId, out TrainCar attachedCar))
             NetworkedTrainCar.TryGetNetId(attachedCar, out record.AttachedCarNetId);
+        if (record.Placement == ItemPlacementKind.SnappedAttachment)
+        {
+            record.WorldParentKind = ItemWorldParentKind.SnapPoint;
+            record.WorldParentNetId = GadgetNetIdOf(record.WorldParentKey);
+        }
         record.ParentLocalPosition = saved.ParentLocalPosition;
         record.ParentLocalRotation = saved.ParentLocalRotation;
         bool inMagazine = record.Placement == ItemPlacementKind.Magazine;
@@ -232,6 +247,43 @@ internal static partial class ItemSaveLoad
 
     // Vanilla loads an item's state a frame after making it (StartingItemsController): until then
     // the item isn't sent to anyone.
+    private const float SnapPointWaitSeconds = 30f;
+
+    private static ushort GadgetNetIdOf(string snapPointKey) =>
+        SnapPointKey.TryGadget(snapPointKey, out Guid gadget) ? ServerLedger.NetIdOf(gadget) : (ushort)0;
+
+    // A snapped item made before its gadget is waits for it (live-state.md, "Attached and snapped
+    // items"); a gadget that doesn't come sends it to its owner's Lost and Found, as a gone car does.
+    private static IEnumerator SnapWhenItsGadgetIs(NetworkedItem item, LiveItems.LiveItem record)
+    {
+        float until = Time.realtimeSinceStartup + SnapPointWaitSeconds;
+        ushort gadget = 0;
+        while (item != null && record.Placement == ItemPlacementKind.SnappedAttachment &&
+               GadgetSnapPoints.PointOf(gadget = GadgetNetIdOf(record.WorldParentKey)) == null &&
+               Time.realtimeSinceStartup < until)
+            yield return new WaitForSecondsRealtime(0.5f);
+        if (item == null || record.Placement != ItemPlacementKind.SnappedAttachment)
+            yield break;
+        if (GadgetSnapPoints.PointOf(gadget) == null)
+        {
+            Multiplayer.LogWarning($"Saved item {record.PrefabName} ({record.PersistentItemId:D}) is snapped to {record.WorldParentKey}, " +
+                                   $"which isn't here after {SnapPointWaitSeconds} s");
+            if (record.Owner != Guid.Empty)
+                ServerLedger.SendToLostAndFound(record.PersistentItemId, LostItemReason.SaveRecovery,
+                    "its snap point's gadget is gone", out _);
+            yield break;
+        }
+        record.WorldParentNetId = gadget;
+        ItemUpdate snapshot = item.CreateUpdateData(ItemUpdate.ItemUpdateType.ItemState);
+        if (snapshot == null)
+            yield break;
+        LiveItems.WriteToSnapshot(record, snapshot, ItemTransitionReason.PersistenceRestore);
+        snapshot.ItemState = ItemState.Attached;
+        item.ApplyServerCanonicalSnapshot(snapshot);
+        snapshot.OriginatingPlayerId = 0;
+        Session.NetworkServer.Instance?.SendItemUpdate(snapshot);
+    }
+
     private static void DeferItemStateRestore(NetworkedItem item, SavedItemRow saved)
     {
         pendingRepresentations.Add(item);
@@ -347,6 +399,14 @@ internal static partial class ItemSaveLoad
         MakeInLostAndFound(id, prefab, null, owner, LostItemReason.SaveRecovery, DateTime.UtcNow.Ticks,
             null, ItemInventoryClaimFlags.None);
     }
+
+    /// <summary>
+    /// An owned item with no copy anywhere (the one-home repair, D7): made again fresh from its prefab,
+    /// with the same id, in its owner's Lost and Found (<c>SaveRecovery</c>), as an unloadable one is (D9).
+    /// </summary>
+    internal static bool MakeLostAgain(Guid id, string prefab, Guid owner) =>
+        MakeInLostAndFound(id, prefab, null, owner, LostItemReason.SaveRecovery, DateTime.UtcNow.Ticks,
+            null, ItemInventoryClaimFlags.None);
 
     private static bool RestoreAuthoredTombstone(SavedItemRow saved, JObject source)
     {

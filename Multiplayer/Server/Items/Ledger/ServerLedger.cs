@@ -259,9 +259,7 @@ public static partial class ServerLedger
     {
         if (holder == Guid.Empty)
             return -1;
-        OwnerRef owner = ownerId == Guid.Empty ? OwnerRef.None : OwnerRef.Player(ownerId);
-        bool Free(int slot) => InventorySlots.IsValid(slot) &&
-            ledger.CanTake(Home.InSlot(holder, slot), id, owner).Length == 0;
+        bool Free(int slot) => SlotFree(id, ownerId, holder, slot);
         foreach (int slot in preferred)
             if (slot >= 0 && Free(slot))
                 return slot;
@@ -270,6 +268,21 @@ public static partial class ServerLedger
             return claim;
         return InventorySlots.FirstFree(slot => !Free(slot));
     }
+
+    /// <summary>
+    /// The slots of <paramref name="holder"/>'s inventory the item <paramref name="id"/> couldn't go
+    /// into now, as the server keeps the inventory: another item in it, or another of the holder's
+    /// essentials claiming it.
+    /// </summary>
+    internal static int[] TakenSlots(Guid id, Guid holder)
+    {
+        Guid owner = OwnerOf(id);
+        return Enumerable.Range(0, InventorySlots.Capacity).Where(slot => !SlotFree(id, owner, holder, slot)).ToArray();
+    }
+
+    private static bool SlotFree(Guid id, Guid ownerId, Guid holder, int slot) =>
+        holder != Guid.Empty && InventorySlots.IsValid(slot) &&
+        ledger.CanTake(Home.InSlot(holder, slot), id, ownerId == Guid.Empty ? OwnerRef.None : OwnerRef.Player(ownerId)).Length == 0;
 
     // A claim the ledger moved as another essential took its slot: the owner's game is told.
     private static void OnLedgerChanged(LedgerChange change)

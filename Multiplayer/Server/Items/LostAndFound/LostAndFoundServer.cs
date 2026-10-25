@@ -4,6 +4,7 @@ using DV.JObjectExtstensions;
 using Multiplayer.Core.Diagnostics;
 using Multiplayer.Core.Items.Access;
 using Multiplayer.Core.Items.ChangeCauses;
+using Multiplayer.Core.Items.Inventory;
 using Multiplayer.Core.Items.LiveState;
 using Multiplayer.Core.Items.LostAndFound;
 using Multiplayer.Core.Items.VanillaStorage;
@@ -228,12 +229,12 @@ public static class LostAndFoundServer
 
     /// <summary>
     /// Collects a Lost and Found row into <paramref name="player"/>'s inventory: the entry of the
-    /// item <paramref name="itemId"/>, at the revision its row showed. If its claim slot shows taken
-    /// in the player's inventory, that's the item's own silhouette, and it goes back there.
+    /// item <paramref name="itemId"/>, at the revision its row showed. The slots are the server's
+    /// (R3), not the client's: an essential goes back to its claim slot, where its silhouette is,
+    /// unless another item has it.
     /// </summary>
     public static bool TryCollect(ServerPlayer player, Guid itemId, uint expectedRevision,
-        int requestedSlot, int inventoryCapacity, int[] occupiedSlots, out ItemUpdate snapshot,
-        out string rejectionReason)
+        int requestedSlot, out ItemUpdate snapshot, out string rejectionReason)
     {
         snapshot = null;
         // No request is served before the load has run (OI-PER-23).
@@ -248,22 +249,21 @@ public static class LostAndFoundServer
             TraceRecallRejection(0, rejectionReason);
             return false;
         }
-        int existingSlot = lost.InventoryClaimSlot >= 0 && occupiedSlots != null &&
-            Array.IndexOf(occupiedSlots, lost.InventoryClaimSlot) >= 0 ? lost.InventoryClaimSlot : -1;
+        int existingSlot = lost.InventoryClaimSlot >= 0 &&
+            Array.IndexOf(ServerLedger.TakenSlots(lost.PersistentItemId, player.Guid), lost.InventoryClaimSlot) < 0
+            ? lost.InventoryClaimSlot : -1;
         return TryRetrieve(player, lost.Handle, expectedRevision,
-            requestedSlot >= 0 ? requestedSlot : lost.InventoryClaimSlot, existingSlot,
-            inventoryCapacity, occupiedSlots, out snapshot, out rejectionReason);
+            requestedSlot >= 0 ? requestedSlot : lost.InventoryClaimSlot, existingSlot, out snapshot, out rejectionReason);
     }
 
     private static bool TryRetrieve(ServerPlayer player, uint lostHandle, uint expectedRevision,
-        int requestedSlot, int existingItemSlot, int inventoryCapacity, int[] occupiedSlots,
-        out ItemUpdate snapshot, out string rejectionReason)
+        int requestedSlot, int existingItemSlot, out ItemUpdate snapshot, out string rejectionReason)
     {
         snapshot = null;
         rejectionReason = string.Empty;
         global::Multiplayer.Multiplayer.Log($"[LostAndFound Recall] Manager retrieval started: " +
             $"player=P{player?.PlayerId ?? 0}, handle={lostHandle}, expectedRevision={expectedRevision}, " +
-            $"requestedSlot={requestedSlot}, existingSlot={existingItemSlot}, capacity={inventoryCapacity}, " +
+            $"requestedSlot={requestedSlot}, existingSlot={existingItemSlot}, " +
             $"registryContains={registry.TryGetByHandle(lostHandle, out _)}");
         if (player == null || !registry.TryGetByHandle(lostHandle, out LostItemRecord lost))
         {
@@ -272,15 +272,9 @@ public static class LostAndFoundServer
             return false;
         }
         ushort itemNetId = lost.NetId;
-        if (inventoryCapacity < 1 || inventoryCapacity > 256)
-        {
-            rejectionReason = "inventory-unavailable";
-            TraceRecallRejection(itemNetId, rejectionReason);
-            return false;
-        }
         LostItemRetrievalPlan plan = LostItemRetrievalPlanner.Plan(lost, player.Guid.ToString("D"),
-            expectedRevision, requestedSlot, existingItemSlot, inventoryCapacity,
-            occupiedSlots ?? Array.Empty<int>());
+            expectedRevision, requestedSlot, existingItemSlot, InventorySlots.Capacity,
+            ServerLedger.TakenSlots(lost.PersistentItemId, player.Guid));
         if (!plan.Accepted)
         {
             rejectionReason = plan.Reason;
@@ -412,8 +406,7 @@ public static class LostAndFoundServer
         // The star action identifies that same canonical registry entry, so validate against the
         // host-owned registry revision rather than the inert Unity projection's cached revision.
         return TryRetrieve(player, lost.Handle, authoritativeRevision, existingItemSlot,
-            existingItemSlot, existingItemSlot + 1, Array.Empty<int>(), out snapshot,
-            out rejectionReason);
+            existingItemSlot, out snapshot, out rejectionReason);
     }
 
     /// <param name="detail">What the reason leaves out, for the logged cause (the deleted car).</param>
@@ -542,7 +535,7 @@ public static class LostAndFoundServer
     private static void RollBack(NetworkedItem item, LiveItems.LiveItem previous)
     {
         LiveItems.RollbackLostAndFoundCollection(item, previous);
-        if (previous.Placement is ItemPlacementKind.Attached or ItemPlacementKind.Magazine &&
+        if (LostItemCollectionPolicy.RollsBackIntoWorld((LivePlacement)(byte)previous.Placement) &&
             LiveItems.TryGet(item.NetId, out LiveItems.LiveItem record))
             DeletedCarItems.IntoWorld(item, record, "Lost and Found refused it, off where it was");
     }
@@ -694,7 +687,6 @@ public static class LostAndFoundServer
             IsSnapped = item.Item?.SnappableItem?.SnappedTo != null,
             IsInMachine = contained,
             IsLicensePaper = IsLicensePaper(item),
-            IsPersonalItem = item.Item?.InventorySpecs?.BelongsToPlayer == true,
             OwnerPositionKnown = ownerKnown,
             OwnerDistanceSquared = ownerKnown
                 ? (owner.WorldPosition - item.transform.position).sqrMagnitude : float.MaxValue,

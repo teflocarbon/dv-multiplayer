@@ -95,12 +95,6 @@ public class ItemRequest
     /// <summary>The destination container's revision, for a move between two containers.</summary>
     public uint ContainerRevision { get; set; }
     public float SurfaceHeight { get; set; }
-    /// <summary>
-    /// For a Lost and Found collection: the requester's inventory, until the server keeps every
-    /// inventory itself (R3).
-    /// </summary>
-    public int InventoryCapacity { get; set; }
-    public int[] OccupiedSlots { get; set; } = System.Array.Empty<int>();
     /// <summary>Object state changed with the move (or alone, <see cref="ItemAction.SetState"/>).</summary>
     public Dictionary<string, object> States { get; set; }
     /// <summary>A <see cref="ItemAction.SetState"/> by a player working the item where it lies, not holding it.</summary>
@@ -152,8 +146,6 @@ public class ItemRequest
                 break;
             case ItemAction.CollectLost:
                 writer.Put(data.Slot);
-                writer.Put(data.InventoryCapacity);
-                writer.PutArray(data.OccupiedSlots ?? System.Array.Empty<int>());
                 break;
             case ItemAction.Deposit:
                 writer.Put(data.Container);
@@ -231,8 +223,6 @@ public class ItemRequest
                 break;
             case ItemAction.CollectLost:
                 data.Slot = reader.GetInt();
-                data.InventoryCapacity = reader.GetInt();
-                data.OccupiedSlots = reader.GetIntArray();
                 break;
             case ItemAction.Deposit:
                 data.Container = reader.GetUInt();

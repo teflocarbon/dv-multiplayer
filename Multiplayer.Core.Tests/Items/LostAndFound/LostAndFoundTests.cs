@@ -15,7 +15,6 @@ public sealed class LostAndFoundTests
         Revision = 7,
         Owner = new Guid(1, 0, 0, new byte[8]),
         OwnerConnected = true,
-        IsPersonalItem = true,
         Placement = LivePlacement.World,
         OwnerPositionKnown = true,
         OwnerDistanceSquared = 201 * 201,
@@ -119,15 +118,6 @@ public sealed class LostAndFoundTests
         item.IsLicensePaper = true;
         Assert.That(LostItemCollectionPolicy.Evaluate(item, 200, 100, 10).Reason,
             Is.EqualTo("license-paper-excluded"));
-    }
-
-    [Test]
-    public void WorldJunkThatPassedThroughInventory_IsNeverCollected()
-    {
-        LostItemCandidate item = Eligible();
-        item.IsPersonalItem = false;
-        Assert.That(LostItemCollectionPolicy.Evaluate(item, 200, 100, 10).Reason,
-            Is.EqualTo("not-a-personal-item"));
     }
 
     [Test]
@@ -445,6 +435,18 @@ public sealed class LostAndFoundTests
         PrefabName = "CommsRadio",
         DisplayName = "Radio"
     };
+
+    [TestCase(LivePlacement.Attached)]
+    [TestCase(LivePlacement.SnappedAttachment)]
+    [TestCase(LivePlacement.Magazine)]
+    public void ARefusedCollectionOffACouplerASnapPointOrAMagazineGoesIntoTheWorld(LivePlacement previous) =>
+        Assert.That(LostItemCollectionPolicy.RollsBackIntoWorld(previous), Is.True);
+
+    [TestCase(LivePlacement.World)]
+    [TestCase(LivePlacement.TrainInterior)]
+    [TestCase(LivePlacement.StaticParent)]
+    public void ARefusedCollectionFromWhereItLayStaysThere(LivePlacement previous) =>
+        Assert.That(LostItemCollectionPolicy.RollsBackIntoWorld(previous), Is.False);
 
     // Owners are identities, numbered here for short.
     private static string O(int number) => new Guid(number, 0, 0, new byte[8]).ToString("D");
