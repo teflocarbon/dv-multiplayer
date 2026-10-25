@@ -1,6 +1,8 @@
 using DV.CabControls;
 using DV.Customization.Gadgets;
 using DV.Items;
+using Multiplayer.Core.Items.LiveState;
+using Multiplayer.Core.Items.WorldItems;
 using Multiplayer.Server.Items.ChangeCauses;
 using Multiplayer.Server.Items.LiveState;
 using Multiplayer.Server.Items.LostAndFound;
@@ -130,12 +132,15 @@ internal sealed class OfficeStockReplenishment
         foreach (LiveItems.LiveItem record in LiveItems.GetAll().ToArray())
         {
             if (record == null || !record.IsReplenishableStockFork ||
-                record.Owner != Guid.Empty || record.InventoryClaimSlot >= 0 ||
-                LostAndFoundServer.Contains(record.NetId) ||
-                record.Placement is not (ItemPlacementKind.World or ItemPlacementKind.StaticParent or
-                    ItemPlacementKind.TrainInterior) ||
-                !NetworkedItem.TryGet(record.NetId, out NetworkedItem item) || item == null)
+                !NetworkedItem.TryGet(record.NetId, out NetworkedItem item) || item == null ||
+                !OfficeStockRules.MayClearFork(record.Owner != Guid.Empty, record.InventoryClaimSlot >= 0,
+                    LostAndFoundServer.Contains(record.NetId), (LivePlacement)(byte)record.Placement,
+                    Moving(item), item.Item != null && item.Item.IsGrabbed()))
+            {
+                if (record != null)
+                    abandonedForkEmptySince.Remove(record.NetId);
                 continue;
+            }
 
             observed.Add(record.NetId);
             Vector3 currentPosition = item.transform.position - WorldMover.currentMove;
@@ -193,7 +198,9 @@ internal sealed class OfficeStockReplenishment
                              RotationResetToleranceDegrees ||
                              Quaternion.Angle(item.transform.rotation, record.BaselineRotation) >
                              RotationResetToleranceDegrees;
-            if (!displaced || AnyPlayerInterested(record.BaselinePosition))
+            if (!displaced || !OfficeStockRules.MayReset(AnyPlayerInterested(record.BaselinePosition),
+                    AnyPlayerInterested(observedPosition), Moving(item),
+                    item.Item != null && item.Item.IsGrabbed()))
             {
                 disturbedEmptySince.Remove(key);
                 continue;
@@ -224,14 +231,18 @@ internal sealed class OfficeStockReplenishment
             disturbedEmptySince.Remove(key);
     }
 
+    // A player still loading protects every place (OfficeStockRules.Protects, OI-SYNC-10).
     private static bool AnyPlayerInterested(Vector3 absolutePosition)
     {
         WorldItemCellCoord slotCell = WorldItemCellCoord.FromAbsolute(absolutePosition);
         return NetworkServer.Instance.ServerPlayers.Any(player => player != null &&
-            player.LoadingState >= PlayerLoadingState.ReadyForItems &&
-            WorldItemCellCoord.Neighbourhood(WorldItemCellCoord.FromAbsolute(player.AbsoluteWorldPosition))
-                .Contains(slotCell));
+            OfficeStockRules.Protects(player.LoadingState >= PlayerLoadingState.ReadyForItems,
+                WorldItemCellCoord.Neighbourhood(WorldItemCellCoord.FromAbsolute(player.AbsoluteWorldPosition))
+                    .Contains(slotCell)));
     }
+
+    // Flying or sliding under a lease: its simulator has it, wherever it is going.
+    private bool Moving(NetworkedItem item) => owner.Shell.HasActiveSpatialState(item.NetId);
 
     private bool TryCreateReplacement(PendingSlot slot)
     {
