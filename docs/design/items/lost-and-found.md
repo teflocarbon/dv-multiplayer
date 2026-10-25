@@ -1,9 +1,10 @@
 # Lost and Found
 
-> Status: being written in R6 of the [item refactor](../item-refactor.md) (2026-10-25), one section per
-> PR, not yet proved in a game: that is the end pass (OI-REF-01). Until R6 is done, what this page
-> doesn't cover yet is as the legacy [lost-and-found.md](../../legacy/items/lost-and-found.md)
-> describes. The ledger it commits to is [ledger.md](ledger.md); vanilla's own Lost and Found is in
+> Status: written in R6 of the [item refactor](../item-refactor.md) (#378 to #387, 2026-10-25), not
+> yet proved in a game: that is the end pass (OI-REF-01). It replaces the legacy
+> [lost-and-found.md](../../legacy/items/lost-and-found.md), which is evidence of the old behaviour
+> only. An owner sends an item here from their list ([owned-list.md](owned-list.md)), and a full
+> inventory's routes here are [inventory.md](inventory.md). The ledger it commits to is [ledger.md](ledger.md); vanilla's own Lost and Found is in
 > [research/DERAIL_VALLEY_LOST_AND_FOUND_LOGIC.md](../../research/DERAIL_VALLEY_LOST_AND_FOUND_LOGIC.md).
 
 | Side | Code |
