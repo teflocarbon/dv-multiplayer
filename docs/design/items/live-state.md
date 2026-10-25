@@ -219,7 +219,9 @@ Each game adds its part:
   "Holds or carries" is the record's word as well as the snapshot's (`HeldByAnotherPlayer`): an object
   made for an item kept as data in their inventory lies inactive at the safety position and reads
   itself as dropped there, and that was taken as the server moving it out of their slot into the
-  world (`stand-in-object-state`).
+  world (`stand-in-object-state`). A row's state that only loads after the object's first frame
+  (`ItemStateText.LoadNowOrSoon`) marks the values clean again once it lands, so it isn't taken for
+  that drift.
 
 ## Data-only records
 

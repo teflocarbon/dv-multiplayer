@@ -46,9 +46,10 @@ internal static class ItemStateText
     /// container. Some items only set themselves up at the end of their first frame (a lantern's
     /// wick knob) and won't load active before then: those load inactive, as an item in a slot
     /// does, and show their state when next enabled (the lantern sets its knob then). One that
-    /// won't load either way loads once its first frame is over, and the container is finished then.
+    /// won't load either way loads once its first frame is over, and the container is finished then;
+    /// <paramref name="loadedLate"/> runs after that late load.
     /// </summary>
-    public static void LoadNowOrSoon(GameObject item, JObject state, string what)
+    public static void LoadNowOrSoon(GameObject item, JObject state, string what, Action loadedLate = null)
     {
         ItemSaveData saveData = item != null ? item.GetComponent<ItemSaveData>() : null;
         if (saveData == null || state == null)
@@ -67,7 +68,7 @@ internal static class ItemStateText
         }
         catch (Exception)
         {
-            CoroutineManager.Instance.StartCoroutine(LoadLater(saveData, state, what));
+            CoroutineManager.Instance.StartCoroutine(LoadLater(saveData, state, what, loadedLate));
             return;
         }
         item.SetActive(false);
@@ -80,7 +81,7 @@ internal static class ItemStateText
         catch (Exception)
         {
             item.SetActive(true);
-            CoroutineManager.Instance.StartCoroutine(LoadLater(saveData, state, what));
+            CoroutineManager.Instance.StartCoroutine(LoadLater(saveData, state, what, loadedLate));
         }
     }
 
@@ -95,7 +96,7 @@ internal static class ItemStateText
 
     private const int LoadAttempts = 5;
 
-    private static System.Collections.IEnumerator LoadLater(ItemSaveData saveData, JObject state, string what)
+    private static System.Collections.IEnumerator LoadLater(ItemSaveData saveData, JObject state, string what, Action loadedLate)
     {
         yield return WaitFor.EndOfFrame;
         for (int attempt = 1; ; attempt++)
@@ -108,6 +109,7 @@ internal static class ItemStateText
             {
                 Load(saveData, state);
                 FinishContainer(saveData.gameObject);
+                loadedLate?.Invoke();
                 yield break;
             }
             catch (Exception exception)

@@ -459,7 +459,10 @@ internal static partial class PlayerItems
     {
         GameObject instance = item.gameObject;
         ushort netId = record.NetId;
-        ItemStateText.LoadNowOrSoon(instance, row.State, $"{row.PrefabName} (netId {netId})");
+        // A state that loads late lands after CompleteColdMaterialization marked the values clean: it's
+        // the row's, which those who know the item have, not a drift to put back for a remote holder.
+        ItemStateText.LoadNowOrSoon(instance, row.State, $"{row.PrefabName} (netId {netId})",
+            () => { if (item != null) item.MarkValuesClean(); });
         ItemBase itemBase = instance.GetComponent<ItemBase>();
         if (itemBase == null || !item.TakeUpFromData(netId))
             throw new InvalidOperationException("couldn't take up its net id");
