@@ -1,6 +1,6 @@
 # Item refactor
 
-> Status: plan (2026-10-23); R0 and R1 built on `items/refactor`, R2 ([wire.md](items/wire.md)) in #339, 2026-10-24; R6 in #378 to #387, 2026-10-25 (built, proved at the end pass); R7 in #389 to #396, 2026-10-25 (built, proved at the end pass). Line numbers are from `beta` at
+> Status: plan (2026-10-23); R0 and R1 built on `items/refactor`, R2 ([wire.md](items/wire.md)) in #339, 2026-10-24; R6 in #378 to #387, 2026-10-25 (built, proved at the end pass); R7 in #389 to #396; #397, #398, 2026-10-25 (built, proved at the end pass). Line numbers are from `beta` at
 > `04bfe277`. Decisions are the user's, through the coordinator, dated in [Decisions](#decisions);
 > all are answered. Every requirement is a row in
 > [item-overhaul-checklist.md](../item-overhaul-checklist.md), and this plan names the rows each PR
