@@ -702,8 +702,7 @@ they're blocked for good. A dedicated host needs a serverbound fee-payment reque
   admin role and no console, and "host only" means `IsHost(sender)`, the loopback client (`:191-199`;
   the comments at `:193` and `:256` already note it). `ServerAPIProvider.SendServerChatMessage`
   only sends when `excludePlayer` is set (`Server/Api/ServerAPIProvider.cs:107-112`).
-- **Other host-local powers:** key use (`Server/World/KeyUsePatch.cs:10-13`), the weather editor
-  and game parameters (broadcast by `GameParamsPatch`), and the host's mod settings (`Settings.cs:38-62`).
+- **Other host-local powers:** the weather editor and game parameters (broadcast by `GameParamsPatch`), and the host's mod settings (`Settings.cs:38-62`).
 - **MPAPI:** `IsDedicatedServer` is hard-coded `false //feature not implemented`
   (`APIProvider.cs`). `ClientPlayerWrapper` never sets `isHost`, and `ClientAPIProvider.PlayerCount`
   adds one for the local player. Other mods need these defined.

@@ -234,6 +234,8 @@ public static class DebugPacketProjectorRegistry
                 result["carNetId"] = request.CarNetId; result["front"] = request.Front; break;
             case ItemAction.LoadMagazine:
                 result["magazineNetId"] = request.MagazineNetId; result["magazineSlot"] = request.MagazineSlot; break;
+            case ItemAction.UseUp:
+                result["magazineNetId"] = request.MagazineNetId; break;
             case ItemAction.Deposit:
             case ItemAction.Withdraw:
             case ItemAction.MoveInContainer:

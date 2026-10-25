@@ -569,8 +569,8 @@ Some vanilla systems run only on the host and are made to consider every player:
   any player is within range.
 - `PlayerDistanceGameObjectsDisablerPatch.cs`: refill stations and warehouse machines stay active
   near any player (above).
-- `Server/World/KeyUsePatch.cs`: `KeyUse.HandleUse` runs on the host only; clients have no request
-  path.
+- Garage keys: a key is used up on the server, a client's use a request (`UseUp`,
+  [vanilla-storage.md](design/items/vanilla-storage.md#used-up)); the garage unlock syncs as before.
 
 ## Testing
 
@@ -609,5 +609,5 @@ weather, sleep, difficulty, junctions, switches and service stations have none.
   hazmat cargo alight has no path to the host.
 - **Licence purchase rejections are silent.** The client has already run the register's `Buy`;
   the host logs and sends nothing, and the wallet corrects on the next money update.
-- **Clients can't pay fees one at a time or use keys** (`CareerManagerFeesScreenPatch`,
-  `KeyUsePatch`). An admin client can pay all the fees at once.
+- **Clients can't pay fees one at a time** (`CareerManagerFeesScreenPatch`). An admin client can
+  pay all the fees at once.

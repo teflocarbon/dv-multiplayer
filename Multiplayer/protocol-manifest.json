@@ -1,7 +1,7 @@
 {
   "ProtocolVersion": "1.0.0.0",
-  "BuildVersion": "2026.10.25-dev.1051+33cf548094fe91b9d60c0de4686ece202c610530",
-  "Fingerprint": "da89fa2c4672fa153a61bea983d7bad5d4c594203b203a134fa8b6acea71d00b",
+  "BuildVersion": "2026.10.25-dev.1104+16c2196a67c1f70f8a8f7a1a705237a5156bf1ff",
+  "Fingerprint": "547906ea9beac1767a1021b5c955462568147357415a5fc7a287c7b496d58c01",
   "Packets": [
     {
       "Hash": "02D108E907B73FA9",
@@ -1337,7 +1337,9 @@
       "LeftInterest": 10,
       "WentCold": 11,
       "RemadeFresh": 12,
-      "Discarded": 13
+      "Discarded": 13,
+      "UsedUp": 14,
+      "DevConsole": 15
     },
     "Multiplayer.Core.Items.Ledger.ItemRelation": {
       "Nobodys": 0,
@@ -1461,7 +1463,8 @@
       "ReportBelowMap": 13,
       "Attach": 14,
       "SetState": 15,
-      "LoadMagazine": 16
+      "LoadMagazine": 16,
+      "UseUp": 17
     },
     "Multiplayer.Shared.Protocol.Data.Items.ItemInventoryClaimFlags": {
       "None": 0,

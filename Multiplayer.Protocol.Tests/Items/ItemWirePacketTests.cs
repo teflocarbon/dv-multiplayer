@@ -145,6 +145,7 @@ public sealed class ItemWirePacketTests
         yield return new ItemRequest { RequestId = 14, ItemNetId = 78, ExpectedRevision = 14, Action = ItemAction.Attach, CarNetId = 22, Front = true, States = new() { ["lit"] = 1 } };
         yield return new ItemRequest { RequestId = 15, ItemNetId = 78, ExpectedRevision = 15, Action = ItemAction.SetState, WorldInteraction = true, States = new() { ["notch"] = 2 } };
         yield return new ItemRequest { RequestId = 16, ItemNetId = 81, ExpectedRevision = 16, Action = ItemAction.LoadMagazine, MagazineNetId = 82, MagazineSlot = 0, States = new() { ["track"] = 3 } };
+        yield return new ItemRequest { RequestId = 17, ItemNetId = 83, ExpectedRevision = 17, Action = ItemAction.UseUp, MagazineNetId = 84 };
     }
 
     [TestCaseSource(nameof(Requests))]

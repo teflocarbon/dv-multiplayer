@@ -44,7 +44,14 @@ public enum ItemRemovalReason : byte
     /// </summary>
     RemadeFresh,
     /// <summary>Put in a bin by its owner, or by anyone when nobody owns it, and gone with the bin's destroy (D10).</summary>
-    Discarded
+    Discarded,
+    /// <summary>
+    /// Used up by a player (a garage key in its padlock, a spray can's paint): the server's step
+    /// (UseUp). A replacement it made (the empty can) is born Replaced.
+    /// </summary>
+    UsedUp,
+    /// <summary>Destroyed by a dev console command on the server (Debug.DestroyAllItems, Debug.DestroyBuggedObjects).</summary>
+    DevConsole
 }
 
 /// <summary>

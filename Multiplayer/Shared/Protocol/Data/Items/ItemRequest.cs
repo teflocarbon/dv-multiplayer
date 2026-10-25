@@ -41,7 +41,13 @@ public enum ItemAction : byte
     /// <summary>Only its object state (<see cref="ItemRequest.States"/>) changed.</summary>
     SetState,
     /// <summary>Into slot <see cref="ItemRequest.MagazineSlot"/> of a tool's magazine (<see cref="ItemRequest.MagazineNetId"/>): ammo loaded.</summary>
-    LoadMagazine
+    LoadMagazine,
+    /// <summary>
+    /// Used up (docs/design/items/vanilla-storage.md, "Used up"): a garage key in its padlock, or a
+    /// spray can's paint in the sprayer <see cref="ItemRequest.MagazineNetId"/>. The server destroys
+    /// it and makes its replacement.
+    /// </summary>
+    UseUp
 }
 
 /// <summary>
@@ -80,7 +86,7 @@ public class ItemRequest
     public Vector3 ThrowDirection { get; set; }
     public ushort CarNetId { get; set; }
     public bool Front { get; set; }
-    /// <summary>For a load: the tool whose magazine takes it, and the slot.</summary>
+    /// <summary>For a load: the tool whose magazine takes it, and the slot; for a use-up, the tool it is used in.</summary>
     public ushort MagazineNetId { get; set; }
     public int MagazineSlot { get; set; } = -1;
     /// <summary>A container's handle; for a deposit, 0 with <see cref="ShellNetId"/> for the open one.</summary>
@@ -173,6 +179,9 @@ public class ItemRequest
                 writer.Put(data.MagazineNetId);
                 writer.Put(data.MagazineSlot);
                 break;
+            case ItemAction.UseUp:
+                writer.Put(data.MagazineNetId);
+                break;
         }
         if (CarriesStates(data.Action))
             ItemUpdate.SerializeStates(writer, data.States);
@@ -248,6 +257,9 @@ public class ItemRequest
             case ItemAction.LoadMagazine:
                 data.MagazineNetId = reader.GetUShort();
                 data.MagazineSlot = reader.GetInt();
+                break;
+            case ItemAction.UseUp:
+                data.MagazineNetId = reader.GetUShort();
                 break;
         }
         if (CarriesStates(data.Action))
