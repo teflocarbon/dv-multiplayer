@@ -206,7 +206,9 @@ namespace Dvmp.Scenarios
 
             AttachedOffline.Hung hung = await pair.Host.Run<AttachedOffline.Hung>(s => AttachedOffline.InGame.Hang(s, loco), 120);
             Report.Note($"on the hanger {hung.Hanger} in {loco}: a {hung.Prefab} ({hung.Item}), {hung.State}");
-            await Until.Value(() => pair.Host.Run(() => Items.Record(hung.Item)), r => r.Placement is "Attached" or "SnappedAttachment", 20, "the host has the item on the hanger");
+            // Settled: it hangs as Attached first and snaps a moment later, and that commit moves the ledger
+            // back to its record (item.ledger-stale-home), undoing a break planted before it.
+            await Until.Value(() => pair.Host.Run(() => Items.Record(hung.Item)), r => r.Placement == "SnappedAttachment", 20, "the host has the item snapped to the hanger");
             await pair.Host.Run(() => Ownership.Give(hung.Item, "client"));
             string hungId = await pair.Host.Run(() => Owned.IdOf(hung.Item));
             await HomedAndRepaired(pair, "lost", "", -1, "LiveAgrees", "the item on a hanger, home Lost and Found", hungId);
