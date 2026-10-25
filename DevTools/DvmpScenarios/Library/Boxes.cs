@@ -254,7 +254,7 @@ namespace Dvmp.Scenarios
         {
             Multiplayer.Shared.Protocol.Packets.Items.ClientboundItemResultPacket result = null;
             uint requestId = 0;
-            void Got(Multiplayer.Shared.Protocol.Packets.Items.ClientboundItemResultPacket p) { if (p.RequestId == requestId) result = p; }
+            void Got(Multiplayer.Shared.Protocol.Packets.Items.ClientboundItemResultPacket p) { if (p.RequestId == requestId) result = ItemAnswers.Copy(p); }
             ItemClient.Current.ItemResultReceived += Got;
             try
             {

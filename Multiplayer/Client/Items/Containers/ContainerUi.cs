@@ -335,7 +335,8 @@ internal static class ContainerUi
         if (result == null || !pendingMutations.Remove(result.RequestId))
             return;
 #if DEBUG
-        lastMutation = result;
+        // A copy: every answer is read into the one packet object, so a kept one became the next.
+        lastMutation = result.Clone();
         mutationSequence++;
 #endif
         global::Multiplayer.Multiplayer.Log($"[Cold Container] Request completed: " +
@@ -355,10 +356,14 @@ internal static class ContainerUi
         pendingRequestId = ItemClient.Current.RequestItemList(ItemListKind.Container, 0, ActiveHandle);
     }
 
-    private static void OnView(ClientboundItemListPacket view)
+    private static void OnView(ClientboundItemListPacket received)
     {
-        if (view == null || view.Kind != ItemListKind.Container)
+        if (received == null || received.Kind != ItemListKind.Container)
             return;
+        // A copy: every list is read into the one packet object, so a kept one became the next list
+        // of any kind (an owned-items push, a Lost and Found list), and the open box's handle,
+        // revision and rows with it.
+        ClientboundItemListPacket view = received.Clone();
 #if DEBUG
         lastView = view;
         viewSequence++;

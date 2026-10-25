@@ -17,4 +17,10 @@ public class ClientboundItemResultPacket
     public ushort ItemNetId { get; set; }
 
     public bool Accepted => Refusal == ItemRefusal.None;
+
+    /// <summary>
+    /// A copy to keep past the handler: the client reads every answer into one packet object (a
+    /// reusable subscription), so a kept packet reads the next answer.
+    /// </summary>
+    public ClientboundItemResultPacket Clone() => (ClientboundItemResultPacket)MemberwiseClone();
 }
