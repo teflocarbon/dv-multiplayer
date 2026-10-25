@@ -88,8 +88,14 @@ namespace Dvmp.Scenarios
             }
             Report.Note($"the locked garage: {garage.Type}, its padlock wants {garage.Key}, at {garage.At}");
             await pair.Client.Run(() => InGame.GoTo(garage.At.X + 1.5f, garage.At.Z), 60);
+            // The host's player 1 km off, toward the middle of the map: the garage may not be live on
+            // the host, as on a dedicated one (K2).
             if (!pair.Dedicated)
-                await pair.Host.Run(() => InGame.GoTo(garage.At.X - 3f, garage.At.Z), 60);
+            {
+                float dx = 8000f - garage.At.X, dz = 8000f - garage.At.Z, d = Math.Max(1f, (float)Math.Sqrt(dx * dx + dz * dz));
+                float hx = garage.At.X + dx / d * 1000f, hz = garage.At.Z + dz / d * 1000f;
+                await pair.Host.Run(() => InGame.GoTo(hx, hz), 60);
+            }
             ushort key = await pair.Host.Run<ushort>(s => InGame.SpawnKey(s, garage.Key));
             pair.Cleanup(() => pair.Host.Run<ushort[]>(s => Items.Destroy(s, new[] { key }), 60));
             await pair.Host.Run(() => Ownership.Give(key, "client"));

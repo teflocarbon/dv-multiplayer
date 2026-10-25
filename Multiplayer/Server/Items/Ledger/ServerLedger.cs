@@ -85,14 +85,17 @@ public static partial class ServerLedger
     {
         if (item == null || id == Guid.Empty)
             return id;
+        // The first holder is a live object, or an item kept as data (a cold inventory row, a Lost and
+        // Found entry: J6), which has none.
         if (netIdByPersistentId.TryGetValue(id, out ushort other) && other != item.NetId &&
-            LiveItems.TryGet(other, out LiveItems.LiveItem original) &&
-            original.PersistentItemId == id && NetworkedItem.TryGet(other, out NetworkedItem originalItem) &&
-            originalItem != null)
+            LiveItems.TryGet(other, out LiveItems.LiveItem original) && original.PersistentItemId == id &&
+            (NetworkedItem.TryGet(other, out NetworkedItem originalItem) && originalItem != null ||
+             PlayerItems.IsDataOnly(original) || LostAndFoundServer.IsData(other)))
         {
             Guid copy = Guid.NewGuid();
+            string first = originalItem != null ? originalItem.name : original.PrefabName + " (data)";
             Multiplayer.LogError($"item.duplicate-persistent-id: {item.name} (netId {item.NetId}) arrived with id {id:D}, " +
-                                 $"which {originalItem.name} (netId {other}, {original.Placement}) has; " +
+                                 $"which {first} (netId {other}, {original.Placement}) has; " +
                                  $"the first keeps it and the copy is now {copy:D}");
             ItemIdentity identity = item.GetComponent<ItemIdentity>() ??
                                                    item.gameObject.AddComponent<ItemIdentity>();

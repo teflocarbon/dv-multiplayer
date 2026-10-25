@@ -15,6 +15,11 @@ namespace Dvmp.Scenarios
     /// binned, not collected), and once everyone is 120 m off the bin's destroy ends its entry
     /// <c>Discarded</c>. A mug nobody owns goes the same way, with no entry. On a player host the
     /// client then drops the host player's mug in: refused, it lies beside the bin and its entry lives.
+    /// FAR=true: each mug was once out of everyone's range first, so vanilla's checker asked for its
+    /// respawn and the server refused it; that latched the checker, and the bin never destroyed it (K1).
+    /// TAKEBACK=true: the client takes its mug back out of the bin into its inventory and puts it down
+    /// 30 m off; once everyone has gone it is still there, its entry live. It used to stay binned (no
+    /// trigger exit for an object turned off) and go as Discarded (K3).
     /// </summary>
     [Scenario("bin-owned", "An owned item binned by its owner is destroyed and its entry ends Discarded; an unowned one goes too; someone else's is refused beside the bin (OI-VAN-02)")]
     [Budget(600)]
@@ -22,6 +27,10 @@ namespace Dvmp.Scenarios
     {
         public sealed class Options
         {
+            /// <summary>Each mug's respawn was asked for and refused first, as for one once far from everyone.</summary>
+            public bool Far;
+            /// <summary>The client takes its binned mug back out into its inventory and puts it down 30 m off: it stays.</summary>
+            public bool TakeBack;
         }
 
         protected override async Task Run(Pair pair, Options o)
@@ -34,6 +43,13 @@ namespace Dvmp.Scenarios
             ushort nobodys = await pair.Host.Run<ushort>(s => Items.Spawn(s, "Mug", "client"));
             pair.Cleanup(() => pair.Host.Run<ushort[]>(s => Items.Destroy(s, new[] { own, nobodys }), 60));
 
+            if (o.Far)
+                foreach (ushort mug in new[] { own, nobodys })
+                {
+                    bool latched = await pair.Host.Run<bool>(s => InGame.RefuseRespawn(s, mug), 30);
+                    Expect.That(!latched, $"mug {mug}'s respawn checker runs again after a refused respawn", "latched out of range");
+                }
+
             foreach (ushort mug in new[] { own, nobodys })
             {
                 await pair.Client.Run<int>(s => Items.Stash(s, mug, true), 60);
@@ -42,16 +58,36 @@ namespace Dvmp.Scenarios
                 await Until.Value(() => pair.Host.Run(() => InGame.Binned(mug)), b => b, 20, $"the server has mug {mug} in the bin");
             }
 
+            if (o.TakeBack)
+            {
+                // Out of the bin into the client's inventory, and put down 30 m off: no longer the bin's.
+                await pair.Client.Run<int>(s => Items.Stash(s, own, false), 60);
+                await pair.Client.Run<Abs>(s => Walk.Away(s, 30, 0));
+                await pair.Client.Run(() => Owned.DropFromInventory(own), 60);
+                await Task.Delay(3000);
+                Expect.That(!await pair.Host.Run(() => InGame.Binned(own)), "the mug taken back out of the bin isn't binned");
+            }
+
             // Everyone walks off: the bin's destroy.
             await pair.Client.Run<Abs>(s => Walk.Away(s, 120, 0));
             if (!pair.Dedicated) await pair.Host.Run<Abs>(s => Walk.Away(s, 120, 30));
-            await Until.Value(() => pair.Host.Run(() => Items.Record(own)), r => !r.Known, 60, "the binned mug is gone on the server");
-            await Until.Value(() => pair.Host.Run(() => Items.Record(nobodys)), r => !r.Known, 30, "the unowned binned mug is gone on the server");
-            LedgerEntry e = await pair.Host.Run(() => Owned.Entry(ownId));
-            Report.Note("the binned mug's entry: " + e);
-            Expect.That(e.Known && !e.Live, "the binned mug's entry has ended", e.ToString());
-            Expect.Equal("Discarded", e.Ended, "why its entry ended");
-            Expect.That(!(await pair.Host.Run(() => Ownership.ById(ownId))).Lost, "the binned mug is in no Lost and Found");
+            await Until.Value(() => pair.Host.Run(() => Items.Record(nobodys)), r => !r.Known, 60, "the unowned binned mug is gone on the server");
+            if (o.TakeBack)
+            {
+                // Taken out of its bin and put down elsewhere, it stays (K3).
+                await Task.Delay(15000);
+                Expect.That((await pair.Host.Run(() => Items.Record(own))).Known, "the mug taken back out of the bin is still there once everyone has gone");
+                Expect.That((await pair.Host.Run(() => Owned.Entry(ownId))).Live, "the taken-back mug's entry lives");
+            }
+            else
+            {
+                await Until.Value(() => pair.Host.Run(() => Items.Record(own)), r => !r.Known, 30, "the binned mug is gone on the server");
+                LedgerEntry e = await pair.Host.Run(() => Owned.Entry(ownId));
+                Report.Note("the binned mug's entry: " + e);
+                Expect.That(e.Known && !e.Live, "the binned mug's entry has ended", e.ToString());
+                Expect.Equal("Discarded", e.Ended, "why its entry ended");
+                Expect.That(!(await pair.Host.Run(() => Ownership.ById(ownId))).Lost, "the binned mug is in no Lost and Found");
+            }
 
             if (pair.Dedicated)
             {
@@ -109,6 +145,22 @@ namespace Dvmp.Scenarios
                 }
                 for (int i = 0; i < 120; i++) yield return null;
                 step.Result = $"{bin.name}, {(item != null ? Vector3.Distance(item.transform.position, b.center).ToString("F2") + " m from its centre" : "gone")}";
+            }
+
+            /// <summary>
+            /// Host: what vanilla's checker does for an item out of everyone's range: latches it and asks
+            /// for its respawn, which the server refuses. Result: whether the checker is still latched.
+            /// </summary>
+            [Step]
+            public static IEnumerator RefuseRespawn(Step<bool> step, ushort netId)
+            {
+                NetworkedItem.TryGet(netId, out NetworkedItem item);
+                RespawnOnDrop respawner = item != null ? item.GetComponent<RespawnOnDrop>() : null;
+                if (respawner == null) throw new Exception($"item {netId} has no RespawnOnDrop on the host");
+                respawner.wentOutOfRange = true;
+                DV.Utils.SingletonBehaviour<CoroutineManager>.Instance.Run(respawner.RespawnOrDestroy(0f));
+                for (int i = 0; i < 10; i++) yield return null;
+                step.Result = respawner.wentOutOfRange;
             }
 
             /// <summary>Host: whether the server has the item in a bin.</summary>

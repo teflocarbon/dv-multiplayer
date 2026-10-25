@@ -72,6 +72,10 @@ internal static class UseUp
         key.KeyUsed();
         Object.Destroy(item.gameObject); // NetworkedItem.OnDestroy replicates the destroy
         padlock.ContinueUnlockingPadlock();
+        // Far from the host's own player (or on a dedicated host) the padlock can be inactive, and plays
+        // no animation to finish its unlock: it is finished here, so the garage opens all the same (K2).
+        if (!padlock.isActiveAndEnabled)
+            padlock.FinalizeUnlocking();
         return string.Empty;
     }
 
@@ -155,9 +159,12 @@ internal static class UseUp
 
     public static void Clear() => spending.Clear();
 
+    // Every padlock in a loaded scene, active or not: far from the host's own player, or on a
+    // dedicated host, a garage's can be inactive, and FindObjectsOfType sees active ones only (K2).
     private static Padlock PadlockFor(PadlockKey key, Vector3 near) =>
-        Object.FindObjectsOfType<Padlock>()
-            .Where(padlock => padlock.IsLocked && padlock.unlockingKey == key.keyType &&
+        Resources.FindObjectsOfTypeAll<Padlock>()
+            .Where(padlock => padlock != null && padlock.gameObject.scene.isLoaded &&
+                              padlock.IsLocked && padlock.unlockingKey == key.keyType &&
                               Vector3.Distance(padlock.transform.position, near) <= PadlockReach)
             .OrderBy(padlock => Vector3.Distance(padlock.transform.position, near))
             .FirstOrDefault();

@@ -457,14 +457,18 @@ public partial class NetworkServer : IItemServer
 
     // The item a request names, the container shell it opens, the tool it loads, or the one it
     // would swap with or take back, when it's data only.
+    // A cold inventory row, ammo kept with its tool, or a Lost and Found entry kept as data (J9):
+    // made again (PlayerItems.WithObject) before the request is carried.
+    private static bool IsData(ushort netId) => PlayerItems.IsDataOnly(netId) || LostAndFoundServer.IsData(netId);
+
     private static ushort DataOnlyNamed(ItemRequest request, ServerPlayer player)
     {
-        if (PlayerItems.IsDataOnly(request.ItemNetId))
+        if (IsData(request.ItemNetId))
             return request.ItemNetId;
-        if (PlayerItems.IsDataOnly(request.ShellNetId))
+        if (IsData(request.ShellNetId))
             return request.ShellNetId;
         // A load waits for its tool too: one a take is still making again is made by then (H4).
-        if (request.Action is ItemAction.LoadMagazine or ItemAction.UseUp && PlayerItems.IsDataOnly(request.MagazineNetId))
+        if (request.Action is ItemAction.LoadMagazine or ItemAction.UseUp && IsData(request.MagazineNetId))
             return request.MagazineNetId;
         LiveItems.LiveItem record = request.Action switch
         {
@@ -475,7 +479,7 @@ public partial class NetworkServer : IItemServer
                 Retrieval.Subject(player, id),
             _ => null
         };
-        return PlayerItems.IsDataOnly(record) ? record.NetId : (ushort)0;
+        return record != null && (PlayerItems.IsDataOnly(record) || LostAndFoundServer.IsData(record.NetId)) ? record.NetId : (ushort)0;
     }
 
     private void CompleteItemRequest(ServerPlayer player, ClientboundItemResultPacket result)

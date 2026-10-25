@@ -54,7 +54,12 @@ internal static class RespawnOnDropPatch
         if (!MultiplayerStoragePatchGuard.Active || networked == null || networked.NetId == 0)
             return true;
         // A client never decides; the server, for the few it allows.
-        return ItemServer.Current?.AllowsRespawnOrDestroy(networked, __instance) == true;
+        bool allowed = ItemServer.Current?.AllowsRespawnOrDestroy(networked, __instance) == true;
+        // Refused: vanilla's checker latched wentOutOfRange before asking, and only vanilla's own run
+        // clears it, so the item was never checked again, and a bin never destroyed it (K1).
+        if (!allowed)
+            __instance.wentOutOfRange = false;
+        return allowed;
     }
 
     // A destroy the server allowed carries its cause: a binned item's is its binner's (OI-VAN-02).
@@ -65,16 +70,19 @@ internal static class RespawnOnDropPatch
             !NetworkedItem.TryGetNetworkedItem(__instance.GetComponent<ItemBase>(), out NetworkedItem networked) ||
             networked == null || networked.NetId == 0)
             return;
-        __result = Noted(__result, server, networked);
+        __result = Noted(__result, server, networked, __instance);
     }
 
-    private static System.Collections.IEnumerator Noted(System.Collections.IEnumerator vanilla, IItemServer server, NetworkedItem item)
+    private static System.Collections.IEnumerator Noted(System.Collections.IEnumerator vanilla, IItemServer server, NetworkedItem item,
+        RespawnOnDrop respawner)
     {
         bool first = true;
         while (true)
         {
             // Its first step only waits; the destroy is in a later one, within the frame of the note.
-            if (!first && item != null)
+            // Only when vanilla's step will act: back in range of a player it stops instead (K6).
+            if (!first && item != null && respawner != null &&
+                respawner.CheckDistances() is (true, true, _, _))
                 server.BeforeRespawnOrDestroyStep(item);
             first = false;
             if (!vanilla.MoveNext())

@@ -29,21 +29,34 @@ namespace Multiplayer.Server.Items.LostAndFound;
 /// </summary>
 public static class DeletedCarItems
 {
+    // The cars being deleted, by GUID, with their IDs for the log: on vanilla's slow path a car's
+    // NetId is gone (OnDisable) by the time its gadgets come off, so a gadget's record names its car
+    // by GUID (J2). From its prepare to its deletion.
+    private static readonly Dictionary<string, string> deleting = new();
+    private static readonly Dictionary<TrainCar, string> deletingGuids = new();
+
+    /// <summary>Host: a car is being prepared for deleting; its items come off it now.</summary>
     public static void Collect(TrainCar car)
     {
         if (car == null || NetworkLifecycle.Instance?.IsHost() != true ||
             !NetworkedTrainCar.TryGetNetId(car, out ushort carNetId) || carNetId == 0)
             return;
+        string guid = car.CarGUID;
+        if (!string.IsNullOrEmpty(guid))
+        {
+            deleting[guid] = car.ID;
+            deletingGuids[car] = guid;
+        }
         // Snapped first: an unsnap gives a lantern back to the parent it had, which may be this car.
         foreach (NetworkedItem item in NetworkedItem.GetAll().Where(item => item != null && item.NetId != 0 &&
                      SnappedOn(item, car)).Distinct().ToList())
-            TakeOff(item, car);
+            TryTakeOff(item, car);
         foreach (ushort netId in LiveItems.GetAll()
                      .Where(record => record.Placement == ItemPlacementKind.TrainInterior && record.WorldParentNetId == carNetId ||
                                       record.Placement == ItemPlacementKind.Attached && record.AttachedCarNetId == carNetId)
                      .Select(record => record.NetId).ToList())
             if (NetworkedItem.TryGet(netId, out NetworkedItem item) && item != null)
-                TakeOff(item, car);
+                TryTakeOff(item, car);
     }
 
     /// <summary>
@@ -51,16 +64,55 @@ public static class DeletedCarItems
     /// in the world at the gadget's pose. On a car being deleted, an owned one goes on to its owner's
     /// Lost and Found; any other stays where it came off.
     /// </summary>
-    internal static void InstalledOffDeletedCar(NetworkedItem item, ushort carNetId)
+    internal static void InstalledOffDeletedCar(NetworkedItem item, string carGuid)
     {
-        if (item == null || carNetId == 0 || !NetworkedTrainCar.TryGet(carNetId, out NetworkedTrainCar car) ||
-            car == null || !car.IsDestroying ||
+        if (item == null || string.IsNullOrEmpty(carGuid) || !deleting.TryGetValue(carGuid, out string carId) ||
             !LiveItems.TryGet(item.NetId, out LiveItems.LiveItem record) || record.Owner == Guid.Empty)
             return;
-        string carId = car.TrainCar != null ? car.TrainCar.ID : "netId " + carNetId;
-        if (!LostAndFoundServer.Collect(item, LostItemReason.ContainerCleared, $"car {carId} deleted, it was installed on it"))
+        bool collected;
+        try
+        {
+            collected = LostAndFoundServer.Collect(item, LostItemReason.ContainerCleared, $"car {carId} deleted, it was installed on it");
+        }
+        catch (Exception exception)
+        {
+            // In vanilla's deletion, as TryTakeOff.
+            Multiplayer.LogException($"Deleted car {carId}: its gadget {item.name} (netId {item.NetId}) failed to go to Lost and Found", exception);
+            return;
+        }
+        if (!collected)
             Multiplayer.LogWarning($"Deleted car {carId}: Lost and Found refused its gadget {item.name} (netId {item.NetId}); " +
                                    "it stays where it came off");
+    }
+
+    /// <summary>Vanilla has deleted the car (or pooled it): its gadgets have come off.</summary>
+    internal static void Deleted(TrainCar car)
+    {
+        if (car != null && deletingGuids.TryGetValue(car, out string guid))
+        {
+            deletingGuids.Remove(car);
+            deleting.Remove(guid);
+        }
+    }
+
+    internal static void Clear()
+    {
+        deleting.Clear();
+        deletingGuids.Clear();
+    }
+
+    // Inside vanilla's deletion, where an exception would stop the rest of it (J5): each item's is
+    // logged, and the next goes on.
+    private static void TryTakeOff(NetworkedItem item, TrainCar car)
+    {
+        try
+        {
+            TakeOff(item, car);
+        }
+        catch (Exception exception)
+        {
+            Multiplayer.LogException($"Deleted car {car.ID}: taking {item.name} (netId {item.NetId}) off it failed", exception);
+        }
     }
 
     // An item snapped to a point on this car: a lantern on its coupler, an item on a hanger it has.
@@ -81,22 +133,27 @@ public static class DeletedCarItems
         item.transform.SetParent(WorldMover.OriginShiftParent, true);
         // Owned, or a booklet kept for the player it was issued to (OI-LF-17).
         bool owned = LiveItems.TryGet(item.NetId, out LiveItems.LiveItem record) && LiveItems.KeeperOf(record) != Guid.Empty;
+        bool attached = record?.Placement == ItemPlacementKind.Attached;
         if (owned && LostAndFoundServer.Collect(item, LostItemReason.ContainerCleared, $"car {car.ID} deleted"))
             return;
         if (owned)
             Multiplayer.LogWarning($"Deleted car {car.ID}: Lost and Found refused {item.name} (netId {item.NetId}); " +
                                    "it goes into the world where it is");
-        IntoWorld(item, record, car);
+        // A refused collection off a coupler put it in the world already (LostAndFoundServer.RollBack).
+        if (!(owned && attached && record.Placement == ItemPlacementKind.World))
+            IntoWorld(item, record, $"car {car.ID} deleted, left beside the track");
     }
 
-    // Loose in the world at its pose: the server commits it and tells everyone, and physics takes it
-    // down beside the track. Nothing destroys it (LF2).
-    private static void IntoWorld(NetworkedItem item, LiveItems.LiveItem record, TrainCar car)
+    /// <summary>
+    /// Loose in the world at its pose: the server commits it and tells everyone, and physics takes it
+    /// down (beside the track, off a deleted car). Nothing destroys it (LF2).
+    /// </summary>
+    internal static void IntoWorld(NetworkedItem item, LiveItems.LiveItem record, string detail)
     {
         ItemUpdate drop = item.CreateUpdateData(ItemUpdate.ItemUpdateType.FullSync);
         if (drop == null || record == null)
         {
-            Multiplayer.LogWarning($"Deleted car {car.ID}: {item.name} (netId {item.NetId}) has no record; it is left to vanilla");
+            Multiplayer.LogWarning($"{item.name} (netId {item.NetId}) has no record ({detail}); it is left to vanilla");
             return;
         }
         drop.ItemState = ItemState.Dropped;
@@ -112,9 +169,9 @@ public static class DeletedCarItems
         drop.MagazineSlot = -1;
         drop.AuthorityRevision = record.Revision;
         if (!LiveItems.TryApplyServerTransition(item, drop, ItemTransitionReason.HostLocalState, true, out string rejection,
-                ItemChangeLog.Move(ItemMoveReason.Detached, detail: $"car {car.ID} deleted, left beside the track")))
+                ItemChangeLog.Move(ItemMoveReason.Detached, detail: detail)))
         {
-            Multiplayer.LogWarning($"Deleted car {car.ID}: {item.name} (netId {item.NetId}) couldn't go into the world: {rejection}");
+            Multiplayer.LogWarning($"{item.name} (netId {item.NetId}) couldn't go into the world ({detail}): {rejection}");
             return;
         }
         item.ApplyServerCanonicalSnapshot(drop);

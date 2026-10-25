@@ -55,8 +55,9 @@ Where a player is comes from their game's position packets (`ServerPlayer.ApplyP
 - **A just-joined owner's position counts a grace period after the first one their loaded game
   sent** (`FirstPositionAfterLoadAt`), not after the load itself: before it a position can be from
   before their game put them at their saved spot, and after a restart on a dedicated host that took
-  longer than the grace, so a rejoined owner's ground item was collected (OI-JOIN-10). The host's
-  own player counts at once.
+  longer than the grace, so a rejoined owner's ground item was collected (OI-JOIN-10). A game sends
+  a position only when its player moves, so one standing still since its load counts from a minute
+  after it (`ServerPlayer.PositionSettlesFrom`, K5). The host's own player counts at once.
 
 Scenarios: `lost-and-found`, `offline-lost-and-found`, `owner-offline` (`WHERE=cab`, `WHERE=shelf`).
 
@@ -72,6 +73,17 @@ or not (OI-JOIN-04).
 Scenarios: `leave-holding` (own, unowned and borrowed, at a quit and a crash), `leave-full-inventory`,
 `borrowed-disconnect`, `cold-homes`.
 
+## A refused collection
+
+A collection that fails after the record has moved (Lost and Found refuses the entry, or its
+projection into inert storage throws) is rolled back whole (`LiveItems.RollbackLostAndFoundCollection`,
+J4): the record is restored from a copy taken before the move, the ledger goes back to its home, and
+every game is sent it. One that was attached to a car or loaded in a tool can't go back where it
+was, its collection having taken it off, so it goes into the world where it is, as a deleted car's
+unowned item does (`DeletedCarItems.IntoWorld`).
+
+Scenario: `lost-and-found-data`.
+
 ## Kept as data
 
 An entry is data on the server (OI-COLD-08, D12): no object until it is retrieved or recalled. Every
@@ -80,7 +92,10 @@ way in collects an object as before (`Collect`, or the load's `RestoreEntry`), a
 (`PlayerItems.ToLostData`): its state is a row Lost and Found keeps, by its id, and its record and
 NetId stay, as a cold inventory row's do. It waits while its saved state is still loading
 (`ItemSaveLoad.IsRestorePending`) and while its ammo can't go with it. Its ammo goes to data with it
-(`PlayerItems.AmmoRows`).
+(`PlayerItems.AmmoRows`). It stays an object when it couldn't be made again from its row
+(`PlayerItems.CanBeLostData`, J3): its prefab is one this game doesn't list (a mod item without
+its mod), or a job paper that can't be a row. So does one still in an active inventory slot (a VR
+belt's, J8).
 
 - **Out:** a retrieval, a recall (`CarryRecall`, the repair's `IntoSlot`) and anything else that names
   it (`PlayerItems.WithObject`) has the object made again from its row under its NetId, inert in Lost
@@ -94,15 +109,19 @@ NetId stay, as a cold inventory row's do. It waits while its saved state is stil
 - **Its owner's silhouette** of a lost essential, their recall, is sent from its record
   (`SendDataEssentials`): an owner who joins after the collection has no copy for the tombstone.
 - **Clients** keep what they had: a game that had the item when it was collected keeps an inert copy
-  (`EnforceLostAndFoundProjection`), as before.
+  (`EnforceLostAndFoundProjection`), as before. When an entry kept as data goes (`PlayerItems.LostDataGone`) every
+  game is sent its destroy before its NetId is freed, so a reused NetId never names that copy (J7).
+- **Its id** is the entry's: the ledger gives a second item asking for it a new one
+  (`ServerLedger.ClaimPersistentId`, J6), as it does for an id a live object holds.
 
 ## A deleted car
 
 A car about to be deleted has its items taken off it first (`DeletedCarItems.Collect`), before
-vanilla's delete runs and while the records still name the car. Every way vanilla deletes a car is
-patched (`CarDeleteLostAndFoundPatch`, at a low priority, after the players on it are stepped off):
-`DeleteCar`, `DeleteTrainCars` (at once or over a few frames) and `DeleteTrainCarsFromTrack`, which
-starts vanilla's coroutine itself and so skipped the other two (LF5, OI-LF-11).
+vanilla's delete runs and while the records still name the car. Every way vanilla deletes a car
+prepares it first (`CarSpawner.PrepareTrainCarForDeleting`): `DeleteCar`, `DeleteTrainCars` (at once
+or over a few frames) and `DeleteTrainCarsFromTrack`, which starts vanilla's coroutine itself (LF5,
+OI-LF-11). The take-off is a prefix there (`CarDeleteLostAndFoundPatch`, at a low priority, after
+the players on the car are stepped off).
 
 What is taken off:
 
@@ -128,9 +147,17 @@ an unowned one stays where it came off.
 **A fixture** (OI-FIX) would go back to its spot rather than lie by the track; the fixture list is
 empty until the shops work (paused, D4), so today every unowned item lies by the track.
 
+One car at a time, as each is prepared (J1): taken off once for a whole list deleted over a few
+frames, an item put into the world could fall back into a car not deleted yet and go with it. An
+installed gadget's removal comes as vanilla destroys the car's interior, after the car's NetId is
+gone on the slow path, so the cars being deleted are kept by their GUID until they are
+(`DeletedCarItems.Deleted`), and the gadget's record names its car by GUID
+(`AttachedCarPersistentId`, J2). A take-off that throws is logged and the rest go on (J5).
+
 Scenarios: `car-delete-owner` (an owned mug in a cab, its owner online, gone or never here),
 `car-delete-attached` (an owned lantern on a coupler and an owned gadget to Lost and Found, an
-unowned lantern into the world), `item-bug-car-delete-unowned` (`HOW=car`, `HOW=track`: an unowned
+unowned lantern and an unowned mug in the cab into the world; `HOW=slow`: the several-car delete),
+`lost-and-found-data`, `item-bug-car-delete-unowned` (`HOW=car`, `HOW=track`: an unowned
 mug stays in the world).
 
 ## Attached and snapped items

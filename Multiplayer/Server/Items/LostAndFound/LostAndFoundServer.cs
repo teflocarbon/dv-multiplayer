@@ -439,12 +439,10 @@ public static class LostAndFoundServer
                 new() { ["rejectionReason"] = "item-still-in-local-inventory" }, DebugSeverity.Warning);
             return false;
         }
-        uint previousRevision = item.AuthorityRevision;
         if (!LiveItems.TryGet(item.NetId, out LiveItems.LiveItem previousAuthority))
             return false;
         ItemPlacementKind previousPlacement = previousAuthority.Placement;
-        Guid previousHolder = previousAuthority.Holder;
-        ItemTransitionReason previousReason = previousAuthority.LastReason;
+        LiveItems.LiveItem previous = previousAuthority.Copy();
         // One entry per id (OI-ID-06), asked before the ledger moves (LF9): a refusal here leaves
         // both items' homes as they were. Only an id the ledger's check missed gets this far.
         if (registry.TryGetByPersistentId(previousAuthority.PersistentItemId, out LostItemRecord holding) &&
@@ -489,8 +487,7 @@ public static class LostAndFoundServer
             // A duplicate id here is one the ledger's check missed (OI-ID-06): logged like a refused restore.
             Multiplayer.LogError($"Lost and Found: collecting {item.name} (netId {item.NetId}, " +
                                  $"{authority.PersistentItemId:D}) was refused: {added}");
-            LiveItems.RollbackLostAndFoundCollection(item, previousRevision,
-                previousPlacement, previousHolder, previousReason);
+            RollBack(item, previous);
             return false;
         }
         ChangeCause<ItemRemovalReason> cause = CollectionCause(reason, keeper,
@@ -512,8 +509,7 @@ public static class LostAndFoundServer
         {
             registry.RemoveForRetrieval(item.NetId, keeper.ToString("D"),
                 authority.Revision, out _);
-            LiveItems.RollbackLostAndFoundCollection(item, previousRevision,
-                previousPlacement, previousHolder, previousReason);
+            RollBack(item, previous);
             Multiplayer.LogException("Lost and Found collection failed", exception);
             return false;
         }
@@ -541,6 +537,16 @@ public static class LostAndFoundServer
     }
 
     // "CollectedToLostAndFound (OwnerDistance, owner Bentgear29; was World)".
+    // A refused collection rolls back (J4). Off a coupler, a snap point or a tool's magazine, which the
+    // collection took it off, it goes into the world where it is, and everyone is told.
+    private static void RollBack(NetworkedItem item, LiveItems.LiveItem previous)
+    {
+        LiveItems.RollbackLostAndFoundCollection(item, previous);
+        if (previous.Placement is ItemPlacementKind.Attached or ItemPlacementKind.Magazine &&
+            LiveItems.TryGet(item.NetId, out LiveItems.LiveItem record))
+            DeletedCarItems.IntoWorld(item, record, "Lost and Found refused it, off where it was");
+    }
+
     private static ChangeCause<ItemRemovalReason> CollectionCause(LostItemReason reason, Guid owner,
         string detail) =>
         ItemChangeLog.Removal(ItemRemovalReason.CollectedToLostAndFound, detail: ItemChangeCauses.Detail(
@@ -653,10 +659,11 @@ public static class LostAndFoundServer
 
     // A grace period from their first position after their load, not from the load itself: after a
     // restart a client's game can take longer than the grace to send where it put them (OI-JOIN-10).
+    // One standing still sends none: then from a minute after the load (K5).
     private static bool HasSettledPosition(ServerPlayer player, float now) =>
         NetworkLifecycle.Instance.IsHost(player) || player.TrackingData.Position.HasValue &&
-        player.LoadingState == PlayerLoadingState.Complete && player.FirstPositionAfterLoadAt >= 0f &&
-        now - player.FirstPositionAfterLoadAt >= Multiplayer.Settings.LostItemCollectionGraceSeconds;
+        player.LoadingState == PlayerLoadingState.Complete && player.PositionSettlesFrom >= 0f &&
+        now - player.PositionSettlesFrom >= Multiplayer.Settings.LostItemCollectionGraceSeconds;
 
     private static LostItemCandidate BuildCandidate(NetworkedItem item,
         LiveItems.LiveItem authority, float now)
