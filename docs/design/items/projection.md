@@ -28,7 +28,7 @@ made and taken away by the server. For each player (`ServerPlayer`) the server k
   marks it as it goes (`NetworkServer.SendItemUpdatesTo`), so the Destroy that ends it reaches every game that has it.
   So known can be more than nearby: a far player a broadcast Create reached knows the item, and
   interest never retires it ([Leaving interest](#leaving-interest) retires only an item that leaves the
-  nearby set). Their copy stays, with no updates while it's far, until its Destroy or until it comes
+  nearby set). Their copy stays, with no interest updates while it's far (only what is sent to everyone), until its Destroy or until it comes
   near (a FullSync then, as known since before its last change);
 - **acknowledged** (`AcknowledgedWorldItems`): the items its game said it has
   ([Acknowledgements](#acknowledgements));
