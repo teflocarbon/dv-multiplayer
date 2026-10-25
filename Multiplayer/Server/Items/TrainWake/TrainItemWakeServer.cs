@@ -307,8 +307,11 @@ internal sealed class TrainItemWakeServer
             .Where(node => node.ItemNetId != 0).ToArray();
     }
 
+    // pendingSince: a retry's first attempt. A fresh trigger starts its own clock, even for an item
+    // already waiting: a derailment fires once, and inheriting an earlier wake's clock let it expire
+    // untried (C1).
     private void Wake(IEnumerable<ushort> itemNetIds, byte preferredSimulatorPlayerId,
-        Vector3 initialLocalVelocity, TrainItemWakeReason reason)
+        Vector3 initialLocalVelocity, TrainItemWakeReason reason, float? pendingSince = null)
     {
         byte selectedSimulator = preferredSimulatorPlayerId;
         foreach (ushort itemNetId in (itemNetIds ?? Array.Empty<ushort>()).Distinct()
@@ -334,8 +337,7 @@ internal sealed class TrainItemWakeServer
                 rejection == "item-representation-unavailable")
             {
                 // A retry keeps the first attempt's start, or a wake nobody can simulate never expires.
-                float createdAt = pendingByItem.TryGetValue(itemNetId, out PendingWake earlier)
-                    ? earlier.CreatedAt : Time.realtimeSinceStartup;
+                float createdAt = pendingSince ?? Time.realtimeSinceStartup;
                 pendingByItem[itemNetId] = new PendingWake
                 {
                     ItemNetId = itemNetId,
@@ -351,6 +353,11 @@ internal sealed class TrainItemWakeServer
                         ["reason"] = reason.ToString(),
                         ["rejection"] = rejection
                     }, DebugSeverity.Warning);
+            }
+            else
+            {
+                // Refused for good (it is simulated already, or no longer in a car): a retry stops here.
+                pendingByItem.Remove(itemNetId);
             }
         }
     }
@@ -378,7 +385,7 @@ internal sealed class TrainItemWakeServer
                 continue;
             pending.NextAttemptAt = now + 0.5f;
             Wake(new[] { pending.ItemNetId }, pending.PreferredSimulatorPlayerId,
-                pending.InitialLocalVelocity, pending.Reason);
+                pending.InitialLocalVelocity, pending.Reason, pending.CreatedAt);
         }
     }
 

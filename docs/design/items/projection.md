@@ -11,7 +11,7 @@
 | Side | Code |
 | --- | --- |
 | Core | `Multiplayer.Core/Items/Projection/`: `ProjectionAcks`, `WorldItemIndexing`, `ItemPossessionInterestPolicy`, `RemoteItemProjectionPlanner`, `ItemWireStateProjection`; `KnownItemDeliveryEvaluator` (`Multiplayer.Core/Replication/InterestMembership.cs`) |
-| Server | `Multiplayer/Server/Items/Projection/`: `ServerItemManager` (`.WorldIndex`, `.Interest`, `.Convergence`), `WorldItemCellCoord`, `ItemHandles`; the ack and debug handlers in `NetworkServer.Items.cs`; `ServerPlayer.KnownItems`, `NearbyItems`, `AcknowledgedWorldItems`, `ProjectionRetryAt` |
+| Server | `Multiplayer/Server/Items/Projection/`: `ServerItemManager` (`.WorldIndex`, `.Interest`, `.Convergence`), `WorldItemCellCoord`, `ItemHandles`; the ack and debug handlers in `NetworkServer.Items.cs`; `ServerPlayer.KnownItems`, `NearbyItems`, `AcknowledgedWorldItems`, `ProjectionRetries` |
 | Client | `Multiplayer/Client/Items/Projection/`: `ClientItemManager` (`.Projection`, `.Compatibility`; `.Rows`, `.StandIns`, `.TakeOut` are [inventory.md](inventory.md)'s) |
 | Shared | `InstalledItems` (`Multiplayer/Shared/Items/LiveState/InstalledItems.cs`) |
 
@@ -25,7 +25,8 @@ made and taken away by the server. For each player (`ServerPlayer`) the server k
   anything. An item is known from the moment its Create goes, before any answer;
 - **acknowledged** (`AcknowledgedWorldItems`): the items its game said it has
   ([Acknowledgements](#acknowledgements));
-- **a retry hold** (`ProjectionRetryAt`): when a Create it failed may go again.
+- **a retry hold** (`ProjectionRetries`): when a Create it failed may go again, and how many times in a
+  row it has failed.
 
 ## Cells
 
@@ -83,7 +84,8 @@ OI-SYNC-06 is rewritten to this rule and ticks in R8).
   the lease ends, wherever it flies;
 - a train wake that finds nobody with its item pins it, for 10 s, in the interest of each player in
   range who lacks it, so their game gets it and can take the wake (`ServerItemManager.PinInterest`,
-  OI-PHY-12; [train-wake.md](train-wake.md)). A pin brings the player's next rebuild forward.
+  OI-PHY-12; [train-wake.md](train-wake.md)). A pin brings the player's next rebuild forward. A
+  player's pins go when they leave, so whoever takes their number next starts with none.
 
 **Lost and Found.** An item in Lost and Found is never nearby. It is sent once, as a collection
 projection (a tombstone), to each remote player who doesn't know it; an essential's owner who has no
@@ -161,10 +163,10 @@ names the item, the revision the client applied and its kind (`ProjectionAck`, C
 
 `NetworkServer.OnServerboundWorldItemProjectionAckPacket` carries it out:
 
-- **Acknowledged:** the item joins the player's acknowledged set.
+- **Acknowledged:** the item joins the player's acknowledged set, and its retry hold goes.
 - **Rejected:** logged (`world-item.projection-ack-rejected`); nothing changes.
 - **Unacknowledged:** the item leaves the acknowledged set; what the server knows it sent stays.
-- **Forgotten:** it leaves the acknowledged and known sets, and a retry hold is set.
+- **Forgotten:** it leaves the acknowledged and known sets, and a retry hold is set ([Retries](#retries)).
 
 An older revision than the record's still counts: other players' updates can move the item on while
 the ack is in flight, and those follow it on the same reliable ordered channel. Requiring an exact
@@ -187,9 +189,15 @@ destroy, a deposit, a stash to data or a cold inventory, Lost and Found.
 
 ### Retries
 
-A `Forgotten` Create is sent again once it is relevant and its hold is over: 5 s after the failure
-(`NetworkServer.ProjectionRetryDelaySeconds`), in case it keeps failing. The hold is cleared when the
-Create goes. Until then the player is sent no updates for an object it doesn't have.
+A `Forgotten` Create is sent again once it is relevant and its hold is over. A failure can pass (a
+scene a frame late) or never pass (a modded item's prefab the client lacks, an authored key its scenes
+don't have), so each failure in a row doubles the hold: 5, 10, 20 and 40 s, and after those four
+retries no more while the item stays in the player's interest (Core `ProjectionRetry`,
+`ProjectionRetry.DelayAfter`). The count goes when the player acknowledges the item, or at the next
+interest rebuild after the item left their interest, so it starts afresh when it comes back. Until
+then the player is sent no updates for an object it doesn't have. Before the R7 fixes the hold was
+always 5 s and cleared when the Create went, so a Create that could never succeed went every 5 s for
+as long as the player stayed near it, and the client logged a missing prefab each time.
 
 ## Convergence
 
@@ -222,7 +230,8 @@ fork, and an authored slot's old copy. A client asks as it retires a copy and at
 
 The server's item debug state (`IItemServer.AuthorityDebugState`) lists, under `recipients`, what each
 player has of the item (`ProjectionDebugState`, OI-SYNC-17): `playerId`, `self` (the host's own player),
-`known` and `knownTick`, `acknowledged`, `retryInSeconds`, `pinnedForSeconds` and `catalogueRefuses`.
+`known` and `knownTick`, `acknowledged`, `retryInSeconds` (-1: no more Creates while it stays in
+interest), `projectionFailures`, `pinnedForSeconds` and `catalogueRefuses`.
 
 ## Player-hosted and dedicated servers
 
@@ -246,7 +255,7 @@ Projection runs the same on both, but for who the host's world is:
 
 ## Tests
 
-- `Multiplayer.Core.Tests/Items/Projection/`: `ProjectionAcksTests` (each kind and outcome),
+- `Multiplayer.Core.Tests/Items/Projection/`: `ProjectionAcksTests` (each kind and outcome; the retry holds),
   `WorldItemIndexingTests` (a shelf item by its cell), `ItemPossessionInterestPolicyTests`,
   `RemoteItemProjectionPlannerTests`, `ItemWireStateProjectionTests`.
 - `Multiplayer.Core.Tests/Replication/InterestMembershipTests.cs`: dirty against full sync, known-item
@@ -258,9 +267,10 @@ Projection runs the same on both, but for who the host's world is:
 In [testing.md](../../testing.md) and `DevTools/Scenarios/gate.sh`. They run at the end pass (OI-REF-01),
 on both host kinds unless marked:
 
-- `projection-acks`: `failed` (a failed Create is re-sent and acknowledged), `MODE=late-retire` (F45),
-  `MODE=cause` (the recipients state; `HostCorrection` and `LeftInterest`), `MODE=collision`
-  (one key refused, [world-items.md](world-items.md));
+- `projection-acks`: `failed` (a failed Create is re-sent and acknowledged), `MODE=failing` (a Create
+  that always fails is retried four times, then not until the item comes back into interest),
+  `MODE=late-retire` (F45), `MODE=cause` (the recipients state; `HostCorrection` and `LeftInterest`),
+  `MODE=collision` (a second object of one scene item: that key refused alone, [world-items.md](world-items.md));
 - `item-bug-shelf-unseen` (SH2, player host only), `item-bug-client-shelf`, `shelf-item` (a late joiner
   sees a shelf item);
 - `installed-kept` (OI-GAD-06);

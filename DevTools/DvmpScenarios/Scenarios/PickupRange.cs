@@ -16,9 +16,12 @@ namespace Dvmp.Scenarios
     /// its game asks to take the mug, as a modified or confused game could. The server must refuse
     /// (pickup-out-of-reach) and the mug stay where it lies. Before R7 any player who had been sent
     /// the item could take it from anywhere. Then the client walks to it and picks it up through its
-    /// grabber, which must work: the bound doesn't refuse a real pickup.
+    /// grabber, which must work: the bound doesn't refuse a real pickup. <c>MODE=attached</c>: the item
+    /// is an end-of-train lantern the client hung on a flatbed's coupler (Attached). Before the R7 fixes
+    /// the bound skipped every place but the world, a car's inside and a shelf, so the far take was
+    /// taken (B3).
     /// </summary>
-    [Scenario("pickup-range", "A pickup from 40 m away is refused and the item stays where it lies; one from beside it is taken")]
+    [Scenario("pickup-range", ("A pickup from 40 m away is refused and the item stays where it lies (also hung on a car); one from beside it is taken"))]
     [Budget(300)]
     public sealed class PickupRange : Scenario<PickupRange.Options>
     {
@@ -27,14 +30,17 @@ namespace Dvmp.Scenarios
             public string Prefab = "Mug";
             /// <summary>How far the client walks from the item before it asks to take it, m.</summary>
             public float Distance = 40f;
+            /// <summary>"lying" in the world, or "attached": an end-of-train lantern on a car's coupler.</summary>
+            public string Mode = "lying";
         }
 
         protected override async Task Run(Pair pair, Options o)
         {
-            ushort item = await pair.Host.Run<ushort>(s => Items.Spawn(s, o.Prefab, "client"));
+            ushort item = o.Mode == "attached" ? await HangLantern(pair) : await pair.Host.Run<ushort>(s => Items.Spawn(s, o.Prefab, "client"));
             await Task.Delay(3000);   // it reaches the client and settles
             ItemRecord lying = await pair.Host.Run(() => Items.Record(item));
-            Require.Equal("World", lying.Placement, "the mug lies in the world");
+            string place = o.Mode == "attached" ? "Attached" : "World";
+            Require.Equal(place, lying.Placement, "where the item lies");
 
             await pair.Client.Run<Abs>(s => Walk.Away(s, o.Distance, 0), 60);
             await Task.Delay(2000);   // the server hears where the client is now
@@ -42,7 +48,7 @@ namespace Dvmp.Scenarios
             ItemRecord after = await pair.Host.Run(() => Items.Record(item));
             Report.Note($"asked from {o.Distance:0} m: {far}; the record: {after}");
             Expect.That(far.Contains("pickup-out-of-reach"), "the server refused the far pickup as out of reach", far);
-            Expect.Equal("World", after.Placement, "the mug still lies in the world");
+            Expect.Equal(place, after.Placement, "where the item lies after the far pickup");
             Expect.Equal(lying.Revision, after.Revision, "the record's revision");
 
             await pair.Client.Run(() => Items.Pickup(item), 60);
@@ -51,6 +57,17 @@ namespace Dvmp.Scenarios
             Report.Note("from beside it: " + taken);
             Expect.Equal(taken.ClientId, taken.PlacementPlayer, "the player holding it");
             await pair.Client.Run(() => Items.Drop(), 30);
+        }
+
+        // An end-of-train lantern the client hangs on a flatbed's coupler.
+        private static async Task<ushort> HangLantern(Pair pair)
+        {
+            string car = await pair.Host.Run<string>(s => Cars.SpawnCarNear(s, "FlatbedEmpty", "client"));
+            pair.Cleanup(() => pair.Host.Run<string[]>(s => Cars.Delete(s, new[] { car })));
+            ushort lantern = await pair.Host.Run<ushort>(s => SaveHomes.InGame.Grant(s, "EOTLantern"));
+            Report.Note("the lantern: " + await pair.Client.Run<string>(s => SaveHomes.InGame.AttachToCoupler(s, lantern, car), 90));
+            await Until.Value(() => pair.Host.Run(() => Items.Record(lantern)), r => r.Placement == "Attached", 20, "the host has the lantern on the coupler");
+            return lantern;
         }
 
         // ---- runs inside the games

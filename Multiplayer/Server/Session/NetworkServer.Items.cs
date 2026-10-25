@@ -94,8 +94,10 @@ public partial class NetworkServer : IItemServer
             ["known"] = item != null && player.KnownItems.ContainsKey(item),
             ["knownTick"] = item != null && player.KnownItems.TryGetValue(item, out uint tick) ? tick : 0u,
             ["acknowledged"] = player.AcknowledgedWorldItems.Contains(itemNetId),
-            ["retryInSeconds"] = player.ProjectionRetryAt.TryGetValue(itemNetId, out float retryAt)
-                ? Mathf.Max(0f, retryAt - Time.time) : 0f,
+            // -1: no more Creates until the item leaves the player's interest.
+            ["retryInSeconds"] = !player.ProjectionRetries.TryGetValue(itemNetId, out var retry) ? 0f
+                : float.IsPositiveInfinity(retry.At) ? -1f : Mathf.Max(0f, retry.At - Time.time),
+            ["projectionFailures"] = retry.Failures,
             ["pinnedForSeconds"] = ServerItemManager.Instance?.PinnedFor(player, item) ?? 0f,
             // The host's own player has the server's scenes: it never sends a catalogue.
             ["catalogueRefuses"] = item != null && player.Peer != SelfPeer && !player.TakesAuthored(item)
@@ -194,14 +196,23 @@ public partial class NetworkServer : IItemServer
                 });
             return;
         }
-        if (outcome == ProjectionAckOutcome.Acknowledged) player.AcknowledgedWorldItems.Add(packet.ItemNetId);
+        if (outcome == ProjectionAckOutcome.Acknowledged)
+        {
+            player.AcknowledgedWorldItems.Add(packet.ItemNetId);
+            player.ProjectionRetries.Remove(packet.ItemNetId);
+        }
         else player.AcknowledgedWorldItems.Remove(packet.ItemNetId);
         // A client that couldn't create an item we still consider relevant doesn't have it:
-        // forget that it does, so the Create is sent again (after a pause, in case it keeps failing)
-        // instead of a stream of updates for an object it never made. A retirement's ack is not
-        // that: it can arrive after the item came back into interest (ProjectionAcks).
+        // forget that it does, so the Create is sent again instead of a stream of updates for an
+        // object it never made. Each failure in a row waits longer, and after a few the server
+        // stops until the item leaves the player's interest (ProjectionRetry): a prefab the client
+        // lacks fails every time. A retirement's ack is not that: it can arrive after the item
+        // came back into interest (ProjectionAcks).
         if (outcome == ProjectionAckOutcome.Forgotten && player.KnownItems.Remove(item))
-            player.ProjectionRetryAt[packet.ItemNetId] = Time.time + ProjectionRetryDelaySeconds;
+        {
+            int failures = player.ProjectionRetries.TryGetValue(packet.ItemNetId, out var retry) ? retry.Failures + 1 : 1;
+            player.ProjectionRetries[packet.ItemNetId] = (Time.time + ProjectionRetry.DelayAfter(failures), failures);
+        }
         DebugRuntime.Publish("item-world", packet.Kind switch
             {
                 ProjectionAck.Projected => "world-item.projection-enter-ack",

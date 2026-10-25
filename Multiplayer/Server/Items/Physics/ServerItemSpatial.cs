@@ -804,7 +804,8 @@ internal sealed class ServerItemSpatial
                     (car.transform.position - WorldMover.currentMove - sender.AbsoluteWorldPosition).sqrMagnitude <=
                     MaximumSimulatorDistance * MaximumSimulatorDistance);
         return state.WorldParentKind == ItemWorldParentKind.StaticParent &&
-               WorldItemStaticParentRegistry.TryResolve(state.WorldParentKey, state.AbsolutePosition, out Transform parent) && parent != null &&
+               WorldItemStaticParentRegistry.TryResolve(state.WorldParentKey, state.AbsolutePosition, state.ParentLocalPosition,
+                   out Transform parent) && parent != null &&
                (sender == null ||
                 (parent.position - WorldMover.currentMove - sender.AbsoluteWorldPosition).sqrMagnitude <=
                 MaximumSimulatorDistance * MaximumSimulatorDistance);
@@ -852,8 +853,9 @@ internal sealed class ServerItemSpatial
         string committed = ParentOf(record.WorldParentKind, record.WorldParentNetId, record.WorldParentKey);
         if (!ItemLeaseRules.CommitsParentChange(committed, sampled, now - lease.SampledParentSince))
             return;
+        // Still the same flight: anyone's grab from before the new parent holds (A3).
         if (!LiveItems.TryCommitSpatialPose(item, lease.AuthorityRevision, state, out record, out string rejection,
-                PlayerNumbers.Identity(lease.SimulatorPlayerId)))
+                ItemPlacementRevision.Anyone))
         {
             Reject(state, null, rejection);
             EndLease(item.NetId, $"parent-change-refused:{rejection}");

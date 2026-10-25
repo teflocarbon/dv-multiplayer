@@ -5,9 +5,14 @@ using System.Threading.Tasks;
 using Dvmp.Agent;
 using Dvmp.Lib;
 using HarmonyLib;
+using Multiplayer.Core.Items.ChangeCauses;
+using Multiplayer.Server.Items.ChangeCauses;
 using Multiplayer.Server.Items.LiveState;
+using Multiplayer.Server.Items.Physics;
+using Multiplayer.Server.Items.Projection;
 using Multiplayer.Shared.Items.LiveState;
 using Multiplayer.Shared.Protocol.Data.Items;
+using Newtonsoft.Json.Linq;
 using UnityEngine;
 
 namespace Dvmp.Scenarios
@@ -24,10 +29,12 @@ namespace Dvmp.Scenarios
     ///   (OI-PHY-03, -04, F39);
     /// - samples: nothing interferes. The record doesn't change while it flies (a sample commits
     ///   nothing: OI-PHY-01), and the settlement commits it once, one revision on;
-    /// - save: the host saves mid-flight. An unowned mug that nothing keeps isn't in the save: an
-    ///   open lease doesn't save an item the rules don't (OI-PER-11, F25).
+    /// - save: the client owns the mug, so it is saved through its record (RowOf). Mid-flight the host
+    ///   moves it 20 m itself, a new revision, with its lease kept open past the move (a probe skips
+    ///   the lease's end), and saves. The row has the record's pose, not the stale lease's: a lease
+    ///   saves its pose only while it holds (OI-PER-11, F25).
     /// </summary>
-    [Scenario("lease-ends", "A collection or a refused settlement mid-flight ends the item's lease at once; samples change nothing until the settlement; a mid-flight save keeps only what the rules keep")]
+    [Scenario("lease-ends", "A collection or a refused settlement mid-flight ends the item's lease at once; samples change nothing until the settlement; a mid-flight save takes a lease's pose only while the lease holds")]
     public sealed class LeaseEnds : Scenario<LeaseEnds.Options>
     {
         public sealed class Options
@@ -41,7 +48,7 @@ namespace Dvmp.Scenarios
         protected override async Task Run(Pair pair, Options o)
         {
             ushort item = await pair.Host.Run<ushort>(s => Items.Spawn(s, o.Prefab, "client"));
-            if (o.Mode == "collect")
+            if (o.Mode is "collect" or "save")
                 Report.Note("the client owns it: " + (await pair.Host.Run(() => Ownership.Give(item, "client"))).Owner);
             if (o.Mode == "refused")
             {
@@ -85,8 +92,11 @@ namespace Dvmp.Scenarios
                     break;
                 }
                 case "save":
-                    Expect.That(f.Acted, "the host saved while it flew", f.ActedDetail);
-                    Expect.That(!f.Saved, "the unowned mug isn't in the save", f.ActedDetail);
+                    Report.Note(f.ActedDetail);
+                    Expect.That(f.Acted, "the host moved and saved it while it flew", f.ActedDetail);
+                    Require.That(f.LeaseStale, "its lease was still open past the move (the probe kept it)", f.ActedDetail);
+                    Expect.That(f.Saved, "the owned mug's row is in the save", f.ActedDetail);
+                    Expect.AtMost(f.RowFromRecord, 0.5, "metres from the saved row's position to the record's (the lease's pose is 20 m off)");
                     break;
                 default:
                     throw new ArgumentException("MODE: collect, refused, samples or save, not " + o.Mode);
@@ -98,7 +108,8 @@ namespace Dvmp.Scenarios
 
         public sealed class Flight
         {
-            public bool Leased, Acted, Saved;
+            public bool Leased, Acted, Saved, LeaseStale;
+            public double RowFromRecord = -1;
             public uint LeaseRevision;
             public int ChangedWhileLeased;
             public string Revisions = "", Ended = "", ActedDetail = "";
@@ -109,6 +120,8 @@ namespace Dvmp.Scenarios
         public static class InGame
         {
             private const string HarmonyId = "dvmp.lease-ends.refuse";
+            private const string KeepHarmonyId = "dvmp.lease-ends.keep";
+            private static ushort keepLeaseFor;
             private static ushort refuseFor;
             private static float refusedAt = -1f;
 
@@ -138,6 +151,49 @@ namespace Dvmp.Scenarios
                 return false;
             }
 
+            // Keeps this item's lease open through whatever would end it, so it outlives a move.
+            public static bool KeepLease(ushort itemNetId) => keepLeaseFor == 0 || itemNetId != keepLeaseFor;
+
+            /// <summary>
+            /// Host: moves the flying item 20 m itself (a committed pose, a new revision) with its lease
+            /// kept open past the move, then saves, and compares the owned row with the record.
+            /// </summary>
+            private static void SaveAfterMove(Flight f, ushort id)
+            {
+                var harmony = new Harmony(KeepHarmonyId);
+                harmony.Patch(AccessTools.Method(typeof(ServerItemSpatial), "RevokeHostLease"),
+                    prefix: new HarmonyMethod(typeof(InGame).GetMethod(nameof(KeepLease))));
+                keepLeaseFor = id;
+                try
+                {
+                    NetworkedItem.TryGet(id, out NetworkedItem item);
+                    LiveItems.TryGet(id, out LiveItems.LiveItem record);
+                    uint before = record.Revision;
+                    ServerItemManager.Instance.FallRescue.PutAt(item, record,
+                        Dev.Abs(item.transform.position) + Vector3.right * 20f,
+                        ItemChangeLog.Move(ItemMoveReason.HostCorrection, detail: "lease-ends scenario"));
+                    LiveItems.TryGet(id, out record);
+                    f.LeaseStale = NetworkedItemManager.Instance.HasActiveSpatialState(id);
+                    SaveGameManager.Instance.Save(DV.Common.SaveType.Manual);
+                    JToken saved = SaveGameManager.Instance.data?.GetJObject("Multiplayer")?
+                        [Multiplayer.Server.Items.SaveLoad.ItemsSaveCodec.Key];
+                    JObject root = saved as JObject ?? (saved?.Type == JTokenType.String ? JObject.Parse((string)saved) : null);
+                    string persistent = record.PersistentItemId.ToString("D");
+                    JArray at = root?["states"]?[persistent]?["position"] as JArray;
+                    f.Acted = record.Revision > before;
+                    f.Saved = at != null;
+                    if (at != null)
+                        f.RowFromRecord = Vector3.Distance(new Vector3((float)at[0], (float)at[1], (float)at[2]), record.Position);
+                    f.ActedDetail = $"moved r{before} to r{record.Revision}, lease {(f.LeaseStale ? "still open" : "ended")}; " +
+                                    $"the mug ({persistent}) {(at != null ? $"saved at {at.ToString(Newtonsoft.Json.Formatting.None)}" : "has no saved position")}, its record at {record.Position}";
+                }
+                finally
+                {
+                    keepLeaseFor = 0;
+                    harmony.UnpatchAll(KeepHarmonyId);
+                }
+            }
+
             /// <summary>
             /// Client: picks the item up and throws it straight up, hard, so it flies for a second
             /// or two under the client's lease.
@@ -160,7 +216,7 @@ namespace Dvmp.Scenarios
             /// <summary>
             /// Host: waits for the item's lease and watches the record's revision and the lease until
             /// the lease ends or <paramref name="seconds"/> pass. The other two act on it first,
-            /// a third of a second into the flight: a Lost and Found collection, or a save.
+            /// a third of a second into the flight: a Lost and Found collection, or a move and a save.
             /// </summary>
             [Step]
             public static IEnumerator Watch(Step<Flight> step, ushort id, float seconds) => Watch(step, id, seconds, null);
@@ -208,15 +264,7 @@ namespace Dvmp.Scenarios
                                 f.ActedDetail = f.Acted ? "collected" : "the collection was refused";
                             }
                             else
-                            {
-                                SaveGameManager.Instance.Save(DV.Common.SaveType.Manual);
-                                string saved = SaveGameManager.Instance.data?.GetJObject("Multiplayer")?
-                                    [Multiplayer.Server.Items.SaveLoad.ItemsSaveCodec.Key]?.ToString() ?? "";
-                                string persistent = record.PersistentItemId.ToString("D");
-                                f.Acted = saved.Length > 0;
-                                f.Saved = record.PersistentItemId != Guid.Empty && saved.Contains(persistent);
-                                f.ActedDetail = $"saved {saved.Length} chars of items mid-flight, the mug ({persistent}) {(f.Saved ? "in them" : "not in them")}";
-                            }
+                                SaveAfterMove(f, id);
                         }
                     }
                     string ended = spatial.LastLeaseEnd(id);

@@ -12,6 +12,14 @@ namespace Multiplayer.Core.Items.Physics;
 /// </summary>
 public static class ItemPlacementRevision
 {
+    /// <summary>
+    /// The settler of a flight's own change of parent (into a car, onto a shelf: OI-PHY-05). The item
+    /// is still the same flight, so a request anyone made from before it still describes where the
+    /// item is. Without it, a player catching a thrown mug just as it crossed into a flatcar was
+    /// refused, and the mug snapped back into the thrower's flight.
+    /// </summary>
+    public static readonly Guid Anyone = new("ffffffff-ffff-ffff-ffff-ffffffffffff");
+
     /// <summary>Whether placement is the same at <paramref name="current"/> as at <paramref name="revision"/>.</summary>
     public static bool UnchangedSince(uint revision, uint current, uint runBase, uint runTop) =>
         revision == current ||
@@ -21,20 +29,22 @@ public static class ItemPlacementRevision
     /// Whether <paramref name="actor"/>'s change made at <paramref name="revision"/> still describes
     /// where the item is: placement is unchanged since, or the only placement changes since were
     /// the actor's own settlements (<paramref name="settledBy"/>, from <paramref name="settledBase"/>
-    /// to <paramref name="settledTop"/>). The actor simulated those itself, so it knows where the
-    /// item lies: a player grabbing an item again just as it comes to rest must not be refused
-    /// because their own settle commit reached the server first.
+    /// to <paramref name="settledTop"/>), or a flight's change of parent (<see cref="Anyone"/>). The
+    /// actor simulated those itself, so it knows where the item lies: a player grabbing an item again
+    /// just as it comes to rest must not be refused because their own settle commit reached the
+    /// server first.
     /// </summary>
     public static bool UnchangedFor(Guid actor, uint revision, uint current, uint runBase, uint runTop,
         Guid settledBy, uint settledBase, uint settledTop) =>
         UnchangedSince(revision, current, runBase, runTop) ||
-        actor != Guid.Empty && actor == settledBy && settledBase <= revision && revision < current &&
+        (settledBy == Anyone || actor != Guid.Empty && actor == settledBy) &&
+        settledBase <= revision && revision < current &&
         SettlementIsLatestPlacement(current, runBase, runTop, settledTop);
 
     /// <summary>
     /// The settler's window after its settlement commits at <paramref name="revisionBefore"/>: from
     /// the oldest revision whose placement it still matched (the object-state run's base, or the
-    /// earlier settlement's base if the settler's own), to the settlement's revision.
+    /// earlier settlement's base if the settler's own or anyone's), to the settlement's revision.
     /// </summary>
     public static (Guid By, uint Base, uint Top) SettledAfter(Guid settler, uint revisionBefore,
         uint runBase, uint runTop, Guid settledBy, uint settledBase, uint settledTop)
@@ -42,7 +52,7 @@ public static class ItemPlacementRevision
         if (settler == Guid.Empty || revisionBefore == uint.MaxValue)
             return (Guid.Empty, 0, 0);
         uint oldest = runTop == revisionBefore && runTop != 0 ? runBase : revisionBefore;
-        if (settledBy == settler && SettlementIsLatestPlacement(revisionBefore, runBase, runTop, settledTop))
+        if ((settledBy == settler || settledBy == Anyone) && SettlementIsLatestPlacement(revisionBefore, runBase, runTop, settledTop))
             oldest = Math.Min(oldest, settledBase);
         return (settler, oldest, revisionBefore + 1);
     }

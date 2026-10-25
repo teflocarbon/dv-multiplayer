@@ -150,6 +150,12 @@ with the same simulator: a lease packet with reason `parent-change`, whose revis
 applies. Before R7, only the settlement fixed the parent, so a save, a Create or interest had the
 old one for the rest of the flight.
 
+The commit's window is anyone's (`ItemPlacementRevision.Anyone`): the item is still the same flight,
+so a request anyone made from before it still holds (`UnchangedFor`), as a settler's own does after a
+settlement. Before the R7 fixes it was the simulator's alone, and a player catching a thrown mug just
+as it crossed into a flatcar was refused, the mug snapping back into the thrower's flight. The
+settlement that follows keeps the window for its settler.
+
 ## Throws and release
 
 A drop or a throw is an ordinary item update. The server checks it (`NetworkedItemServer.ValidateUpdate`):
@@ -234,8 +240,11 @@ covers every loose item, in the world, on a shelf or in a car (OI-PHY-11, F38).
 
 ## Pickup reach
 
-The server takes a pickup of an item lying in the world, on a shelf or in a car only from within
-10 m of where its own copy is (`PickupReach.Within`, `PickupReach.Metres`; OI-PHY-08, F35). The
+The server takes a pickup of an item lying outside every player and container (in the world, on a
+shelf, in a car, attached or snapped to a car: `PickupReach.LiesOut`) only from within 10 m of where
+its own copy is (`PickupReach.Within`, `PickupReach.Metres`; OI-PHY-08, F35). Before the R7 fixes the
+check took only the places a lease simulates, so an end-of-train lantern on a car 250 m away could
+still be taken. The
 check is in `NetworkedItemServer.ValidateUpdate`: an update into a hand or an inventory from a
 player who doesn't hold the item, after the projection check (`item-not-projected-to-sender`).
 Further away it is refused `pickup-out-of-reach`, with the usual correction. Vanilla grabs at about
@@ -276,13 +285,15 @@ In `DevTools/Scenarios/gate.sh` and [testing.md](../../testing.md); every R7 one
 pass (OI-REF-01), on both host kinds unless it says otherwise.
 
 - `lease-ends` (`MODE=collect`, `refused`, `samples`, `save`): a collection ends a lease in flight,
-  a refused settlement ends it, samples don't change the record, an unowned item in flight isn't saved.
+  a refused settlement ends it, samples don't change the record, and an owned item moved in flight
+  past a lease kept open (a probe) saves the record's pose, not the lease's.
 - `item-bug-recall-lease` (gate `recall-lease`): the recall ends the lease (`revoked:recalled`).
 - `thrower-leaves` (dedicated): the server takes the lease of a thrown item whose thrower quits.
 - `late-join-train-item` (`rejoin`, `MODE=convergence`, `MODE=parent-change`): a settled car item
   stays kinematic on a late joiner; a parent change is committed in flight.
 - `fall-rescue-interior`, `client-fall-rescue`: rescues into a car, and from a client's report.
-- `pickup-range`: a pickup from 40 m is refused, one beside the item taken.
+- `pickup-range` (and `MODE=attached`, a lantern on a coupler): a pickup from 40 m is refused, one
+  beside the item taken.
 - `server-throw` (player host; `ACTOR=client` on both), `host-throw-settles` (player host),
   `item-release` (`regrab`, `regrab-late`, `throw-flatcar`, `object-state`, `interact`),
   `train-items`, `shelf-item`.

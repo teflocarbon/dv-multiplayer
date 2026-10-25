@@ -48,3 +48,25 @@ public static class ProjectionAcks
         _ => ProjectionAckOutcome.Unacknowledged
     };
 }
+
+/// <summary>
+/// When a Create a client failed to make is sent again (docs/design/items/projection.md, "Retries").
+/// A failure can pass (a scene a frame late) or never pass (a modded item's prefab the client lacks,
+/// an authored key its scenes don't have). So each failure in a row doubles the wait, and after
+/// <see cref="MaxRetries"/> retries the server stops sending it until the item leaves the player's
+/// interest. Before, the Create went again every 5 s for as long as the player stayed near it.
+/// </summary>
+public static class ProjectionRetry
+{
+    public const float FirstDelaySeconds = 5f;
+    public const int MaxRetries = 4;
+
+    /// <summary>
+    /// Seconds after the <paramref name="failures"/>-th failure in a row before the Create goes
+    /// again: 5, 10, 20, 40, then never (infinity) while the item stays in the player's interest.
+    /// </summary>
+    public static float DelayAfter(int failures) =>
+        failures <= 0 ? 0f
+        : failures > MaxRetries ? float.PositiveInfinity
+        : FirstDelaySeconds * (1 << (failures - 1));
+}

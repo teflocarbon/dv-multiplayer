@@ -161,8 +161,9 @@ public class ServerPlayer : IDisposable
     public HashSet<ushort> AcknowledgedWorldItems { get; } = new HashSet<ushort>();
     /// <summary>This player's recent item requests and their answers, so a repeat does nothing twice (NetworkServer.Items).</summary>
     public ItemRequestMemory<ClientboundItemResultPacket> ItemRequests { get; } = new();
-    // Items this player failed to project: when the host may send their Create again.
-    internal Dictionary<ushort, float> ProjectionRetryAt { get; } = new Dictionary<ushort, float>();
+    // Items this player failed to project: when the host may send their Create again, and how many
+    // times in a row it has failed (Core ProjectionRetry). Kept while the item stays in interest.
+    internal Dictionary<ushort, (float At, int Failures)> ProjectionRetries { get; } = new();
     // Reliable rolling-stock broadcasts held while this player's train baseline is in flight
     // (sent, not yet acknowledged), delivered in order once they acknowledge it.
     internal bool TrainBaselinePending { get; set; }

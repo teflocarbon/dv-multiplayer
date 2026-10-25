@@ -119,8 +119,15 @@ internal sealed partial class ServerItemManager : IItemManagerServerPart
     public void AppendTrainWakeDebugState(ushort itemNetId, Dictionary<string, object> state) =>
         TrainItemWake.AppendDebugState(itemNetId, state);
 
-    /// <summary>A player left: the host's leases they were simulating move on or settle.</summary>
-    internal void OnSpatialPlayerDisconnected(byte playerId) => HostSpatial.OnPlayerDisconnected(playerId);
+    /// <summary>
+    /// A player left: the host's leases they were simulating move on or settle, and their interest
+    /// pins go (a player who takes their number next starts with none).
+    /// </summary>
+    internal void OnSpatialPlayerDisconnected(byte playerId)
+    {
+        HostSpatial.OnPlayerDisconnected(playerId);
+        pinnedInterest.Remove(playerId);
+    }
 
     /// <summary>A destroyed item: send its Destroy to the players who know it, at the next tick.</summary>
     internal void AddDirtyItemSnapshot(NetworkedItem netItem, ItemUpdate snapshot)

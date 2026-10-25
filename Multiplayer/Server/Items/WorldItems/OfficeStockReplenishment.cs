@@ -144,7 +144,7 @@ internal sealed class OfficeStockReplenishment
 
             observed.Add(record.NetId);
             Vector3 currentPosition = item.transform.position - WorldMover.currentMove;
-            if (AnyPlayerInterested(currentPosition))
+            if (AnyPlayerInterested(currentPosition) || AnyPlayerHas(item))
             {
                 abandonedForkEmptySince.Remove(record.NetId);
                 continue;
@@ -201,7 +201,7 @@ internal sealed class OfficeStockReplenishment
                              Quaternion.Angle(item.transform.rotation, record.BaselineRotation) >
                              RotationResetToleranceDegrees;
             if (!displaced || !OfficeStockRules.MayReset(AnyPlayerInterested(record.BaselinePosition),
-                    AnyPlayerInterested(observedPosition), Moving(item),
+                    AnyPlayerInterested(observedPosition) || AnyPlayerHas(item), Moving(item),
                     item.Item != null && item.Item.IsGrabbed()))
             {
                 disturbedEmptySince.Remove(key);
@@ -233,15 +233,23 @@ internal sealed class OfficeStockReplenishment
             disturbedEmptySince.Remove(key);
     }
 
-    // A player still loading protects every place (OfficeStockRules.Protects, OI-SYNC-10).
+    // A player still loading protects every place (OfficeStockRules.Protects, OI-SYNC-10). A place
+    // is in a player's interest as far as their items are kept, 5x5 cells, not only as far as new
+    // ones enter: before the R7 fixes a player a cell and a half away still had the prop when it
+    // was reset or cleared in front of them.
     private static bool AnyPlayerInterested(Vector3 absolutePosition)
     {
         WorldItemCellCoord slotCell = WorldItemCellCoord.FromAbsolute(absolutePosition);
         return NetworkServer.Instance.ServerPlayers.Any(player => player != null &&
             OfficeStockRules.Protects(player.LoadingState >= PlayerLoadingState.ReadyForItems,
-                WorldItemCellCoord.Neighbourhood(WorldItemCellCoord.FromAbsolute(player.AbsoluteWorldPosition))
-                    .Contains(slotCell)));
+                WorldItemCellCoord.Neighbourhood(WorldItemCellCoord.FromAbsolute(player.AbsoluteWorldPosition),
+                    WorldItemCellCoord.KeepRadius).Contains(slotCell)));
     }
+
+    // A player whose game has the item, wherever it lies (pinned, or simulated by them).
+    private static bool AnyPlayerHas(NetworkedItem item) =>
+        NetworkServer.Instance.ServerPlayers.Any(player => player != null &&
+            (player.KnownItems.ContainsKey(item) || player.NearbyItems.ContainsKey(item)));
 
     // Flying or sliding under a lease: its simulator has it, wherever it is going.
     private bool Moving(NetworkedItem item) => owner.Shell.HasActiveSpatialState(item.NetId);

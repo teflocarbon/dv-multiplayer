@@ -1,5 +1,10 @@
+using System;
 using System.Threading.Tasks;
+using Dvmp.Agent;
 using Dvmp.Lib;
+using Multiplayer.Shared.Items.LiveState;
+using Multiplayer.Shared.Items.WorldItems;
+using UnityEngine;
 
 namespace Dvmp.Scenarios
 {
@@ -10,6 +15,9 @@ namespace Dvmp.Scenarios
     /// late joiner, and is shown the mug on the shelf (SH2, OI-SYNC-04). After a save and a restart the
     /// mug is still on the shelf in both games, the shelf found by its key in each (OI-SYNC-09), and
     /// the client retrieves it from its owned-items list into its Lost and Found (OI-LIST-09).
+    /// <c>MODE=twin</c>: with the mug on the shelf, each game is given a second shelf of the same key and
+    /// must still resolve the mug's shelf (A1): one as a newly loaded tile far away, which a key already
+    /// known must still find, and one whose pivot is nearer the mug, which nearest-pivot would pick.
     /// </summary>
     [Scenario("shelf-item", "A client's mug on a shelf (a shed): on the server's shelf, shown to the client after it joins again, still there after a restart, and retrieved from the owned-items list")]
     [Needs(Need.RestartsGames)]
@@ -20,6 +28,9 @@ namespace Dvmp.Scenarios
         {
             /// <summary>"drop" at the client's feet, or "throw" onto the floor.</summary>
             public string Release = "drop";
+
+            /// <summary>"twin": a same-keyed second shelf, then stop.</summary>
+            public string Mode = "";
         }
 
         protected override async Task Run(Pair pair, Options o)
@@ -28,6 +39,11 @@ namespace Dvmp.Scenarios
             string client = await pair.Host.Run(() => Owned.ClientIdentity());
             ushort mug = await OwnedListShelf.Shelve(pair, new OwnedListShelf.Options { Who = "client", Release = o.Release, Seen = true });
             string id = await pair.Host.Run(() => Owned.IdOf(mug));
+            if (o.Mode == "twin")
+            {
+                await Twin(pair, mug);
+                return;
+            }
 
             // A late joiner: the client leaves the mug on the shelf and joins again.
             await KeepUncollected(pair);
@@ -77,11 +93,84 @@ namespace Dvmp.Scenarios
             Expect.That(seen.Contains("parent OldShed"), $"the client has the mug on the shelf {when}", seen);
         }
 
+        private static async Task Twin(Pair pair, ushort mug)
+        {
+            Abs at = await pair.Host.Run(() => OwnedListShelf.InGame.At(mug));
+            await pair.Client.Run(() => OwnedListShelf.InGame.GoTo(at), 60);
+            await Task.Delay(3000);
+            foreach ((string name, Peer peer) in new[] { ("host", pair.Host), ("client", pair.Client) })
+            {
+                string seen = await peer.Run(() => InGame.TwinShelves(mug));
+                Report.Note($"{name}: {seen}");
+                Expect.That(seen.StartsWith("ok", StringComparison.Ordinal), $"the {name} resolves the mug's shelf beside a same-keyed twin", seen);
+            }
+        }
+
         private static async Task<OwnedRetrieve.Result> Retrieve(Pair pair, string client, string itemId)
         {
             uint handle = await pair.Host.Run(() => OwnedRetrieve.InGame.HandleOf(client, itemId));
             if (handle == 0) return new OwnedRetrieve.Result { Reason = "not in the server's list" };
             return await pair.Client.Run<OwnedRetrieve.Result>(s => OwnedRetrieve.InGame.Retrieve(s, handle), 30);
+        }
+
+        public static class InGame
+        {
+            /// <summary>
+            /// This game: beside the shelf the mug is on, a shelf of the same key, as a tile loaded far away
+            /// (a pose on it must resolve to it, though the key was already known) and then one whose pivot
+            /// is at the mug (the mug's own pose must still resolve to its shelf). Both are removed after.
+            /// </summary>
+            [Step]
+            public static string TwinShelves(ushort netId)
+            {
+                if (!NetworkedItem.TryGet(netId, out NetworkedItem item) || item == null) return "no object";
+                ItemStaticParent shelf = item.GetComponentInParent<ItemStaticParent>();
+                if (shelf == null) return "the mug is not on a shelf here";
+                Transform mine = shelf.transform;
+                string key = WorldItemStableIdentity.CaptureStaticParent(mine);
+                Vector3 local = mine.InverseTransformPoint(item.transform.position);
+                Vector3 abs = Dev.Abs(item.transform.position);
+                if ((item.transform.position - mine.position).sqrMagnitude < 0.05f * 0.05f)
+                    return "the mug is at its shelf's pivot, so a twin there can't be told apart";
+
+                WorldItemStaticParentRegistry.Rebuild();
+                if (!WorldItemStaticParentRegistry.TryResolve(key, abs, local, out Transform first) || first != mine)
+                    return $"the shelf alone resolves to {first?.name ?? "nothing"}";
+
+                GameObject far = Twin(mine, mine.position + Vector3.right * 300f);
+                GameObject near = null;
+                try
+                {
+                    if (WorldItemStableIdentity.CaptureStaticParent(far.transform) != key) return "the twin's key differs";
+                    WorldItemStaticParentRegistry.scenesChanged = true;   // as a tile loading
+                    WorldItemStaticParentRegistry.TryResolve(key, Dev.Abs(far.transform.TransformPoint(local)), local, out Transform onFar);
+                    if (onFar != far.transform) return $"a pose on the far twin resolved to {Where(onFar, mine, far.transform)}";
+
+                    near = Twin(mine, item.transform.position);
+                    WorldItemStaticParentRegistry.scenesChanged = true;
+                    WorldItemStaticParentRegistry.TryResolve(key, abs, local, out Transform onMine);
+                    if (onMine != mine) return $"the mug's pose resolved to {Where(onMine, mine, far.transform)} (a twin's pivot is at the mug)";
+                    return "ok: the far twin and the mug's shelf each resolved";
+                }
+                finally
+                {
+                    UnityEngine.Object.DestroyImmediate(far);
+                    if (near != null) UnityEngine.Object.DestroyImmediate(near);
+                    WorldItemStaticParentRegistry.scenesChanged = true;
+                }
+            }
+
+            private static GameObject Twin(Transform shelf, Vector3 at)
+            {
+                GameObject twin = new(shelf.name);
+                twin.transform.SetParent(shelf.parent, false);
+                twin.transform.SetPositionAndRotation(at, shelf.rotation);
+                twin.AddComponent<ItemStaticParent>();
+                return twin;
+            }
+
+            private static string Where(Transform got, Transform mine, Transform far) =>
+                got == null ? "nothing" : got == mine ? "the mug's shelf" : got == far ? "the far twin" : "the near twin";
         }
     }
 }

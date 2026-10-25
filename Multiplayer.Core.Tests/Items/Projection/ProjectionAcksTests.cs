@@ -18,6 +18,21 @@ public sealed class ProjectionAcksTests
         Assert.That(ProjectionAcks.Apply(ProjectionAck.Projected, exists, revisionReached, knows),
             Is.EqualTo(ProjectionAckOutcome.Rejected));
 
+    [TestCase(1, 5f)]
+    [TestCase(2, 10f)]
+    [TestCase(3, 20f)]
+    [TestCase(4, 40f)]
+    public void EachFailureInARowWaitsTwiceAsLong(int failures, float seconds) =>
+        Assert.That(ProjectionRetry.DelayAfter(failures), Is.EqualTo(seconds));
+
+    [Test]
+    public void AfterTheLastRetryItIsntSentAgainWhileInInterest()
+    {
+        // B2: a prefab the client lacks fails every time; it was sent every 5 s for ever.
+        Assert.That(ProjectionRetry.DelayAfter(ProjectionRetry.MaxRetries + 1), Is.EqualTo(float.PositiveInfinity));
+        Assert.That(ProjectionRetry.DelayAfter(0), Is.EqualTo(0f), "no failure yet");
+    }
+
     [Test]
     public void AFailedCreateIsForgottenSoItIsSentAgain() =>
         Assert.That(ProjectionAcks.Apply(ProjectionAck.Failed, true, true, true),

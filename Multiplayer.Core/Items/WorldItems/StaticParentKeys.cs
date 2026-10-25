@@ -11,8 +11,8 @@ namespace Multiplayer.Core.Items.WorldItems;
 /// position (a moved shelf is still the same shelf), a sibling index or the root DV moves scene
 /// content under: under that root, a tile's place is the order the tiles happened to load in, so one
 /// game's key for a shelf was another's for nothing. Shelves with one key (two copies of a building,
-/// two same-named shelves in one) are told apart by which is nearer the item (<see cref="Nearest"/>).
-/// Keys from before R7 aren't read (G3).
+/// two same-named shelves in one) are told apart by which puts the item's shelf-local position nearer
+/// where it is (<see cref="Nearest"/>). Keys from before R7 aren't read (G3).
 /// </summary>
 public static class StaticParentKeys
 {
