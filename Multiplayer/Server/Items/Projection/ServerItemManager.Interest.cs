@@ -1,6 +1,8 @@
 using System.Collections.Generic;
 using System.Linq;
 using DV.Utils;
+using Multiplayer.Core.Diagnostics;
+using Multiplayer.Core.Items.ChangeCauses;
 using Multiplayer.Core.Items.Projection;
 using Multiplayer.Server.Items.LiveState;
 using Multiplayer.Server.Items.LostAndFound;
@@ -52,6 +54,14 @@ internal sealed partial class ServerItemManager
         lastInterestRefreshTick.Remove(player.PlayerId);
     }
 
+    /// <summary>How long <paramref name="item"/> stays pinned in this player's interest, s (0 when it isn't).</summary>
+    internal float PinnedFor(ServerPlayer player, NetworkedItem item) =>
+        player != null && item != null &&
+        pinnedInterest.TryGetValue(player.PlayerId, out Dictionary<NetworkedItem, float> pins) &&
+        pins.TryGetValue(item, out float until)
+            ? Mathf.Max(0f, until - Time.realtimeSinceStartup)
+            : 0f;
+
     private void AddPinnedInterest(ServerPlayer player, HashSet<NetworkedItem> desiredItems)
     {
         // What they simulate stays theirs until its lease ends, wherever it flies.
@@ -65,7 +75,7 @@ internal sealed partial class ServerItemManager
         {
             if (pin.Key == null || pin.Value < now)
                 pins.Remove(pin.Key);
-            else if (!pin.Key.IsSceneAuthored || player.WorldItemCatalogueAccepted)
+            else if (player.TakesAuthored(pin.Key))
                 desiredItems.Add(pin.Key);
         }
         if (pins.Count == 0)
@@ -124,12 +134,12 @@ internal sealed partial class ServerItemManager
         {
             HashSet<NetworkedItem> items = new(HostNonSpatialItems.Where(item =>
                 IsNonSpatialRelevantTo(item, player, cells) &&
-                (!item.IsSceneAuthored || player.WorldItemCatalogueAccepted)));
+                player.TakesAuthored(item)));
             foreach (WorldItemCellCoord cell in cells)
             {
                 if (HostItemsByCell.TryGetValue(cell, out HashSet<NetworkedItem> indexed))
                     items.UnionWith(indexed.Where(item => item != null &&
-                        (!item.IsSceneAuthored || player.WorldItemCatalogueAccepted)));
+                        player.TakesAuthored(item)));
             }
             return items;
         }
@@ -162,6 +172,16 @@ internal sealed partial class ServerItemManager
                     if (retirement != null)
                     {
                         retirement.TransitionReason = ItemTransitionReason.InterestRetirement;
+                        // Why it left this player's game, on the server and with the Destroy (OI-SYNC-18).
+                        retirement.RemovalCause = new ChangeCause<ItemRemovalReason>(ItemRemovalReason.LeftInterest,
+                            tick: NetworkLifecycle.Instance.Tick, detail: WhyNotRelevant(leaving, centre));
+                        DebugRuntime.Publish("item-world", "world-item.interest-retired", DebugRuntimeSide.Server,
+                            entityType: "Item", entityId: leaving.NetId.ToString(), data: new()
+                            {
+                                ["playerId"] = player.PlayerId,
+                                ["centreCell"] = centre.ToString(),
+                                ["cause"] = retirement.RemovalCause.Value.ToString()
+                            });
                         NetworkServer.Instance.SendItemUpdate(retirement, player);
                     }
                 }
@@ -183,6 +203,18 @@ internal sealed partial class ServerItemManager
                 ["relevantItemCount"] = desiredItems.Count
             });
         }
+    }
+
+    // Where the item is that no longer concerns the player, for the retirement's cause.
+    private string WhyNotRelevant(NetworkedItem item, WorldItemCellCoord centre)
+    {
+        if (!LiveItems.TryGet(item.NetId, out LiveItems.LiveItem record))
+            return "no record";
+        if (LostAndFoundServer.Contains(item.NetId))
+            return "in Lost and Found";
+        return HostCellByItem.TryGetValue(item, out WorldItemCellCoord cell)
+            ? $"{record.Placement} in cell {cell}, the player's {centre}"
+            : $"{record.Placement}, not near the player";
     }
 
     private static bool IsNonSpatialRelevantTo(NetworkedItem item, ServerPlayer recipient,

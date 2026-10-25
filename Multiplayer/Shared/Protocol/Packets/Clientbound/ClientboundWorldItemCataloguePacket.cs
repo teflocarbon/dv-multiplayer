@@ -7,4 +7,6 @@ public class ClientboundWorldItemCataloguePacket
     public int HostCollisionCount { get; set; }
     public string HostDigest { get; set; }
     public string Reason { get; set; }
+    /// <summary>The keys the server never sends this client (what collides in either game).</summary>
+    public string[] RefusedKeys { get; set; }
 }

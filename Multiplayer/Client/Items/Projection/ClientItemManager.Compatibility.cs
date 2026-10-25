@@ -1,3 +1,4 @@
+using Multiplayer.Core.Items.Projection;
 using System;
 using System.Collections;
 using System.Collections.Generic;
@@ -52,7 +53,7 @@ internal sealed partial class ClientItemManager
         newItem.ReceiveSnapshot(snapshot);
         if (acknowledge)
             ItemClient.Current.SendWorldItemProjectionAck(snapshot.ItemNetId,
-                snapshot.AuthorityRevision, true);
+                snapshot.AuthorityRevision, ProjectionAck.Projected);
         return true;
     }
 

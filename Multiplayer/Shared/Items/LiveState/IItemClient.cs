@@ -1,3 +1,4 @@
+using Multiplayer.Core.Items.Projection;
 using System;
 using System.Collections.Generic;
 using Multiplayer.Shared.Protocol.Data.Items;
@@ -28,7 +29,7 @@ public interface IItemClient
     /// <summary>Asks for one list: Lost and Found, owned items, or a container by its shell or handle. Returns the request id.</summary>
     uint RequestItemList(ItemListKind kind, ushort shellNetId = 0, uint container = 0);
 
-    void SendWorldItemProjectionAck(ushort netId, uint revision, bool projected);
+    void SendWorldItemProjectionAck(ushort netId, uint revision, ProjectionAck kind);
     void SendItemSpatialSample(ItemSpatialStateData state);
     void SendItemSpatialSettlement(ItemSpatialStateData state);
     void SendItemTrainWakeWitness(ServerboundItemTrainWakeWitnessPacket packet);

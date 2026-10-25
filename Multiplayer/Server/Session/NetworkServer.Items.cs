@@ -1,4 +1,6 @@
 ﻿using DV.InventorySystem;
+using Multiplayer.Core.Items.Projection;
+using Multiplayer.Core.Items.WorldItems;
 using LiteNetLib;
 using Multiplayer.Core.Items.ChangeCauses;
 using Multiplayer.Core.Items.Containers;
@@ -72,9 +74,32 @@ public partial class NetworkServer : IItemServer
 
     INetworkedItemServerPart IItemServer.CreateItemPart(NetworkedItem item) => new NetworkedItemServerPart(item);
 
-    Dictionary<string, object> IItemServer.AuthorityDebugState(ushort itemNetId) =>
-        LiveItems.TryGet(itemNetId, out LiveItems.LiveItem record)
-            ? LiveItems.Snapshot(record) : null;
+    Dictionary<string, object> IItemServer.AuthorityDebugState(ushort itemNetId)
+    {
+        if (!LiveItems.TryGet(itemNetId, out LiveItems.LiveItem record))
+            return null;
+        Dictionary<string, object> state = LiveItems.Snapshot(record);
+        state["recipients"] = ProjectionDebugState(itemNetId);
+        return state;
+    }
+
+    // Per player: what the server has sent it of the item and what it said back (OI-SYNC-17).
+    private Dictionary<string, object>[] ProjectionDebugState(ushort itemNetId)
+    {
+        NetworkedItem.TryGet(itemNetId, out NetworkedItem item);
+        return ServerPlayers.Select(player => new Dictionary<string, object>
+        {
+            ["playerId"] = player.PlayerId,
+            ["self"] = player.Peer == SelfPeer,
+            ["known"] = item != null && player.KnownItems.ContainsKey(item),
+            ["knownTick"] = item != null && player.KnownItems.TryGetValue(item, out uint tick) ? tick : 0u,
+            ["acknowledged"] = player.AcknowledgedWorldItems.Contains(itemNetId),
+            ["retryInSeconds"] = player.ProjectionRetryAt.TryGetValue(itemNetId, out float retryAt)
+                ? Mathf.Max(0f, retryAt - Time.time) : 0f,
+            ["pinnedForSeconds"] = ServerItemManager.Instance?.PinnedFor(player, item) ?? 0f,
+            ["catalogueRefuses"] = item != null && !player.TakesAuthored(item)
+        }).ToArray();
+    }
 
     Dictionary<string, object>[] IItemServer.LostAndFoundDebugSnapshot() => LostAndFoundServer.DebugSnapshot();
 
@@ -109,27 +134,37 @@ public partial class NetworkServer : IItemServer
         if (!TryGetServerPlayer(peer, out ServerPlayer player))
             return;
         var host = NetworkedItemManager.Instance.GetAuthoredCatalogueSummary();
-        bool accepted = packet != null && packet.CollisionCount == 0 && host.Collisions == 0 &&
-                        packet.ItemCount == host.Count && string.Equals(packet.Digest, host.Digest, StringComparison.Ordinal);
+        // The same scene keys on both sides; a key that collides in either is refused alone
+        // (Core AuthoredCatalogueKeys, OI-SYNC-08).
+        bool accepted = packet != null &&
+                        AuthoredCatalogueKeys.Match(host.Count, host.Digest, packet.ItemCount, packet.Digest);
         player.WorldItemCatalogueAccepted = accepted;
+        player.RefusedAuthoredKeys = accepted
+            ? AuthoredCatalogueKeys.Refused(host.Collisions, packet.CollisionKeys)
+            : new HashSet<string>(StringComparer.Ordinal);
         string reason = accepted ? string.Empty :
-            $"catalogue-mismatch:host={host.Count}/{host.Digest}/c{host.Collisions},client={packet?.ItemCount ?? 0}/{packet?.Digest ?? string.Empty}/c{packet?.CollisionCount ?? 0}";
+            $"catalogue-mismatch:host={host.Count}/{host.Digest}/c{host.Collisions.Length},client={packet?.ItemCount ?? 0}/{packet?.Digest ?? string.Empty}/c{packet?.CollisionCount ?? 0}";
         // A rejected player gets no scene items (shop and office props) for the whole session.
         if (!accepted)
             LogWarning($"Scene item catalogue rejected for {player.Username}: {reason}");
+        else if (player.RefusedAuthoredKeys.Count > 0)
+            LogWarning($"Scene items refused for {player.Username}, their keys collide: {string.Join(", ", player.RefusedAuthoredKeys)}");
         DebugRuntime.Publish("item-world", "world-item.catalogue-negotiated", DebugRuntimeSide.Server,
-            accepted ? DebugSeverity.Info : DebugSeverity.Error, "Player", player.PlayerId.ToString(), new()
+            accepted ? player.RefusedAuthoredKeys.Count == 0 ? DebugSeverity.Info : DebugSeverity.Warning : DebugSeverity.Error,
+            "Player", player.PlayerId.ToString(), new()
             {
                 ["accepted"] = accepted, ["reason"] = reason,
-                ["hostCount"] = host.Count, ["clientCount"] = packet?.ItemCount ?? 0
+                ["hostCount"] = host.Count, ["clientCount"] = packet?.ItemCount ?? 0,
+                ["refusedKeys"] = string.Join(",", player.RefusedAuthoredKeys)
             });
         SendPacket(peer, new ClientboundWorldItemCataloguePacket
         {
             Accepted = accepted,
             HostItemCount = host.Count,
-            HostCollisionCount = host.Collisions,
+            HostCollisionCount = host.Collisions.Length,
             HostDigest = host.Digest,
-            Reason = reason
+            Reason = reason,
+            RefusedKeys = player.RefusedAuthoredKeys.OrderBy(key => key, StringComparer.Ordinal).ToArray()
         }, DeliveryMethod.ReliableOrdered);
     }
 
@@ -144,7 +179,9 @@ public partial class NetworkServer : IItemServer
         // Requiring an exact match left those items unacknowledged, and their pickups refused.
         bool revisionMatches = known && LiveItems.TryGet(packet.ItemNetId, out var record) &&
                                packet.AuthorityRevision <= record.Revision;
-        if (packet.Projected && (!known || !revisionMatches || !player.KnownItems.ContainsKey(item)))
+        bool recipientKnows = known && player.KnownItems.ContainsKey(item);
+        ProjectionAckOutcome outcome = ProjectionAcks.Apply(packet.Kind, known, revisionMatches, recipientKnows);
+        if (outcome == ProjectionAckOutcome.Rejected)
         {
             DebugRuntime.Publish("item-world", "world-item.projection-ack-rejected", DebugRuntimeSide.Server,
                 DebugSeverity.Warning, "Item", packet.ItemNetId.ToString(), new()
@@ -152,22 +189,29 @@ public partial class NetworkServer : IItemServer
                     ["playerId"] = player.PlayerId,
                     ["knownItem"] = known,
                     ["revisionMatches"] = revisionMatches,
-                    ["recipientExpectedItem"] = known && player.KnownItems.ContainsKey(item)
+                    ["recipientExpectedItem"] = recipientKnows
                 });
             return;
         }
-        if (packet.Projected) player.AcknowledgedWorldItems.Add(packet.ItemNetId);
+        if (outcome == ProjectionAckOutcome.Acknowledged) player.AcknowledgedWorldItems.Add(packet.ItemNetId);
         else player.AcknowledgedWorldItems.Remove(packet.ItemNetId);
         // A client that couldn't create an item we still consider relevant doesn't have it:
         // forget that it does, so the Create is sent again (after a pause, in case it keeps failing)
-        // instead of a stream of updates for an object it never made.
-        if (!packet.Projected && known && player.KnownItems.Remove(item))
+        // instead of a stream of updates for an object it never made. A retirement's ack is not
+        // that: it can arrive after the item came back into interest (ProjectionAcks).
+        if (outcome == ProjectionAckOutcome.Forgotten && player.KnownItems.Remove(item))
             player.ProjectionRetryAt[packet.ItemNetId] = Time.time + ProjectionRetryDelaySeconds;
-        DebugRuntime.Publish("item-world", packet.Projected ? "world-item.projection-enter-ack" : "world-item.projection-retire-ack",
+        DebugRuntime.Publish("item-world", packet.Kind switch
+            {
+                ProjectionAck.Projected => "world-item.projection-enter-ack",
+                ProjectionAck.Retired => "world-item.projection-retire-ack",
+                _ => "world-item.projection-failed-ack"
+            },
             DebugRuntimeSide.Server, entityType: "Item", entityId: packet.ItemNetId.ToString(), data: new()
             {
                 ["playerId"] = player.PlayerId,
                 ["authorityRevision"] = packet.AuthorityRevision,
+                ["outcome"] = outcome.ToString(),
                 ["authoredItemKey"] = known && LiveItems.TryGet(packet.ItemNetId,
                     out LiveItems.LiveItem acknowledgedRecord)
                     ? acknowledgedRecord.AuthoredItemKey ?? string.Empty
@@ -309,6 +353,14 @@ public partial class NetworkServer : IItemServer
     {
         if (item == null || packet?.State == null)
             return;
+        // The commit's cause, as an update carries one (OI-SYNC-18).
+        if (packet.MoveReason == ItemMoveReason.Unknown &&
+            LiveItems.TryGet(item.NetId, out LiveItems.LiveItem record) && record.LastSpatialCause is { } cause)
+        {
+            packet.MoveReason = cause.Reason;
+            packet.MovedByPlayerId = cause.PlayerId;
+            packet.MoveDetail = cause.Detail;
+        }
         ServerPlayer local = LocalPlayer;
         foreach (ServerPlayer player in ServerPlayers)
         {

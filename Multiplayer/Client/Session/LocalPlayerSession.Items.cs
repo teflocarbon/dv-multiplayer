@@ -1,3 +1,4 @@
+using Multiplayer.Core.Items.Projection;
 using System;
 using System.Collections.Generic;
 using Multiplayer.Client.Items.LostAndFound;
@@ -62,8 +63,8 @@ public partial class LocalPlayerSession : IItemClient
     // remote client's); if one did, Submit names the request the server doesn't take in-process.
     IItemManagerClientPart IItemClient.CreateItemManagerPart(NetworkedItemManager manager) => null;
     INetworkedItemClientPart IItemClient.CreateItemPart(NetworkedItem item) => null;
-    void IItemClient.SendWorldItemProjectionAck(ushort netId, uint revision, bool projected) =>
-        Submit(new ServerboundWorldItemProjectionAckPacket { ItemNetId = netId, AuthorityRevision = revision, Projected = projected });
+    void IItemClient.SendWorldItemProjectionAck(ushort netId, uint revision, ProjectionAck kind) =>
+        Submit(new ServerboundWorldItemProjectionAckPacket { ItemNetId = netId, AuthorityRevision = revision, Kind = kind });
     void IItemClient.SendItemSpatialSample(ItemSpatialStateData state) =>
         Submit(new ServerboundItemSpatialSamplePacket { State = state });
     void IItemClient.SendItemSpatialSettlement(ItemSpatialStateData state) =>

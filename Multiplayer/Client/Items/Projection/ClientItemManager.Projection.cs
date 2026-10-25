@@ -1,3 +1,4 @@
+using Multiplayer.Core.Items.Projection;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -63,7 +64,7 @@ internal sealed partial class ClientItemManager
             {
                 PendingWorldProjections.Remove(snapshot.ItemNetId);
                 ItemClient.Current.SendWorldItemProjectionAck(snapshot.ItemNetId,
-                    snapshot.AuthorityRevision, false);
+                    snapshot.AuthorityRevision, ProjectionAck.Retired);
                 DebugRuntime.Publish("item-world", "world-item.deferred-projection-retired",
                     DebugRuntimeSide.Client, entityType: "Item", entityId: snapshot.ItemNetId.ToString(),
                     data: DebugTrace.ItemSnapshotData(snapshot));
@@ -87,7 +88,8 @@ internal sealed partial class ClientItemManager
         {
             if (WorldItemStableIdentity.IsValid(snapshot.AuthoredItemKey))
             {
-                TryBindAuthoredClientProjection(snapshot);
+                if (!TryBindAuthoredClientProjection(snapshot))
+                    RefuseProjection(snapshot);
                 return;
             }
             if (snapshot.TransitionReason == ItemTransitionReason.LostAndFoundRetrieval)
@@ -117,7 +119,7 @@ internal sealed partial class ClientItemManager
                 netItem.gameObject.SetActive(true);
                 netItem.ReceiveSnapshot(snapshot);
                 ItemClient.Current.SendWorldItemProjectionAck(snapshot.ItemNetId,
-                    snapshot.AuthorityRevision, true);
+                    snapshot.AuthorityRevision, ProjectionAck.Projected);
                 return;
             }
 
@@ -138,7 +140,8 @@ internal sealed partial class ClientItemManager
             if (netItem != null)
                 RetireClientProjection(netItem, "create-replaced-existing-projection");
 
-            CreateItem(snapshot);
+            if (!CreateItem(snapshot))
+                RefuseProjection(snapshot);
         }
         else if (snapshot.UpdateType == ItemUpdate.ItemUpdateType.Destroy)
         {
@@ -197,7 +200,7 @@ internal sealed partial class ClientItemManager
                 entityType: "Item", entityId: entityId, data: destroyData);
             if (snapshot.TransitionReason == ItemTransitionReason.InterestRetirement)
                 ItemClient.Current.SendWorldItemProjectionAck(snapshot.ItemNetId,
-                    snapshot.AuthorityRevision, false);
+                    snapshot.AuthorityRevision, ProjectionAck.Retired);
         }
         else if (netItem != null)
         {
@@ -211,6 +214,21 @@ internal sealed partial class ClientItemManager
             DebugRuntime.Publish("item", "item.missing-local-representation", DebugRuntimeSide.Client, DebugSeverity.Error,
                 "Item", snapshot.ItemNetId.ToString(), DebugValueSnapshotter.SnapshotObject(snapshot));
         }
+    }
+
+    // A Create this game couldn't make (no prefab, an authored key it lacks): the server must not
+    // believe it has the item, or it sends only updates for an object that isn't here (OI-SYNC-07).
+    private static void RefuseProjection(ItemUpdate snapshot)
+    {
+        ItemClient.Current.SendWorldItemProjectionAck(snapshot.ItemNetId, snapshot.AuthorityRevision,
+            ProjectionAck.Failed);
+        DebugRuntime.Publish("item-world", "world-item.projection-failed", DebugRuntimeSide.Client,
+            DebugSeverity.Warning, "Item", snapshot.ItemNetId.ToString(), new()
+            {
+                ["prefabName"] = snapshot.PrefabName ?? string.Empty,
+                ["authoredItemKey"] = snapshot.AuthoredItemKey ?? string.Empty,
+                ["authorityRevision"] = snapshot.AuthorityRevision
+            });
     }
 
     private void ProcessPendingWorldProjections()
@@ -235,7 +253,7 @@ internal sealed partial class ClientItemManager
             {
                 // Tell the host, or it believes we have the item and only ever sends updates.
                 ItemClient.Current.SendWorldItemProjectionAck(pair.Key,
-                    pending.Create.AuthorityRevision, false);
+                    pending.Create.AuthorityRevision, ProjectionAck.Failed);
                 continue;
             }
 
@@ -245,7 +263,7 @@ internal sealed partial class ClientItemManager
                 ProcessReceivedAsClient(update);
                 appliedRevision = update.AuthorityRevision;
             }
-            ItemClient.Current.SendWorldItemProjectionAck(pair.Key, appliedRevision, true);
+            ItemClient.Current.SendWorldItemProjectionAck(pair.Key, appliedRevision, ProjectionAck.Projected);
             DebugRuntime.Publish("item-world", "world-item.deferred-projection-bound",
                 DebugRuntimeSide.Client, entityType: "Item", entityId: pair.Key.ToString(), data: new()
                 {
@@ -297,7 +315,7 @@ internal sealed partial class ClientItemManager
         item.gameObject.SetActive(true);
         item.ReceiveSnapshot(snapshot);
         ItemClient.Current.SendWorldItemProjectionAck(snapshot.ItemNetId,
-            snapshot.AuthorityRevision, true);
+            snapshot.AuthorityRevision, ProjectionAck.Projected);
     }
 
     private static void SuspendJobDocumentProjection(NetworkedItem item, ItemUpdate snapshot)

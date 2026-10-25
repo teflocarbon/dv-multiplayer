@@ -1,3 +1,4 @@
+using Multiplayer.Core.Items.Projection;
 using Multiplayer.Client.Items.Inventory;
 using Multiplayer.Client.Items.LiveState;
 using Multiplayer.Core.Items.Ledger;
@@ -145,7 +146,7 @@ internal sealed partial class ClientItemManager
             standIn.State = row.State;
         standIn.Place(update);
         if (update.UpdateType.HasFlag(ItemUpdate.ItemUpdateType.Create))
-            ItemClient.Current?.SendWorldItemProjectionAck(update.ItemNetId, update.AuthorityRevision, true);
+            ItemClient.Current?.SendWorldItemProjectionAck(update.ItemNetId, update.AuthorityRevision, ProjectionAck.Projected);
         return true;
     }
 

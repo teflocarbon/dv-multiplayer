@@ -1,4 +1,5 @@
 ﻿using LiteNetLib;
+using Multiplayer.Core.Items.Projection;
 using Multiplayer.Client.Items.Inventory;
 using Multiplayer.Client.Items.LiveState;
 using Multiplayer.Client.Items.LostAndFound;
@@ -92,13 +93,13 @@ public partial class NetworkClient : IItemClient
     public void SendStashedCassette(ushort netId, int track, long seek, bool ended) =>
         SendPacketToServer(new ServerboundStashedCassettePacket { NetId = netId, Track = track, Seek = seek, Ended = ended }, DeliveryMethod.ReliableOrdered);
 
-    public void SendWorldItemProjectionAck(ushort netId, uint revision, bool projected)
+    public void SendWorldItemProjectionAck(ushort netId, uint revision, ProjectionAck kind)
     {
         SendPacketToServer(new ServerboundWorldItemProjectionAckPacket
         {
             ItemNetId = netId,
             AuthorityRevision = revision,
-            Projected = projected
+            Kind = kind
         }, DeliveryMethod.ReliableOrdered);
     }
 
@@ -108,7 +109,8 @@ public partial class NetworkClient : IItemClient
         SendPacketToServer(new ServerboundWorldItemCataloguePacket
         {
             ItemCount = summary.Count,
-            CollisionCount = summary.Collisions,
+            CollisionCount = summary.Collisions.Length,
+            CollisionKeys = summary.Collisions,
             Digest = summary.Digest
         }, DeliveryMethod.ReliableOrdered);
     }
@@ -123,7 +125,8 @@ public partial class NetworkClient : IItemClient
                 ["hostCount"] = packet?.HostItemCount ?? 0,
                 ["hostCollisionCount"] = packet?.HostCollisionCount ?? 0,
                 ["hostDigest"] = packet?.HostDigest ?? string.Empty,
-                ["reason"] = packet?.Reason ?? "missing-response"
+                ["reason"] = packet?.Reason ?? "missing-response",
+                ["refusedKeys"] = string.Join(",", packet?.RefusedKeys ?? System.Array.Empty<string>())
             });
     }
 

@@ -1,4 +1,5 @@
 using DV.CabControls;
+using Multiplayer.Core.Items.WorldItems;
 using Multiplayer.Shared.Debugging;
 using Multiplayer.Shared.Items.LiveState;
 using Multiplayer.Shared.Session;
@@ -26,7 +27,9 @@ internal sealed class AuthoredWorldItemCatalogue
     // taken office prop waits to be replenished, so comparing them rejected a client that
     // joined in that window, and the host then never sent it a scene item.
     public int BaselineCount { get; private set; }
-    public int BaselineCollisionCount { get; private set; }
+    public int BaselineCollisionCount => BaselineCollisionKeys.Length;
+    /// <summary>The keys two of the scene's objects make: neither is bound by it (OI-SYNC-08).</summary>
+    public string[] BaselineCollisionKeys { get; private set; } = Array.Empty<string>();
     public string BaselineDigest { get; private set; } = string.Empty;
 
     public bool TryGet(string key, out NetworkedItem item) => entries.TryGetValue(key ?? string.Empty, out item);
@@ -61,16 +64,21 @@ internal sealed class AuthoredWorldItemCatalogue
             NetworkedItem networked = item.GetComponent<NetworkedItem>() ?? item.gameObject.AddComponent<NetworkedItem>();
             if (!networked.IsSceneAuthored)
                 continue;
+            if (collisions.Contains(networked.AuthoredItemKey))
+                continue;
             if (entries.TryGetValue(networked.AuthoredItemKey, out NetworkedItem existing) && existing != networked)
             {
+                // Which of the two a game found first is its own: neither is bound.
                 collisions.Add(networked.AuthoredItemKey);
+                entries.Remove(networked.AuthoredItemKey);
                 continue;
             }
             entries[networked.AuthoredItemKey] = networked;
         }
-        BaselineCount = Count;
-        BaselineCollisionCount = CollisionCount;
-        BaselineDigest = Digest();
+        // Every key the scenes have, a collided one too: two games must name the same keys.
+        BaselineCount = Count + CollisionCount;
+        BaselineCollisionKeys = collisions.OrderBy(key => key, StringComparer.Ordinal).ToArray();
+        BaselineDigest = AuthoredCatalogueKeys.Digest(entries.Keys.Concat(collisions));
 
         DebugRuntime.Publish("item-world", "world-item.catalogue-built",
             NetworkRole.DebugSide,
@@ -79,17 +87,12 @@ internal sealed class AuthoredWorldItemCatalogue
             {
                 ["count"] = Count,
                 ["collisionCount"] = CollisionCount,
+                ["collisionKeys"] = string.Join(",", BaselineCollisionKeys),
                 ["digest"] = BaselineDigest
             });
     }
 
-    public string Digest()
-    {
-        using SHA256 sha = SHA256.Create();
-        string material = string.Join("\n", entries.Keys.OrderBy(value => value, StringComparer.Ordinal));
-        byte[] hash = sha.ComputeHash(Encoding.UTF8.GetBytes(material));
-        return BitConverter.ToString(hash, 0, 16).Replace("-", string.Empty).ToLowerInvariant();
-    }
+    public string Digest() => AuthoredCatalogueKeys.Digest(entries.Keys);
 
     private static bool IsCatalogueCandidate(ItemBase item)
     {

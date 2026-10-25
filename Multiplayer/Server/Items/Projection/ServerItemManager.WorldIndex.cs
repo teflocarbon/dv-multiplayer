@@ -185,6 +185,6 @@ internal sealed partial class ServerItemManager
         ServerPlayer sender) => TrainItemWake.ReceiveImpactWitness(packet, sender);
 
     internal bool ResetAuthoredItemToBaseline(NetworkedItem item,
-        LiveItems.LiveItem record) =>
-        HostSpatial.ResetAuthoredItemToBaseline(item, record);
+        LiveItems.LiveItem record, string reason) =>
+        HostSpatial.ResetAuthoredItemToBaseline(item, record, reason);
 }
