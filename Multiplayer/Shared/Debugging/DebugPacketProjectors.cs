@@ -286,7 +286,9 @@ public static class DebugPacketProjectorRegistry
             ["where"] = row.Where ?? string.Empty,
             ["flags"] = row.Flags.ToString(),
             ["slot"] = row.Slot,
-            ["revision"] = row.Revision
+            ["revision"] = row.Revision,
+            ["claimSlot"] = row.ClaimSlot,
+            ["itemNetId"] = row.ItemNetId
         };
 
     private static string SummarizeRequest(ItemRequest request) => request == null

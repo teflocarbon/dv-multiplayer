@@ -190,11 +190,13 @@ a handle (a container row, or a list's own).
 `ClientboundItemListPacket { RequestId, Kind, Refusal, Detail, Container, Revision, Capacity, Rows }`
 answers it, with `ItemRow` structs, not parallel arrays: the handle, prefab, display name, where it
 is or why it's there (worded by the server), flags (`Retrievable`, `SomeoneElses`, `Container`), the
-slot (in a container, or a lost item's claim slot) and the revision a request about it expects. A
+slot (in a container), the revision a request about it expects, and for a lost essential its claim
+slot and the NetId the server keeps it by (`ClaimSlot`, `ItemNetId`): its owner's game shows its
+silhouette from them ([essentials.md](essentials.md#the-silhouette)). A
 container list also has its own handle, revision and slot count, and can be refused (a container
 that can't be opened says why); the other lists never are.
 
-A list also comes unasked, with request 0: the recipient's Lost and Found whenever it changes, and
+A list also comes unasked, with request 0: the recipient's Lost and Found at the join and whenever it changes, and
 its owned items with every retrieval's answer, accepted or refused, so the page shows where each item
 really is (OI-LIST-22).
 

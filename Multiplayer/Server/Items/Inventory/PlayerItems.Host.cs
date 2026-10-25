@@ -66,6 +66,8 @@ internal static partial class PlayerItems
             drawn += DrawRow(player, row);
         if (drawn > 0)
             Multiplayer.Log($"Inventory: {drawn} item(s) of the host's own inventory are stand-ins from their rows");
+        // Its inventory exists now: a lost essential's silhouette is made from its Lost and Found row.
+        NetworkServer.Instance.SendLostAndFoundList(player);
     }
 
     private static int DrawRow(ServerPlayer player, SavedItemRow row)

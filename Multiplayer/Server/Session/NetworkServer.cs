@@ -1178,6 +1178,9 @@ public partial class NetworkServer : NetworkManager
                 // Their inventory goes to them as rows (OI-COLD-03); world items will be spawned
                 // when the player is within the culling range.
                 PlayerItems.SendRows(player);
+                // Their Lost and Found: a lost essential's silhouette is made from its row, so the
+                // slot its claim reserves shows reserved (inventory.md, "Silhouettes").
+                SendLostAndFoundList(player);
                 break;
 
             case PlayerLoadingState.ReadyForJobs:

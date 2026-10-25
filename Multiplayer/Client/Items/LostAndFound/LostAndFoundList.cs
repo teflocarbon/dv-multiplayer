@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 
 using Multiplayer.Shared.Debugging;
+using Multiplayer.Shared.Items.Inventory;
 using Multiplayer.Shared.Items.LiveState;
 using Multiplayer.Shared.Protocol.Data.Items;
 using Multiplayer.Shared.Session;
@@ -23,7 +24,7 @@ public static class LostAndFoundList
     static LostAndFoundList() => NetworkedItemManager.Cleared += Clear;
 
     public static event Action Changed;
-    /// <summary>The rows, oldest first: each a handle (never the item's NetId), its revision, its claim slot and why it's there.</summary>
+    /// <summary>The rows, oldest first: each a handle, its revision, why it's there and, for a lost essential, its claim slot and the NetId its silhouette is kept by.</summary>
     public static IReadOnlyList<ItemRow> Items => items;
 
     public static void Apply(ItemRow[] received)
@@ -31,12 +32,15 @@ public static class LostAndFoundList
         items.Clear();
         if (received != null)
             items.AddRange(received.Where(item => item != null));
+        // A lost essential keeps its silhouette, made from its row (inventory.md, "Silhouettes").
+        LostAndFoundSilhouettes.Apply(items);
         Changed?.Invoke();
     }
 
     public static void Clear()
     {
         items.Clear();
+        LostAndFoundSilhouettes.Clear();
         Changed?.Invoke();
     }
 
@@ -58,7 +62,7 @@ public static class LostAndFoundList
                 ["displayName"] = item.DisplayName ?? string.Empty,
                 ["ownerPlayerId"] = DebugRuntime.Session?.PlayerId ?? 0,
                 ["reason"] = item.Where ?? string.Empty,
-                ["claimSlot"] = item.Slot
+                ["claimSlot"] = item.ClaimSlot
             };
         }
     }

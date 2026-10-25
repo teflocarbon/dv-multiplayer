@@ -155,12 +155,22 @@ claim slot, dropped and reserved, not its object (`InventorySilhouettes`; how it
 - **In the world or another player's hands.** The owner's interest keeps the item whatever its
   distance (`ServerItemManager.IsNonSpatialRelevantTo`, `ownerHasRecallClaim`), so the silhouette and
   its Return button don't vanish when the item is far away.
-- **In Lost and Found, and after a rejoin** (OI-ESS-08). An owner who joined after the collection has
-  no copy of the item for the Lost and Found tombstone to project.
-  `ServerItemManager.TryCreateLostEssentialForOwner` sends that owner, and only them, the item's
-  `Create` first; the tombstone after it makes it inert and leaves the silhouette. An entry the server
-  keeps as data (OI-COLD-08) has no object to write them: `LostAndFoundServer.SendDataEssentials`
-  makes both from its record, once per owner's session.
+- **In Lost and Found, and after a rejoin** (OI-ESS-08). The entry is data on the server (OI-COLD-08)
+  and no object on the owner's game, but its claim still reserves the slot (`slot-reserved`), so the
+  silhouette is made from the owner's Lost and Found row: the row carries the claim slot and the
+  NetId the server keeps the item by (`ItemRow.ClaimSlot`, `ItemRow.ItemNetId`), and
+  `LostAndFoundSilhouettes` puts the item's stand-in there, dropped and reserved. It goes when the
+  row goes (a retrieval, a recall, an entry that went), and moves when the ledger moves the claim
+  (`LostAndFoundServer.SetInventoryClaimSlot` sends the list again). The list comes at the join
+  (`ReadyForItems`; the host's own player's once its inventory is drawn, `JoinHost`) and whenever it
+  changes, so this holds after a rejoin or a restart, for a client and for a player host's own
+  player alike. A game that had the item when it was collected keeps its inert copy and that
+  copy's silhouette (the tombstone, `EnforceLostAndFoundProjection`); the row finds it there and
+  makes no second one. Until the end pass (OI-REF-01, the user's decision of 2026-10-26) an owner
+  with no copy was sent the item's `Create` and its tombstone instead
+  (`TryCreateLostEssentialForOwner`, `SendDataEssentials`); a `Create` at Lost and Found's off-map
+  position was deferred on the client for its unloaded region and then dropped by the tombstone, so
+  no silhouette was made, and vanilla stashed into the reserved slot.
 - **Arriving after an ordinary item** (OI-ESS-09). The server never puts an ordinary item on a
   claimed slot (`slot-reserved`, above). On a client whose items arrive in any order,
   `InventoryIntegration.RestoreClaim` first moves a stale occupant without a claim on that slot to

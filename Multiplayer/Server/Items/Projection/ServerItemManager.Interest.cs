@@ -120,16 +120,13 @@ internal sealed partial class ServerItemManager
                     !player.KnownItems.ContainsKey(item) &&
                     LostAndFoundServer.TryCreateCollectionProjection(item, out ItemUpdate tombstone))
                 {
-                    // An essential in its owner's Lost and Found keeps the owner's red silhouette,
-                    // their recall. A tombstone only projects a copy the game already has, and an
-                    // owner who joined after the collection has none: send them the item first.
-                    if (TryCreateLostEssentialForOwner(item, player, out ItemUpdate create))
-                        NetworkServer.Instance.SendItemUpdate(create, player);
+                    // A tombstone only projects a copy the game already has. An owner with none (who
+                    // joined after the collection) has their essential's silhouette from its Lost
+                    // and Found row instead (LostAndFoundSilhouettes).
                     NetworkServer.Instance.SendItemUpdate(tombstone, player);
                     player.KnownItems[item] = NetworkLifecycle.Instance.Tick;
                 }
             }
-            LostAndFoundServer.SendDataEssentials(player);
         }
     }
 
@@ -304,23 +301,6 @@ internal sealed partial class ServerItemManager
             return car;
         DV.Items.Snapping.ItemSnapPointBase point = item.Item?.SnappableItem?.SnappedTo;
         return point != null ? TrainCar.Resolve(point.gameObject) : null;
-    }
-
-    // The Create for an essential in Lost and Found, for its owner only (essentials.md,
-    // "The silhouette"): the tombstone sent after it makes it inert and leaves its silhouette.
-    private static bool TryCreateLostEssentialForOwner(NetworkedItem item, ServerPlayer player,
-        out ItemUpdate create)
-    {
-        create = null;
-        if (!LiveItems.TryGet(item.NetId, out LiveItems.LiveItem record) ||
-            record.Owner != player.Guid || !HasOwnerRecallClaim(record) ||
-            item.Item?.InventorySpecs?.IsEssential != true)
-            return false;
-        create = item.CreateUpdateData(ItemUpdate.ItemUpdateType.Create);
-        if (create == null)
-            return false;
-        LiveItems.WriteToSnapshot(record, create, record.LastReason);
-        return true;
     }
 
     private static bool HasOwnerRecallClaim(LiveItems.LiveItem record) =>
