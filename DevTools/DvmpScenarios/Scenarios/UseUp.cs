@@ -17,7 +17,9 @@ namespace Dvmp.Scenarios
     /// empty can, the client's and born <c>Replaced</c>, is in the sprayer's magazine on both. On a
     /// player host the host player does the same. Then the client opens a locked garage with its key:
     /// the key is gone, its entry ended <c>UsedUp</c>, and the garage is unlocked on both games. A save
-    /// whose garages are all unlocked skips the key half, saying so.
+    /// whose garages are all unlocked skips the key half, saying so. The client then sees the garage
+    /// open (its blockers gone); on a dedicated host, or with the host's player 1 km off, the server's
+    /// padlock is inactive or unloaded and the garage is unlocked by its key all the same (K2, L2).
     /// </summary>
     [Scenario("use-up", "A spray can and a garage key used up go through the server: gone, entry UsedUp, the empty can born Replaced, the garage open on both (OI-VAN-03)")]
     [Budget(600)]
@@ -88,8 +90,14 @@ namespace Dvmp.Scenarios
             }
             Report.Note($"the locked garage: {garage.Type}, its padlock wants {garage.Key}, at {garage.At}");
             await pair.Client.Run(() => InGame.GoTo(garage.At.X + 1.5f, garage.At.Z), 60);
+            // The host's player 1 km off, toward the middle of the map: the garage may not be live on
+            // the host, as on a dedicated one (K2).
             if (!pair.Dedicated)
-                await pair.Host.Run(() => InGame.GoTo(garage.At.X - 3f, garage.At.Z), 60);
+            {
+                float dx = 8000f - garage.At.X, dz = 8000f - garage.At.Z, d = Math.Max(1f, (float)Math.Sqrt(dx * dx + dz * dz));
+                float hx = garage.At.X + dx / d * 1000f, hz = garage.At.Z + dz / d * 1000f;
+                await pair.Host.Run(() => InGame.GoTo(hx, hz), 60);
+            }
             ushort key = await pair.Host.Run<ushort>(s => InGame.SpawnKey(s, garage.Key));
             pair.Cleanup(() => pair.Host.Run<ushort[]>(s => Items.Destroy(s, new[] { key }), 60));
             await pair.Host.Run(() => Ownership.Give(key, "client"));
@@ -100,6 +108,8 @@ namespace Dvmp.Scenarios
             await Until.Value(() => pair.Host.Run(() => Items.Record(key)), r => !r.Known, 20, "the key is gone on the server");
             Expect.That(await pair.Host.Run(() => InGame.GarageUnlocked(garage.Type)), "the garage is unlocked on the host");
             await Until.Value(() => pair.Client.Run(() => InGame.GarageUnlocked(garage.Type)), u => u, 20, "the garage is unlocked on the client");
+            // Open, not only unlocked in the career: its blockers gone where the client stands (L2).
+            await Until.Value(() => pair.Client.Run(() => InGame.GarageOpen(garage.Type)), u => u, 20, "the garage's blockers are gone on the client");
             await Until.Value(() => pair.Client.Run(() => Items.Existing(new[] { key })), e => e.Length == 0, 20, "the client has no copy of the key");
             LedgerEntry e = await pair.Host.Run(() => Owned.Entry(keyId));
             Report.Note("the key's entry: " + e);
@@ -209,6 +219,12 @@ namespace Dvmp.Scenarios
             [Step]
             public static bool GarageUnlocked(string type) =>
                 LicenseManager.Instance.IsGarageUnlocked(DV.Globals.G.Types.garages.First(g => g.ToString() == type));
+
+            /// <summary>Whether the garage's unlock has run here: its blockers are destroyed.</summary>
+            [Step]
+            public static bool GarageOpen(string type) =>
+                Resources.FindObjectsOfTypeAll<GaragePadlockUnlocker>().Any(u => u != null && u.gameObject.scene.isLoaded &&
+                    u.GetComponent<GarageCarSpawner>() is { } g && g.garageType.ToString() == type && u.blockers == null);
 
             /// <summary>Client: picks up the key and uses it on the padlock nearest <paramref name="at"/>, as vanilla's use does.</summary>
             [Step]

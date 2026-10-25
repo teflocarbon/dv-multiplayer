@@ -1,9 +1,11 @@
+using System.Collections.Generic;
 using DV.Customization.Paint;
 using DV.Interaction;
 using HarmonyLib;
 using Multiplayer.Client.Session;
 using Multiplayer.Shared.Items.LiveState;
 using Multiplayer.Shared.Protocol.Data.Items;
+using Multiplayer.Shared.Protocol.Packets.Items;
 using Multiplayer.Shared.Session;
 
 namespace Multiplayer.Client.Items.Behaviours;
@@ -40,24 +42,58 @@ public static class UseUpRequestPatch
         return false;
     }
 
+    // A spray's paint, waiting for the server to accept its can's use: refused, the can is still the
+    // player's and the car keeps the paint it had (K4).
+    private static readonly Dictionary<uint, (TrainCarPaint Target, PaintTheme Theme)> pendingPaint = new();
+    private static NetworkClient listening;
+
     [HarmonyPatch(typeof(PaintSprayer), nameof(PaintSprayer.Apply))]
     [HarmonyPrefix]
     private static bool Apply(PaintSprayer __instance, TrainCarPaint target)
     {
         PaintCan can = __instance.insertedCan;
-        if (!Asking || can == null || target == null || !can.TryGetComponent(out NetworkedItem item) || item.NetId == 0 ||
-            !__instance.TryGetComponent(out NetworkedItem sprayer) || sprayer.NetId == 0)
+        if (!Asking || can == null || target == null)
             return true;
-        // The paint syncs as any car's does; the can is the server's.
-        target.CurrentTheme = can.theme;
         __instance.UnUse();
-        NetworkClient.Instance.SendItemRequest(new ItemRequest
+        // Vanilla's Apply would destroy the can here only: a can or sprayer with no NetId yet sprays nothing.
+        if (!can.TryGetComponent(out NetworkedItem item) || item.NetId == 0 ||
+            !__instance.TryGetComponent(out NetworkedItem sprayer) || sprayer.NetId == 0)
+        {
+            Multiplayer.LogWarning($"Spray not sent: {(item == null || item.NetId == 0 ? "its can" : "the sprayer")} has no NetId yet");
+            return false;
+        }
+        uint requestId = NetworkClient.Instance.SendItemRequest(new ItemRequest
         {
             ItemNetId = item.NetId,
             ExpectedRevision = item.AuthorityRevision,
             Action = ItemAction.UseUp,
             MagazineNetId = sprayer.NetId
         });
+        if (requestId == 0)
+            return false;
+        // The paint syncs as any car's does, once the server has the can used up.
+        Listen();
+        pendingPaint[requestId] = (target, can.theme);
         return false;
+    }
+
+    private static void Listen()
+    {
+        if (listening == NetworkClient.Instance)
+            return;
+        if (listening != null)
+            listening.ItemResultReceived -= OnResult;
+        pendingPaint.Clear();
+        listening = NetworkClient.Instance;
+        listening.ItemResultReceived += OnResult;
+    }
+
+    private static void OnResult(ClientboundItemResultPacket result)
+    {
+        if (result == null || !pendingPaint.TryGetValue(result.RequestId, out (TrainCarPaint Target, PaintTheme Theme) paint))
+            return;
+        pendingPaint.Remove(result.RequestId);
+        if (result.Accepted && paint.Target != null)
+            paint.Target.CurrentTheme = paint.Theme;
     }
 }

@@ -58,6 +58,9 @@ internal sealed class DerailValleyStorageRuntimeAdapter : IStorageRuntimeAdapter
             body.isKinematic = true;
         }
         item.InteractionAllowed = false;
+        // Off any car's item list first, as vanilla does before its own Lost and Found move: a car that
+        // still lists it turns it back on when its interior goes (UnregisterAndActivateItems, L3).
+        TrainPhysicsLod.RemoveItemFromAnyCar(item);
         item.transform.SetParent(WorldMover.OriginShiftParent, true);
         item.gameObject.SetActive(false);
     }

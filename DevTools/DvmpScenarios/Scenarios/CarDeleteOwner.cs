@@ -10,6 +10,8 @@ namespace Dvmp.Scenarios
     /// destroyed it. The mug's owner is the client, still connected (OWNER=online, the control), or
     /// gone (OWNER=offline: it quits before the delete and rejoins after it), or a player who isn't
     /// here (OWNER=absent). The distance sweep is held off for the run, so only the delete can collect it.
+    /// After the delete the mug isn't turned back on in the world on the host by the loco's interior
+    /// teardown, which used to still list it (L3).
     /// </summary>
     [Scenario("car-delete-owner", "A loco deleted with a mug in its cab sends the mug to its owner's Lost and Found, whether the owner is online, gone or never here (L1)")]
     [Needs(Need.RestartsGames)]
@@ -62,6 +64,10 @@ namespace Dvmp.Scenarios
                 Expect.That(after.Lost, "the mug is in Lost and Found after the loco was deleted");
                 Expect.Equal(before.Id, after.LostEntry, "the mug's Lost and Found entry (its own id)");
                 Expect.Equal(before.Owner, after.Owner, "the mug's owner after the delete");
+                // Once the loco's interior has gone, the collected mug is still put away on the host: the car
+                // no longer lists it, so its teardown doesn't turn it back on in the world (L3).
+                await Task.Delay(3000);
+                Expect.That(!await pair.Host.Run(() => InGame.ActiveInWorld(mug)), "the collected mug isn't back in the world on the host after the delete");
             }
             finally
             {
@@ -76,6 +82,15 @@ namespace Dvmp.Scenarios
             uint mugHandle = await pair.Host.Run(() => Owned.HandleOf(mug));   // the list names rows by handle (R2)
             int slot = await pair.Client.Run<int>(s => LostAndFound.InGame.Retrieve(s, mugHandle), 60);
             Report.Note($"the client retrieved it into slot {slot}");
+        }
+
+        // ---- runs inside the games
+        public static class InGame
+        {
+            /// <summary>Whether the item has an object here that is on, in the world.</summary>
+            [Step]
+            public static bool ActiveInWorld(ushort netId) =>
+                Multiplayer.Shared.Items.LiveState.NetworkedItem.TryGet(netId, out var item) && item != null && item.gameObject.activeInHierarchy;
         }
     }
 }

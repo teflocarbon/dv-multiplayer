@@ -42,7 +42,13 @@ internal static class UseUp
             if (record.Placement != ItemPlacementKind.PlayerHand || record.Holder != player.Guid)
                 return "key-not-in-hand";
             Padlock padlock = PadlockFor(key, player.WorldPosition);
-            return padlock == null ? "no-padlock-near" : Key(player, item, key, padlock);
+            if (padlock != null)
+                return Key(player, item, key, padlock);
+            // Its garage's scene isn't loaded here (a dedicated host, far from the host's own player):
+            // no padlock to find, but a garage key names its garage, which is unlocked all the same (L2).
+            return key is GaragePadlockKey { garage: { } garage } && !AnyPadlockFor(key)
+                ? KeyWithoutPadlock(player, item, key, garage)
+                : "no-padlock-near";
         }
         if (item.TryGetComponent(out PaintCan can) && tool != null && tool.TryGetComponent(out PaintSprayer sprayer))
         {
@@ -71,8 +77,35 @@ internal static class UseUp
             return string.Empty;
         key.KeyUsed();
         Object.Destroy(item.gameObject); // NetworkedItem.OnDestroy replicates the destroy
-        padlock.ContinueUnlockingPadlock();
+        // Far from the host's own player (or on a dedicated host) the padlock can be inactive: its
+        // animation doesn't play, its coroutine can't start, and its garage's unlocker, which listens
+        // from its Start, may never have started (K2, L2). The garage is unlocked here instead, and its
+        // padlock opens as vanilla opens an unlocked garage's (GaragePadlockUnlocker).
+        if (padlock.isActiveAndEnabled || key is not GaragePadlockKey { garage: { } garage })
+            padlock.ContinueUnlockingPadlock();
+        else
+            UnlockGarage(garage);
         return string.Empty;
+    }
+
+    // A garage key whose padlock isn't loaded on the server: the key goes and its garage is unlocked.
+    private static string KeyWithoutPadlock(ServerPlayer player, NetworkedItem item, PadlockKey key, DV.ThingTypes.GarageType_v2 garage)
+    {
+        if (LicenseManager.Instance.IsGarageUnlocked(garage))
+            return "garage-already-unlocked";
+        Multiplayer.Log($"UseUp: {player?.Username ?? "the server"} opened the {garage.id} garage with {item.name} (netId {item.NetId}); its padlock isn't loaded here");
+        item.NoteRemovalCause(ItemChangeLog.Removal(ItemRemovalReason.UsedUp, player, "opened its garage"));
+        key.KeyUsed();
+        Object.Destroy(item.gameObject);
+        UnlockGarage(garage);
+        return string.Empty;
+    }
+
+    // The career's unlock, which every game hears (ClientboundGarageUnlockPacket) and which opens the garage there.
+    private static void UnlockGarage(DV.ThingTypes.GarageType_v2 garage)
+    {
+        if (!LicenseManager.Instance.IsGarageUnlocked(garage))
+            LicenseManager.Instance.UnlockGarage(garage);
     }
 
     /// <summary>
@@ -155,12 +188,20 @@ internal static class UseUp
 
     public static void Clear() => spending.Clear();
 
+    // Every padlock in a loaded scene, active or not: far from the host's own player, or on a
+    // dedicated host, a garage's can be inactive, and FindObjectsOfType sees active ones only (K2).
     private static Padlock PadlockFor(PadlockKey key, Vector3 near) =>
-        Object.FindObjectsOfType<Padlock>()
-            .Where(padlock => padlock.IsLocked && padlock.unlockingKey == key.keyType &&
+        Resources.FindObjectsOfTypeAll<Padlock>()
+            .Where(padlock => padlock != null && padlock.gameObject.scene.isLoaded &&
+                              padlock.IsLocked && padlock.unlockingKey == key.keyType &&
                               Vector3.Distance(padlock.transform.position, near) <= PadlockReach)
             .OrderBy(padlock => Vector3.Distance(padlock.transform.position, near))
             .FirstOrDefault();
+
+    // Whether any locked padlock this key opens is loaded here, near or not.
+    private static bool AnyPadlockFor(PadlockKey key) =>
+        Resources.FindObjectsOfTypeAll<Padlock>().Any(padlock => padlock != null && padlock.gameObject.scene.isLoaded &&
+                                                                 padlock.IsLocked && padlock.unlockingKey == key.keyType);
 }
 
 /// <summary>

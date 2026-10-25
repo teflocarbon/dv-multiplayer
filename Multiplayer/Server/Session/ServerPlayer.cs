@@ -64,6 +64,15 @@ public class ServerPlayer : IDisposable
     /// from before it can be from before their game put them at their saved spot (OI-JOIN-10).
     /// </summary>
     internal float FirstPositionAfterLoadAt { get; private set; } = -1f;
+    // A game sends a position only when its player moves: one standing still since its load sends
+    // none, and after this long its last position is where it is (K5).
+    private const float StillAfterLoadSeconds = 60f;
+    /// <summary>
+    /// From when this player's position counts (Time.realtimeSinceStartup), or -1: their first position
+    /// after their load, or with none a minute after the load.
+    /// </summary>
+    internal float PositionSettlesFrom => FirstPositionAfterLoadAt >= 0f ? FirstPositionAfterLoadAt
+        : CompletedLoadingAt >= 0f ? CompletedLoadingAt + StillAfterLoadSeconds : -1f;
     public DateTime LastLogin { get; set; }
     private float PreviousPlayTime { get; set; }
     public float TotalPlaytime => PreviousPlayTime + (DateTime.UtcNow - LastLogin).Minutes;

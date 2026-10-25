@@ -126,7 +126,7 @@ internal static class GadgetItemTransitions
         if (!LiveItems.TryGet(item.NetId, out LiveItems.LiveItem record) ||
             record.Placement != ItemPlacementKind.Installed)
             return;
-        ushort carNetId = record.AttachedCarNetId;
+        string carGuid = record.AttachedCarPersistentId;
         ItemUpdate snapshot = item.CreateUpdateData(ItemUpdate.ItemUpdateType.ItemState);
         if (snapshot == null)
             return;
@@ -149,7 +149,7 @@ internal static class GadgetItemTransitions
         }
         SendToPlayersWhoKnow(item, snapshot);
         // Off a car being deleted: an owned one goes on to its owner (OI-LF-09).
-        DeletedCarItems.InstalledOffDeletedCar(item, carNetId);
+        DeletedCarItems.InstalledOffDeletedCar(item, carGuid);
     }
 
     private static void SendToPlayersWhoKnow(NetworkedItem item, ItemUpdate snapshot)

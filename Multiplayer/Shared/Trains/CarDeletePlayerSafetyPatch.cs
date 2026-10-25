@@ -1,4 +1,3 @@
-using System.Collections.Generic;
 using HarmonyLib;
 using Multiplayer.Shared.Players;
 using UnityEngine;
@@ -11,25 +10,16 @@ namespace Multiplayer.Shared.Trains;
 /// interior is destroyed. In multiplayer, cars are deleted under players by others: the host
 /// deleting or despawning a car a client is standing in left that client with no player object
 /// at all. Detach the local player (the same recovery vanilla uses) and any remote players'
-/// avatars before a car is deleted. The items lying in it go to Lost and Found after that, on the
-/// host (Server/Trains/CarDeleteLostAndFoundPatch.cs).
+/// avatars before a car is deleted: when vanilla prepares it, which every way of deleting a car does, one
+/// car at a time (a track's cars too, which DeleteCar and DeleteTrainCars never saw). The items on
+/// it come off after that, on the host (Server/Items/LostAndFound/CarDeleteLostAndFoundPatch.cs).
 /// </summary>
 [HarmonyPatch(typeof(CarSpawner))]
 public static class CarDeletePlayerSafetyPatch
 {
     [HarmonyPrefix]
-    [HarmonyPatch(nameof(CarSpawner.DeleteCar))]
-    private static void DeleteCar(TrainCar trainCar) => Evacuate(trainCar);
-
-    [HarmonyPrefix]
-    [HarmonyPatch(nameof(CarSpawner.DeleteTrainCars))]
-    private static void DeleteTrainCars(List<TrainCar> trainCarsToDelete)
-    {
-        if (trainCarsToDelete == null)
-            return;
-        foreach (TrainCar car in trainCarsToDelete)
-            Evacuate(car);
-    }
+    [HarmonyPatch(nameof(CarSpawner.PrepareTrainCarForDeleting))]
+    private static void PrepareTrainCarForDeleting(TrainCar trainCar) => Evacuate(trainCar);
 
     internal static void Evacuate(TrainCar car)
     {

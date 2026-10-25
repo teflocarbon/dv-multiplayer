@@ -7,6 +7,7 @@ using Dvmp.Agent;
 using Dvmp.Lib;
 using Multiplayer.Client.Items.LostAndFound;
 using Multiplayer.Client.Items.Requests;
+using Multiplayer.Shared.Items.Inventory;
 using Multiplayer.Shared.Items.LiveState;
 using Multiplayer.Shared.Protocol.Data.Items;
 using Multiplayer.Shared.Protocol.Packets.Items;
@@ -18,11 +19,16 @@ namespace Dvmp.Scenarios
     /// Every route into a full inventory lands in a slot or falls back, never in no slot (OI-START-10;
     /// docs/design/items/inventory.md, "A full inventory"). The client has a mug of its own in its
     /// Lost and Found, another in a box of its own, and its essential dropped (its silhouette keeps
-    /// the slot), then fills every other slot. Then, into the full inventory:
+    /// the slot). Before the fill, a stand-in whose reserved claim the client's game refuses (its slot
+    /// reserved by another) lands in a free slot, not in none. Then it fills every
+    /// other slot, and into the full inventory:
     /// 1. The box's mug is withdrawn: it comes out into the client's Lost and Found (InventoryOverflow).
     /// 2. The Lost and Found mug is retrieved: refused (inventory-full), and still in Lost and Found;
     ///    or, if a slot was free after all, in that slot.
-    /// 3. The essential is recalled: into its own slot, which its silhouette kept.
+    /// 3. A mug of the client's is registered into the inventory as the server makes a cold row go
+    ///    live: no slot free after all, so at the client's feet (World), never in no slot.
+    ///    And an admin's /give: into the client's Lost and Found (InventoryOverflow), as a starting item.
+    /// 4. The essential is recalled: into its own slot, which its silhouette kept.
     /// After each, every item the server has in the client's inventory is in one of its slots.
     /// </summary>
     [Scenario("full-inventory-routes", "A Lost and Found retrieval, a withdrawal and a recall into a full inventory each land in a slot or fall back (OI-START-10)")]
@@ -78,6 +84,11 @@ namespace Dvmp.Scenarios
             Report.Note($"the client dropped {d.Name} {d.Item} from slot {d.Slot}: {d.State}, slot reserved {d.Reserved}");
             Require.Equal("Dropped", d.State, "the essential's state after the drop");
 
+            // A claim the client's game refuses (its slot reserved by another): in the first free slot, not in none.
+            string refused = await pair.Client.Run(() => InGame.RefusedClaim());
+            Report.Note("the refused claim: " + refused);
+            Expect.That(refused.StartsWith("slot "), "a stand-in whose reserved claim is refused lands in a free slot", refused);
+
             // Every slot taken.
             int taken = (await pair.Client.Run(() => LeaveFullInventory.InGame.Occupied())).Length;
             await LeaveFullInventory.Fill(pair, ids, LeaveFullInventory.Capacity - taken, false);
@@ -113,7 +124,26 @@ namespace Dvmp.Scenarios
             }
             await NoneInNoSlot(pair, client, "after the retrieval");
 
-            // 3. The recall: into the slot its silhouette kept.
+            // 3. An item the server registers into the full inventory (a cold row going live, a
+            //    starting item): no slot free after all, so at the client's feet.
+            ushort late = await pair.Host.Run<ushort>(s => Items.SpawnPersonal(s, "Mug", "client"));
+            await pair.Host.Run(() => Ownership.Give(late, "client"));
+            ids.Add(await pair.Host.Run(() => Owned.IdOf(late)));
+            string registered = await pair.Host.Run(() => InGame.RegisterIntoInventory(late));
+            Report.Note("registered into the full inventory: " + registered);
+            Expect.Equal("World", registered, "an item registered into the full inventory, its placement");
+            await NoneInNoSlot(pair, client, "after the registration");
+
+            // An admin's /give into the full inventory: into the client's Lost and Found, as a starting item.
+            string given = await pair.Host.Run<string>(s => InGame.Give(s, "Mug"), 60);
+            Report.Note("the /give into the full inventory: " + given);
+            string[] g = given.Split(' ');
+            ids.Add(g[1]);
+            Expect.Equal("LostAndFound", g[0], "a /give into the full inventory, its placement");
+            Expect.Equal("InventoryOverflow", await pair.Host.Run(() => SaveHomes.InGame.LostReason(g[1])), "why the /give is in Lost and Found");
+            await NoneInNoSlot(pair, client, "after the /give");
+
+            // 4. The recall: into the slot its silhouette kept.
             await pair.Client.Run<Abs>(s => Walk.Away(s, 20, 0));
             Recall.Recalled r = await pair.Client.Run<Recall.Recalled>(s => Recall.InGame.Recall(s, d.Item, d.Slot));
             Report.Note($"the recall: slot {r.Slot}, {r.State} after {r.Seconds:0.#} s");
@@ -136,6 +166,86 @@ namespace Dvmp.Scenarios
         // ---- runs inside the games
         public static class InGame
         {
+            /// <summary>
+            /// Client: two stand-ins (net IDs no item has) claiming one free slot, both reserved: the
+            /// first takes it, and the second's claim is refused, since the slot's holder reserves it
+            /// itself. Result: "slot N", the second's slot, or "in no slot". Both go after.
+            /// </summary>
+            [Step]
+            public static string RefusedClaim()
+            {
+                var inv = DV.InventorySystem.Inventory.Instance;
+                int free = Enumerable.Range(0, inv.Capacity).First(s => inv.PeekItemAtSlot(s, true) == null);
+                ItemUpdate Row(ushort netId) => new ItemUpdate
+                {
+                    ItemNetId = netId,
+                    PrefabName = "Mug",
+                    InventorySlot = netId == 65530 ? free : -1,
+                    InventoryClaimSlot = free,
+                    InventoryClaimFlags = ItemInventoryClaimFlags.Reserved
+                };
+                var standIns = new List<InventoryStandIn>();
+                try
+                {
+                    using IDisposable placement = InventoryIntegration.BeginAuthoritativePlacement();
+                    foreach (ushort netId in new ushort[] { 65530, 65531 })
+                    {
+                        InventoryStandIn standIn = InventoryStandIn.For(netId, "Mug");
+                        standIns.Add(standIn);
+                        standIn.ClaimSlot = free;
+                        standIn.ClaimFlags = ItemInventoryClaimFlags.Reserved;
+                        standIn.Place(Row(netId));
+                    }
+                    if (inv.IndexOf(standIns[0].gameObject) != free)
+                        throw new Exception($"the first stand-in isn't in its slot {free}");
+                    int second = inv.IndexOf(standIns[1].gameObject);
+                    return second >= 0 ? "slot " + second : "in no slot";
+                }
+                finally
+                {
+                    foreach (InventoryStandIn standIn in standIns)
+                    {
+                        VanillaInventorySlots.Forget(inv, standIn.gameObject);
+                        standIn.Retire();
+                    }
+                }
+            }
+
+            /// <summary>
+            /// Host: registers the item into the client's inventory as the server registers a cold row
+            /// going live, in slot 0. Result: its placement after.
+            /// </summary>
+            [Step]
+            public static string RegisterIntoInventory(ushort netId)
+            {
+                if (!NetworkedItem.TryGet(netId, out NetworkedItem item) || item == null)
+                    throw new Exception("no item " + netId);
+                Multiplayer.Server.Session.ServerPlayer holder = Gadgets.Client();
+                ItemUpdate snapshot = item.CreateUpdateData(ItemUpdate.ItemUpdateType.Create);
+                snapshot.ItemState = ItemState.InInventory;
+                snapshot.PlayerId = holder.PlayerId;
+                snapshot.InventorySlot = 0;
+                snapshot.InventoryClaimSlot = -1;
+                Guid id = Guid.Parse(Owned.IdOf(netId));
+                var record = Multiplayer.Server.Items.LiveState.LiveItems.RegisterMaterializedColdItem(item, holder, holder.Guid, snapshot, id);
+                if (record == null)
+                    throw new Exception("the registration failed");
+                return record.Placement.ToString();
+            }
+
+            /// <summary>Host: an admin's /give of the prefab to the client. Result: the new item's placement and id.</summary>
+            [Step]
+            public static IEnumerator Give(Step<string> step, string prefab)
+            {
+                var before = new HashSet<ushort>(Multiplayer.Server.Items.LiveState.LiveItems.GetAll().Select(r => r.NetId));
+                InventoryItemSpec spec = InventoryStandIn.FindSpec(prefab) ?? throw new Exception("no item " + prefab);
+                yield return Multiplayer.Server.Chat.AdminItemGrants.Spawn(Gadgets.Client(), new[] { spec });
+                var made = Multiplayer.Server.Items.LiveState.LiveItems.GetAll()
+                    .FirstOrDefault(r => !before.Contains(r.NetId) && r.PrefabName == prefab)
+                    ?? throw new Exception("the /give made no " + prefab);
+                step.Result = $"{made.Placement} {made.PersistentItemId:D}";
+            }
+
             /// <summary>
             /// Client: collects its Lost and Found row (by its handle) and waits for the result.
             /// Result: "accepted slot N", or "refused" and the refusal.

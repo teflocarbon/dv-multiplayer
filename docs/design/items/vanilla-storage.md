@@ -45,7 +45,10 @@ multiplayer (OI-VAN-05) a client never runs it for a networked item, and the ser
 
 An owned item is never respawned or destroyed by it: its collection is the server's
 ([lost-and-found.md](lost-and-found.md#ways-in)). "Far" is from every player
-(`RespawnOnDropRangePatch`).
+(`RespawnOnDropRangePatch`). A refusal leaves vanilla's out-of-range latch (`wentOutOfRange`) set,
+so the item isn't asked about again (clearing it on every refusal asked again five times a second on
+every game, L1). Binning clears it (`Binning.TryBin`): an item refused once before it was binned was
+never checked again, and the bin never destroyed it (K1). The destroy's `Discarded` note is made only when vanilla's step will act (K6).
 
 ## Bins
 
@@ -60,6 +63,12 @@ is 75 m off (OI-VAN-02, D10). On the server the bin is a request (`ItemDumpsterP
 - **Someone else's** is refused: in a hand it just isn't the bin's; lying in the bin it is put down
   beside it, on the binner's side (`ServerItemManager.PutAt`, `BinRefused`), and stays theirs.
 
+The bin keeps where it was (`Binning.InBin`): an item that has left it, by a recall, a stash or a
+throw, isn't the bin's any more even when vanilla's trigger never said so (Unity sends no exit on a
+deactivation, K3). An item counts as binned only while it is a world item within the bin's reach.
+One found out of its bin is taken off vanilla's dumpster list too (`ItemDumpster.UnregisterItem`),
+which gives it back its own respawn; still listed, thrown back in it could never be binned again (L6).
+
 A client's dumpster stays vanilla's: its items don't respawn or go there.
 
 ## Used up
@@ -72,7 +81,12 @@ own player's use takes the same step. The server checks the item is in the asker
 in the tool in their hand.
 
 - **A garage key** (`KeyUse.HandleUse`): a client's use names the key; the server finds the locked
-  padlock it opens within 6 m of the player, the key goes and the padlock opens. Its garage unlock
+  padlock it opens within 6 m of the player, the key goes and the padlock opens. Every padlock in a
+  loaded scene counts, active or not, since far from the host's own player (or on a dedicated host)
+  a garage's is inactive (K2). An inactive one can't play its unlock, and its garage's unlocker,
+  which listens from its `Start`, may never have started, so a garage key's garage is unlocked
+  directly (`GaragePadlockKey.garage`); its padlock opens as vanilla opens an unlocked garage's. With
+  the garage's scene not loaded on the server at all, the key's garage is unlocked the same way (L2). Its garage unlock
   is the career's (`LicenseManager.UnlockGarage`), which every game hears
   (`ClientboundGarageUnlockPacket`) and which opens the garage there. A padlock with no garage (the
   tutorial's) opens on the server only.
@@ -81,6 +95,9 @@ in the tool in their hand.
   can's empty can first (its id must exist before the can's entry ends), records it as the can's
   replacement, destroys the can and loads the empty can into the sprayer's magazine, which every
   game loads as any ammo ([containers.md](containers.md)). An unowned can's empty can is nobody's.
+  A client's paint waits for the server's answer: refused, the car keeps its paint and the can stays
+  (K4). A can or sprayer with no NetId yet sprays nothing, rather than running vanilla's Apply,
+  which would destroy the can on that game only.
 
 The gadget tools (duct tape, solder, labels) take this step when gadgets resume (OI-LIN-02 to -04,
 paused).
@@ -108,8 +125,9 @@ argument) still works.
 
 Vanilla's duplicate pass (`StartingItemsController.CombineAndResolveIllegalDuplicates`) keeps one
 radio, one wallet, one of each licence in a whole save, and a multiplayer save holds every player's:
-it dropped all but one from Lost and Found and the world at each load. It doesn't run in multiplayer
-(OI-VAN-01): the lists are joined whole. Nor do its safeguards that add missing starting items and
+it would drop all but one. It doesn't run in multiplayer (OI-VAN-01): the lists are joined whole. That
+is a guard: the server empties vanilla's inventory, world and Lost and Found lists before vanilla's
+load (`PerPlayerSaveFormat`, D2), so only its installed gadgets and item containers reach the pass. Nor do its safeguards that add missing starting items and
 licences: the server issues them ([inventory.md](inventory.md), essentials).
 
 ## Tests

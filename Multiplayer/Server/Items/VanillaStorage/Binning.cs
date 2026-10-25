@@ -39,11 +39,42 @@ internal static class Binning
         public string Name { get; }
     }
 
-    // The items in a bin, and who binned each.
-    private static readonly Dictionary<ushort, Binner> binned = new();
+    // The items in a bin: who binned each, its bin, where it is (absolute) and how far its inside reaches.
+    private static readonly Dictionary<ushort, (Binner By, ItemDumpster Bin, Vector3 At, float Reach)> binned = new();
+
+    private static readonly Action<ItemDumpster, ItemBase> unregister =
+        AccessTools.MethodDelegate<Action<ItemDumpster, ItemBase>>(AccessTools.Method(typeof(ItemDumpster), "UnregisterItem"));
 
     /// <summary>Whether the item is in a bin, waiting to go.</summary>
-    internal static bool IsBinned(ushort itemNetId) => binned.ContainsKey(itemNetId);
+    internal static bool IsBinned(ushort itemNetId) => InBin(itemNetId, out _);
+
+    // Still the bin's: lying in the world inside its bin. Vanilla unbins an item only on its trigger's
+    // exit, which Unity doesn't send for an object turned off, so one taken out into an inventory or by
+    // a recall stayed binned, and went as Discarded wherever it was dropped next (K3). In a hand or put
+    // away it is not the bin's for now (it may come back); lying anywhere else it is unbinned.
+    private static bool InBin(ushort netId, out Binner by)
+    {
+        by = default;
+        if (!binned.TryGetValue(netId, out (Binner By, ItemDumpster Bin, Vector3 At, float Reach) entry) ||
+            !LiveItems.TryGet(netId, out LiveItems.LiveItem record) || record.Placement != ItemPlacementKind.World ||
+            !NetworkedItem.TryGet(netId, out NetworkedItem item) || item == null)
+            return false;
+        if (Vector3.Distance(item.transform.position - WorldMover.currentMove, entry.At) > entry.Reach)
+        {
+            binned.Remove(netId);
+            // Vanilla's bin still lists it, with its 75 m destroy and no respawn: thrown back in, it
+            // could never be binned again (K3). It gets its own respawn back.
+            if (entry.Bin != null && item.Item != null)
+                unregister(entry.Bin, item.Item);
+            Multiplayer.Log($"Binning: {record.PrefabName} (netId {netId}) is out of its bin; it is no longer binned");
+            return false;
+        }
+        by = entry.By;
+        return true;
+    }
+
+    private static Bounds BoundsOf(ItemDumpster bin) =>
+        bin.TryGetComponent(out Collider trigger) ? trigger.bounds : new Bounds(bin.transform.position, Vector3.one * 2f);
 
     /// <summary>
     /// An item enters a bin: true if its binner may bin it (their own, or nobody's), and it is the
@@ -56,7 +87,12 @@ internal static class Binning
         Binner by = BinnerOf(record);
         if (record.Owner == Guid.Empty || record.Owner == by.Identity)
         {
-            binned[item.NetId] = by;
+            Bounds bounds = BoundsOf(bin);
+            binned[item.NetId] = (by, bin, bounds.center - WorldMover.currentMove, bounds.extents.magnitude + 1f);
+            // A respawn the server refused before latched vanilla's checker (wentOutOfRange), and only
+            // vanilla's own run clears it: the bin would never have destroyed it (K1).
+            if (item.TryGetComponent(out RespawnOnDrop respawner))
+                respawner.wentOutOfRange = false;
             Multiplayer.Log($"Binning: {by.Name} put {record.PrefabName} (netId {item.NetId}) in a bin");
             return true;
         }
@@ -77,7 +113,7 @@ internal static class Binning
     /// </summary>
     internal static bool AllowsRespawnOrDestroy(NetworkedItem item, RespawnOnDrop respawner)
     {
-        if (binned.ContainsKey(item.NetId))
+        if (InBin(item.NetId, out _))
             return !respawner.respawnOnDropThroughFloor;
         if (!LiveItems.TryGet(item.NetId, out LiveItems.LiveItem record) || record.Owner != Guid.Empty)
             return false;
@@ -90,7 +126,7 @@ internal static class Binning
     /// </summary>
     internal static void BeforeRespawnOrDestroyStep(NetworkedItem item)
     {
-        if (!binned.TryGetValue(item.NetId, out Binner by))
+        if (!InBin(item.NetId, out Binner by))
             return;
         item.NoteRemovalCause(new ChangeCause<ItemRemovalReason>(ItemRemovalReason.Discarded, by.PlayerId, by.Name,
             NetworkLifecycle.Instance?.Tick ?? 0, "binned"));
@@ -112,7 +148,7 @@ internal static class Binning
     // Beside the bin on the binner's side (else its front), on the ground: an ordinary world item again.
     private static void PutBeside(NetworkedItem item, LiveItems.LiveItem record, ItemDumpster bin, Binner by)
     {
-        Bounds bounds = bin.TryGetComponent(out Collider trigger) ? trigger.bounds : new Bounds(bin.transform.position, Vector3.one * 2f);
+        Bounds bounds = BoundsOf(bin);
         Vector3 toward = bin.transform.forward;
         if (by.PlayerId != 0 && NetworkServer.Instance.TryGetServerPlayer(by.PlayerId, out ServerPlayer player))
         {

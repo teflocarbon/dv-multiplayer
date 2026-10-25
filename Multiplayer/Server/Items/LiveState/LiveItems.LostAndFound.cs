@@ -201,21 +201,22 @@ public static partial class LiveItems
         return record;
     }
 
-    public static void RollbackLostAndFoundCollection(NetworkedItem item, uint previousRevision,
-        ItemPlacementKind previousPlacement, Guid previousHolder,
-        ItemTransitionReason previousReason)
+    /// <summary>
+    /// A refused collection: the record is again all it was before TryMoveToLostAndFound (its car,
+    /// magazine, slot, holder and revision; J4), and the ledger with it. Clients never saw the
+    /// collection. An item it took off a coupler, a snap point or a tool's magazine is off it now, so
+    /// the caller puts it in the world where it is.
+    /// </summary>
+    public static void RollbackLostAndFoundCollection(NetworkedItem item, LiveItem previous)
     {
-        if (item == null || !records.TryGetValue(item.NetId, out LiveItem record) ||
+        if (item == null || previous == null || !records.TryGetValue(item.NetId, out LiveItem record) ||
             record.Placement != ItemPlacementKind.LostAndFound)
             return;
-        record.Revision = previousRevision;
-        record.Placement = previousPlacement;
-        record.Holder = previousHolder;
-        record.PlacementHand = PlayerHand.None;
-        record.LastReason = previousReason;
+        record.RestoreFrom(previous);
         ChangeCause<ItemMoveReason> rolledBack = ItemChangeLog.Move(ItemMoveReason.HostCorrection,
-            detail: "Lost and Found collection rolled back to " + previousPlacement);
+            detail: "Lost and Found collection rolled back to " + record.Placement);
         ServerLedger.Commit(record, Home.LostAndFound, ServerLedger.HomeOf(record), rolledBack);
         ItemChangeLog.RecordMove(item, record, rolledBack);
+        item.ApplyAuthorityMetadata(AuthorityMetadata(record, record.Revision, record.LastReason));
     }
 }
