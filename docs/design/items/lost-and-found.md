@@ -104,7 +104,11 @@ An entry is data on the server (OI-COLD-08, D12): no object until it is retrieve
 way in collects an object as before (`Collect`, or the load's `RestoreEntry`), and the scan after it
 (`ReconcileCanonicalPlacements`, every 24 ticks and before a list or a save) hands it to data
 (`PlayerItems.ToLostData`): its state is a row Lost and Found keeps, by its id, and its record and
-NetId stay, as a cold inventory row's do. It waits while its saved state is still loading
+NetId stay, as a cold inventory row's do. Never in the frame it was collected: taking an item off a
+snap point (a hanger in a cab) has vanilla put it back in the car's interior first, which queues ECS
+commands on its entity for that frame, and an object destroyed in the same frame loses its entity
+before they play back, a native crash in `EntityCommandBuffer.Playback` (the collection's own list
+to a connected owner runs the scan at once). It waits while its saved state is still loading
 (`ItemSaveLoad.IsRestorePending`) and while its ammo can't go with it. Its ammo goes to data with it
 (`PlayerItems.AmmoGoesData`). It stays an object when it couldn't be made again from its row
 (`PlayerItems.CanBeLostData`, J3): its prefab is one this game doesn't list (a mod item without
