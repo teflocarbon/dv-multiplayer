@@ -25,7 +25,11 @@ made and taken away by the server. For each player (`ServerPlayer`) the server k
 - **known** (`KnownItems`): the items it has been sent a Create or a Lost and Found tombstone for,
   with the tick it was last sent anything. An item is known from the moment its Create goes, before any answer,
   whatever sent it: interest, or a flow that sends it to everyone (a Lost and Found retrieval, a recall), which
-  marks it as it goes (`NetworkServer.SendItemUpdatesTo`), so the Destroy that ends it reaches every game that has it;
+  marks it as it goes (`NetworkServer.SendItemUpdatesTo`), so the Destroy that ends it reaches every game that has it.
+  So known can be more than nearby: a far player a broadcast Create reached knows the item, and
+  interest never retires it ([Leaving interest](#leaving-interest) retires only an item that leaves the
+  nearby set). Their copy stays, with no updates while it's far, until its Destroy or until it comes
+  near (a FullSync then, as known since before its last change);
 - **acknowledged** (`AcknowledgedWorldItems`): the items its game said it has
   ([Acknowledgements](#acknowledgements));
 - **a retry hold** (`ProjectionRetries`): when a Create it failed may go again, and how many times in a
