@@ -117,7 +117,10 @@ Accepted, it is the lease's last accepted state, the server's copy is posed (whe
 kept a proxy, the item's place in the world index is refreshed (`RefreshHostSpatialPosition`) and
 it is relayed. Rejected, it is `item.spatial-sample-rejected`. A remote client's rejected sample or
 settlement, unless it was only stale or from the wrong sender, ends the lease by committing the last
-accepted pose (`sample-rejected:<why>`, `TerminateInvalidCurrentLease`). The server's own rejected
+accepted pose (`sample-rejected:<why>`, `TerminateInvalidCurrentLease`). It doesn't when the item's
+placement has changed since the lease was granted: that change ended the lease or has a new one
+waiting (`pendingHostBegins`), and settling here dropped the new one and stopped the body (a server
+throw naming a player, under that player's drop lease, lost its force). The server's own rejected
 sample is only published; its rejected settlement settles at the last accepted pose
 (`SampleHostLease`).
 
