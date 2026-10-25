@@ -489,7 +489,12 @@ internal sealed partial class ServerItemManager
                 else
                 {
                     //NetworkServer.Instance.LogDebug(() => $"ProcessChanged({tick}) Item exists for: {player.Username}, {dirtyUpdate != null}");
-                    if (delivery.Kind == ItemDeliveryKind.FullSync)
+                    // A new item's own first snapshot is a Create: a player it was already made for (by
+                    // the Create above, a tick before) gets it whole instead, not made a second time.
+                    // A game that couldn't make it failed it twice, and once more than its retries.
+                    if (delivery.Kind == ItemDeliveryKind.FullSync ||
+                        delivery.Kind == ItemDeliveryKind.Dirty &&
+                        dirtyUpdate?.UpdateType.HasFlag(ItemUpdate.ItemUpdateType.Create) == true)
                         dirtyUpdate = nearbyItem.CreateUpdateData(ItemUpdate.ItemUpdateType.FullSync);
 
                     if (delivery.Kind is ItemDeliveryKind.Dirty or ItemDeliveryKind.FullSync && dirtyUpdate != null)
