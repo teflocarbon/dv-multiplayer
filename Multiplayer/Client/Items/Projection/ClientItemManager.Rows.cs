@@ -2,6 +2,7 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using DV.Utils;
+using Multiplayer.Core.Items.Projection;
 using Multiplayer.Client.Items.Inventory;
 using Multiplayer.Client.Items.LiveState;
 using Multiplayer.Shared.Items.LiveState;
@@ -44,9 +45,10 @@ internal sealed partial class ClientItemManager
                 continue;
             try
             {
-                if (ReceiveAsStandIn(row, i < states.Length ? states[i] : string.Empty))
+                string state = i < states.Length ? states[i] : string.Empty;
+                if (ReceiveAsStandIn(row, state))
                     placed++;
-                else if (row != null)
+                else if (row != null && !MadeFromRow(row, state))
                     ProcessReceivedAsClient(row);
             }
             catch (Exception exception)
@@ -55,6 +57,22 @@ internal sealed partial class ClientItemManager
             }
         }
         Multiplayer.Log($"Inventory: {placed} of {rows.Count} item(s) of this player's inventory are stand-ins from their rows");
+    }
+
+    // A row that stays an object here (an item on an enabled VR belt slot, OI-COLD-14) is made from
+    // the row with its saved state, then placed by the row's update (OI-COLD-13): made from its prefab
+    // alone, it came back fresh while the server kept the saved state. False if there's no state to
+    // keep or it couldn't be made: the update then makes it as any Create does.
+    private bool MadeFromRow(ItemUpdate row, string state)
+    {
+        if (string.IsNullOrEmpty(state) || !row.UpdateType.HasFlag(ItemUpdate.ItemUpdateType.Create))
+            return false;
+        NetworkedItem made = MakeFromRow(row, state);
+        if (made == null)
+            return false;
+        made.ReceiveSnapshot(row);
+        ItemClient.Current?.SendWorldItemProjectionAck(row.ItemNetId, row.AuthorityRevision, ProjectionAck.Projected);
+        return true;
     }
 
     /// <summary>

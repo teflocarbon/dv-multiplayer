@@ -114,6 +114,30 @@ public sealed class ItemPacketFixtureTests
     }
 
     [Test]
+    public void ASnapOnAGadget_RoundTripsItsGadget_NeverItsKey()
+    {
+        // A hanger's snap point: the gadget item's NetId, which every game knows it by; the stable
+        // key is the gadget item's id, which stays on the server (OI-SYNC-03, OI-ID-07; live-state.md,
+        // "Attached and snapped items").
+        ItemUpdate source = Fixture(ItemUpdate.ItemUpdateType.ItemState, ItemState.Attached);
+        source.CarNetId = 0;
+        source.WorldParentKind = ItemWorldParentKind.SnapPoint;
+        source.WorldParentNetId = 64;
+        source.WorldParentKey = "gadget:7f2e0d6c-3b1a-4c52-9e0f-1d2c3b4a5f60";
+
+        ItemUpdate result = RoundTrip(source);
+
+        Assert.That(ItemUpdate.HomeOf(source), Is.EqualTo(ItemUpdate.WireHome.Snapped));
+        Assert.Multiple(() => {
+            Assert.That(result.ItemState, Is.EqualTo(ItemState.Attached));
+            Assert.That(result.WorldParentKind, Is.EqualTo(ItemWorldParentKind.SnapPoint));
+            Assert.That(result.WorldParentNetId, Is.EqualTo(64));
+            Assert.That(result.WorldParentKey, Is.Null.Or.Empty, "the key isn't sent");
+            Assert.That(result.CarNetId, Is.EqualTo(0));
+        });
+    }
+
+    [Test]
     public void CreateRoundTripsPrefabPlacementAndAllTrackedTypes()
     {
         ItemUpdate result = RoundTrip(Fixture(ItemUpdate.ItemUpdateType.Create, ItemState.Dropped));

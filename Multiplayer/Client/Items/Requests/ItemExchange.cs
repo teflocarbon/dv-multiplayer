@@ -40,28 +40,19 @@ public static class ItemExchange
     }
 
     /// <summary>
-    /// A Lost and Found row into the local inventory: the row's handle and revision, the slot
-    /// asked for (-1 for its claim slot or the first free one), and the inventory as it is now,
-    /// until the server keeps it (R3).
+    /// A Lost and Found row into the local inventory: the row's handle and revision, and the slot
+    /// asked for (-1 for its claim slot or the first free one). The server keeps the inventory, so
+    /// it picks the slot from its own (R3).
     /// </summary>
     public static ItemRequest CollectLost(ItemRow row, int requestedSlot = -1)
     {
-        DV.InventorySystem.Inventory inventory = DV.InventorySystem.Inventory.Instance;
-        int capacity = inventory?.Capacity ?? 0;
-        List<int> occupied = new();
-        for (int slot = 0; slot < capacity; slot++)
-            if (inventory.PeekItemAtSlot(slot, true) != null)
-                occupied.Add(slot);
-        global::Multiplayer.Multiplayer.Log($"[LostAndFound] Collecting row {row?.Handle ?? 0} (revision {row?.Revision ?? 0}) " +
-            $"into slot {requestedSlot}: capacity={capacity}, occupied=[{string.Join(",", occupied)}]");
+        global::Multiplayer.Multiplayer.Log($"[LostAndFound] Collecting row {row?.Handle ?? 0} (revision {row?.Revision ?? 0}) into slot {requestedSlot}");
         return new ItemRequest
         {
             ItemHandle = row?.Handle ?? 0,
             ExpectedRevision = row?.Revision ?? 0,
             Action = ItemAction.CollectLost,
-            Slot = requestedSlot,
-            InventoryCapacity = capacity,
-            OccupiedSlots = occupied.ToArray()
+            Slot = requestedSlot
         };
     }
 

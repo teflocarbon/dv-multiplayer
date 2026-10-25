@@ -230,6 +230,29 @@ A Lost and Found entry is kept as data the same way, under its record and NetId,
 Lost and Found (OI-COLD-08); `PlayerItems.WithObject` makes its object again there
 ([lost-and-found.md](lost-and-found.md#kept-as-data)).
 
+## Attached and snapped items
+
+An item on a snap point is `Attached` in vanilla's terms (`ItemState.Attached`); the record says which
+kind of snap point:
+
+- **On a car's end** (an end-of-train lantern on `ItemSnapPointCoupler`): `Attached`, the car by its
+  NetId (`AttachedCarNetId`) and GUID (`AttachedCarPersistentId`) and which end; ledger home
+  `Attached(car, front)`.
+- **On a gadget's snap point** (a hanger, a mount: `SnapPointGadget`, the only other kind in the game
+  besides the player's belt): `SnappedAttachment`, the gadget by its item. The update names the
+  gadget item's NetId (`ItemWorldParentKind.SnapPoint`, `WorldParentNetId`; the wire's `Snapped`
+  home), which every game knows it by; the server keeps the stable key, the gadget item's own id
+  (`SnapPointKey.OfGadget`, `gadget:<id>`, in `WorldParentKey`; `LiveItems.SnapPointKeyOf`), made from the NetId and never sent:
+  clients never learn an item's id (OI-ID-07). The ledger home is `Snapped(key)`, and the save row's
+  `snappedTo` is the key (OI-SYNC-03).
+
+`NetworkedItem.CreateUpdateData` names the gadget (`GadgetSnapPoints.GadgetOf`), and every game snaps
+the item onto it (`NetworkedItem.SnapToGadget`, from `HandleAttachedState`). At a load the gadget is
+found by its id (`ServerLedger.NetIdOf`); one not there yet is waited for up to 30 s
+(`ItemSaveLoad.SnapWhenItsGadgetIs`), then the item goes to its owner's Lost and Found
+(`SaveRecovery`), as an item whose car is gone does. Before R8 a live gadget snap was `Attached` with
+car 0, so its home was `Attached` with no car, and every load sent it to Lost and Found.
+
 ## Not on this page
 
 - Physics (leases, samples, settlement, throws, fall rescue): [physics.md](physics.md).

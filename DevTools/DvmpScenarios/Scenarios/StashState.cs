@@ -249,8 +249,8 @@ namespace Dvmp.Scenarios
                                  Normal(ItemStateText.Capture(a))));
             }
 
-            // The state as compact JSON with its keys sorted, so two reads compare.
-            private static string Normal(string state)
+            // The state as compact JSON with its keys sorted, so two reads compare (join-row-object too).
+            internal static string Normal(string state)
             {
                 if (string.IsNullOrEmpty(state)) return "";
                 return Sorted(JToken.Parse(state)).ToString(Newtonsoft.Json.Formatting.None);

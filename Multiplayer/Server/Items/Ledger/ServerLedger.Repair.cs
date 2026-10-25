@@ -3,6 +3,7 @@ using Multiplayer.Core.Items.ChangeCauses;
 using Multiplayer.Core.Items.Ledger;
 using Multiplayer.Core.Items.LostAndFound;
 using Multiplayer.Server.Items.ChangeCauses;
+using Multiplayer.Server.Items.Containers;
 using Multiplayer.Server.Items.Inventory;
 using Multiplayer.Server.Items.LiveState;
 using Multiplayer.Server.Items.LostAndFound;
@@ -12,6 +13,7 @@ using Multiplayer.Server.Session;
 using Multiplayer.Shared.Items.LiveState;
 using Multiplayer.Shared.Protocol.Data.Items;
 using System;
+using System.Collections.Generic;
 
 namespace Multiplayer.Server.Items.Ledger;
 
@@ -23,43 +25,85 @@ namespace Multiplayer.Server.Items.Ledger;
 public static partial class ServerLedger
 {
     private const string RepairDetail = "invariant repair";
+    // The items one check has repaired: each is repaired once, by its first breach.
+    private static readonly HashSet<Guid> repaired = new();
 
     private static void Repair(InvariantViolation violation)
     {
-        LiveItems.LiveItem record = violation.Id == Guid.Empty ? null : RecordOf(violation.Id);
+        Guid id = violation.Id;
+        // A box mid-deposit or mid-withdrawal is seen part-way: it waits for the next check.
+        if (id != Guid.Empty && !ContainerServer.Graph.IsSettled(id))
+            return;
+        if (id != Guid.Empty && violation.Rule != InvariantRule.OneItemPerSlot && !repaired.Add(id))
+            return;
+        LiveItems.LiveItem record = id == Guid.Empty ? null : RecordOf(id);
         switch (violation.Rule)
         {
             case InvariantRule.LiveAgrees when record != null:
                 PutHome(record);
                 break;
+            case InvariantRule.OneHome when violation.Repair is { Kind: HomeKind.LostAndFound }:
+                RemakeLost(id);
+                break;
+            case InvariantRule.OneHome:
+                KeepOneCopy(id);
+                break;
+            case InvariantRule.NoStray when record != null && ledger.TryGet(id, out LedgerEntry ended) && !ended.IsLive:
+                foreach (LiveItems.LiveItem copy in Copies(id))
+                    Remint(copy, id, ended.Owner.Kind == OwnerKind.Player ? ended.Owner.Id : Guid.Empty,
+                        $"its entry ended ({ended.Ended.Reason})");
+                break;
             case InvariantRule.NoStray when record != null && record.StoredOwner != Guid.Empty:
                 Own(record, record.StoredOwner, BirthReason.Claimed, Guid.Empty, RepairDetail);
                 break;
+            case InvariantRule.OneItemPerSlot when violation.Repair is { Kind: HomeKind.Slot } slot:
+                OneInSlot(slot);
+                break;
+            // A clash of claims (no slot named): the first registered keeps it, the others move
+            // to their owner's next free claim, or none; each moved claim is sent (OnLedgerChanged).
+            case InvariantRule.OneItemPerSlot when ledger.TryGet(id, out LedgerEntry claimant) && claimant.IsLive:
+                ledger.SettleClaimClash(claimant.Owner, claimant.ClaimSlot,
+                    new LedgerCause(ItemMoveReason.HostCorrection, Guid.Empty, RepairDetail));
+                break;
+            case InvariantRule.VanillaAgrees when record != null:
+                MirrorLists(record);
+                break;
         }
-        // A cold row that disagrees has no object to move: its holder's join makes it again, and the
-        // next check (at the latest, before the save) puts it home.
+        // Not repaired: a stray or a copy that is a row, with no object to move (the load re-mints a
+        // copy and registers a stray: ledger.md, "Births and ends"); a cold row that disagrees: its
+        // holder's join makes it again, and the next check (at the latest, before the save) puts it
+        // home.
     }
 
     /// <summary>
     /// The item goes to its ledger home: into its holder's slot (a cold row when they're offline),
     /// or into Lost and Found. A home the ledger keeps no pose for (the ground, a train, a shelf), a
     /// container's slot or an install the server can't make, and a slot it can't take: the owner's
-    /// Lost and Found. An item installed, attached, snapped or loaded in a tool where it is stays, and the
-    /// ledger follows: the repair doesn't take it off (a retrieval takes off an attached or snapped one,
-    /// not an installed one: owned-list.md, "What each home's retrieval does").
+    /// Lost and Found. An item on a coupler or a snap point or loaded in a tool is taken off as a
+    /// retrieval takes it off (OI-LIST-14), by way of its owner's Lost and Found. An installed one
+    /// stays, and the ledger follows: gadget removal is paused (OI-LIST-15).
     /// </summary>
     internal static void PutHome(LiveItems.LiveItem record)
     {
+        if (ledger.TryGetHome(record.PersistentItemId, out Home want))
+            PutHome(record, want);
+    }
+
+    private static void PutHome(LiveItems.LiveItem record, Home want)
+    {
         Guid id = record.PersistentItemId;
-        if (!ledger.TryGetHome(id, out Home want))
-            return;
         Home live = HomeOf(record);
         LedgerCause follow = new(ItemMoveReason.HostCorrection, Guid.Empty, RepairDetail);
-        if (live.Kind is HomeKind.Installed or HomeKind.Attached or HomeKind.Snapped or HomeKind.Magazine)
+        if (live.Kind == HomeKind.Installed)
         {
             ledger.Repair(id, live, follow);
             Multiplayer.LogWarning($"Invariant repair: {record.PrefabName} ({id:D}) is {live}, not {want}; " +
-                                   "it can't be taken off, so the ledger follows");
+                                   "an installed item can't be taken off yet, so the ledger follows");
+            return;
+        }
+        if (live.Kind is HomeKind.Attached or HomeKind.Snapped or HomeKind.Magazine)
+        {
+            TakeOff(record, live, want, follow);
             return;
         }
         PlayerItems.WithObject(record.NetId, item =>

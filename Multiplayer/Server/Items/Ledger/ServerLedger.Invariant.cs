@@ -33,13 +33,19 @@ public static partial class ServerLedger
     private static readonly HashSet<string> reported = new();
     private static IReadOnlyList<InvariantViolation> lastViolations = Array.Empty<InvariantViolation>();
 
+    private static readonly Dictionary<string, int> checksRun = new();
+
     /// <summary>What the last check found, for scenarios and the debug console.</summary>
     public static IReadOnlyList<InvariantViolation> LastViolations => lastViolations;
+
+    /// <summary>How many checks have run since the load, by when ("before-save", "debug-tick", ...), for scenarios.</summary>
+    public static int ChecksRun(string when) => checksRun.TryGetValue(when, out int count) ? count : 0;
 
     private static void ClearInvariant()
     {
         nextCheck = 0;
         reported.Clear();
+        checksRun.Clear();
         lastViolations = Array.Empty<InvariantViolation>();
     }
 
@@ -58,11 +64,9 @@ public static partial class ServerLedger
     {
         if (!loaded)
             return Array.Empty<InvariantViolation>();
-        lastViolations = HomeInvariant.Check(ledger.All(), Observe(), new InvariantContext
-        {
-            DedicatedHost = NetworkLifecycle.Instance?.IsDedicatedHost == true,
-            HostPlayer = NetworkServer.Instance?.LocalPlayer?.Guid ?? Guid.Empty
-        });
+        checksRun[when] = ChecksRun(when) + 1;
+        lastViolations = HomeInvariant.Check(ledger.All(), Observe(), CurrentContext());
+        repaired.Clear();
         foreach (InvariantViolation violation in lastViolations)
         {
             if (reported.Add(violation.ToString()))
@@ -85,8 +89,17 @@ public static partial class ServerLedger
         return lastViolations;
     }
 
+    private static InvariantContext CurrentContext() => new()
+    {
+        DedicatedHost = NetworkLifecycle.Instance?.IsDedicatedHost == true,
+        HostPlayer = NetworkServer.Instance?.LocalPlayer?.Guid ?? Guid.Empty
+    };
+
     /// <summary>The check's lines, for <c>Library/Invariant.cs</c> and the debug console. Empty when it holds.</summary>
     public static List<string> CheckNow() => CheckInvariant("asked").Select(violation => violation.ToString()).ToList();
+
+    /// <summary>The NetId of the item with this id, or 0.</summary>
+    internal static ushort NetIdOf(Guid id) => id == Guid.Empty ? (ushort)0 : RecordOf(id)?.NetId ?? 0;
 
     private static LiveItems.LiveItem RecordOf(Guid id) =>
         netIdByPersistentId.TryGetValue(id, out ushort netId) && LiveItems.TryGet(netId, out LiveItems.LiveItem record) &&

@@ -391,6 +391,7 @@ internal static partial class ItemSaveLoad
                 break;
             case HomeKind.Snapped:
                 row.Placement = ItemPlacementKind.SnappedAttachment;
+                row.WorldParentKind = ItemWorldParentKind.SnapPoint;
                 row.WorldParentKey = home.Anchor;
                 break;
             case HomeKind.Attached:

@@ -180,7 +180,8 @@ public class ItemUpdate
                     writer.Put(data.AttachedFront);
                     break;
                 case WireHome.Snapped:
-                    writer.Put(data.WorldParentKey ?? string.Empty);
+                    writer.Put(data.WorldParentNetId);
+                    // The key (the gadget item's id) stays on the server, which makes it from the NetId (OI-ID-07).
                     break;
                 case WireHome.Installed:
                     writer.Put(data.CarNetId);
@@ -225,6 +226,7 @@ public class ItemUpdate
         {
             WireHome.TrainInterior => ItemWorldParentKind.TrainInterior,
             WireHome.Shelf => ItemWorldParentKind.StaticParent,
+            WireHome.Snapped => ItemWorldParentKind.SnapPoint,
             _ => ItemWorldParentKind.World
         };
 
@@ -271,7 +273,7 @@ public class ItemUpdate
                     data.AttachedFront = reader.GetBool();
                     break;
                 case WireHome.Snapped:
-                    data.WorldParentKey = reader.GetString();
+                    data.WorldParentNetId = reader.GetUShort();
                     break;
                 case WireHome.Installed:
                     data.CarNetId = reader.GetUShort();
@@ -303,7 +305,7 @@ public class ItemUpdate
         Hand,
         Slot,
         Attached,
-        /// <summary>Snapped to a parent (a hanger, a mount) by its key: an attached item on no car.</summary>
+        /// <summary>Snapped to a parent (a hanger, a mount): a gadget's snap point, by the gadget item's NetId (the server keeps the key).</summary>
         Snapped,
         /// <summary>A gadget on a car, or on the world (car 0).</summary>
         Installed,
@@ -315,7 +317,7 @@ public class ItemUpdate
     {
         ItemState.InHand => WireHome.Hand,
         ItemState.InInventory => WireHome.Slot,
-        ItemState.Attached => data.CarNetId == 0 && !string.IsNullOrEmpty(data.WorldParentKey) ? WireHome.Snapped : WireHome.Attached,
+        ItemState.Attached => data.WorldParentKind == ItemWorldParentKind.SnapPoint ? WireHome.Snapped : WireHome.Attached,
         ItemState.Installed => WireHome.Installed,
         ItemState.InMagazine => WireHome.Magazine,
         _ => data.WorldParentKind switch

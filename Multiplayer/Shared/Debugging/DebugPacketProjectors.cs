@@ -98,6 +98,28 @@ public static class DebugPacketProjectorRegistry
                     : $"refused {packet.Refusal} {packet.Detail}")
             };
         });
+        Register<ClientboundInventoryRowsPacket>((packet, localPlayerId) =>
+        {
+            List<Dictionary<string, object>> rows = packet?.Rows?.Select((row, i) =>
+            {
+                Dictionary<string, object> projected = ProjectItemUpdate(row);
+                // The state is the item's own save JSON: its length, not its contents.
+                projected["stateLength"] = packet.States != null && i < packet.States.Length ? packet.States[i]?.Length ?? 0 : 0;
+                return projected;
+            }).ToList() ?? new();
+            return new DebugPacketProjection
+            {
+                Wire = new Dictionary<string, object>(StringComparer.Ordinal)
+                {
+                    ["packetType"] = nameof(ClientboundInventoryRowsPacket),
+                    ["full"] = packet?.Full ?? false,
+                    ["count"] = rows.Count,
+                    ["rows"] = rows
+                },
+                Context = PlayerContext(localPlayerId),
+                Summary = $"{rows.Count} inventory row{(rows.Count == 1 ? string.Empty : "s")}" + (packet?.Full == true ? " (whole inventory)" : string.Empty)
+            };
+        });
         Register<ItemUpdate>((item, localPlayerId) => new DebugPacketProjection
         {
             Wire = ProjectItemUpdate(item), Context = ItemContext(item, localPlayerId), Summary = SummarizeItem(item)
@@ -240,8 +262,6 @@ public static class DebugPacketProjectorRegistry
             case ItemAction.Withdraw:
             case ItemAction.MoveInContainer:
                 result["container"] = request.Container; result["shellNetId"] = request.ShellNetId; result["containerRevision"] = request.ContainerRevision; break;
-            case ItemAction.CollectLost:
-                result["inventoryCapacity"] = request.InventoryCapacity; result["occupiedSlots"] = request.OccupiedSlots ?? Array.Empty<int>(); break;
             case ItemAction.ReportBelowMap:
                 result["surfaceHeight"] = request.SurfaceHeight; break;
         }

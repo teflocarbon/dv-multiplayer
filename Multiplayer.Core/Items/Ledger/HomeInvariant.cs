@@ -134,7 +134,8 @@ public static class HomeInvariant
                      .GroupBy(item => (item.Home.Holder, item.Home.Slot))
                      .Where(group => group.Count() > 1))
             violations.Add(new InvariantViolation(InvariantRule.OneItemPerSlot, slot.First().Id,
-                $"slot {slot.Key.Item2} of {slot.Key.Item1:D} holds {slot.Count()}: {string.Join(", ", slot.Select(Describe))}"));
+                $"slot {slot.Key.Item2} of {slot.Key.Item1:D} holds {slot.Count()}: {string.Join(", ", slot.Select(Describe))}",
+                Home.InSlot(slot.Key.Item1, slot.Key.Item2)));
         foreach (IGrouping<(OwnerRef, int), LedgerEntry> claim in all
                      .Where(entry => entry.IsLive && entry.ClaimSlot >= 0)
                      .GroupBy(entry => (entry.Owner, entry.ClaimSlot))
@@ -176,6 +177,33 @@ public static class HomeInvariant
             observed.Kind == ledger.Kind && string.Equals(observed.Anchor, ledger.Anchor, StringComparison.Ordinal),
         _ => observed == ledger
     };
+
+    /// <summary>
+    /// The vanilla lists an item in <paramref name="home"/> belongs in, from the lists it is in
+    /// (rule 5; D7's repair): vanilla's lists follow the homes. The inventory list is only for the
+    /// host's own player's items, Lost and Found's only for a home in Lost and Found, the world's for
+    /// the rest but a player's (an installed item is never put into it); of several it keeps the home's own, and an item in none it may be
+    /// in goes into its home's. The installed list is the gadget code's, and is kept as it is.
+    /// </summary>
+    public static VanillaLists ListsFor(Home home, VanillaLists current, InvariantContext context = null)
+    {
+        context ??= new InvariantContext();
+        bool hostPlayers = home.IsWithPlayer && !context.DedicatedHost && context.HostPlayer != Guid.Empty &&
+                           home.Holder == context.HostPlayer;
+        VanillaLists own = hostPlayers ? VanillaLists.Inventory
+            : home.Kind == HomeKind.LostAndFound ? VanillaLists.LostAndFound
+            : home.IsWithPlayer || home.Kind is HomeKind.Container or HomeKind.Installed ? VanillaLists.None
+            : VanillaLists.World;
+        VanillaLists allowed = (hostPlayers ? VanillaLists.Inventory : VanillaLists.None) |
+                               (home.Kind == HomeKind.LostAndFound ? VanillaLists.LostAndFound : VanillaLists.None) |
+                               (!home.IsWithPlayer && home.Kind != HomeKind.LostAndFound ? VanillaLists.World : VanillaLists.None);
+        VanillaLists kept = current & allowed & ~VanillaLists.Installed;
+        if (Count(kept) > 1)
+            kept = (kept & own) != 0 ? own : (VanillaLists)((byte)kept & -(byte)kept);
+        else if (kept == VanillaLists.None && (current & ~VanillaLists.Installed) != VanillaLists.None)
+            kept = own;
+        return kept | (current & VanillaLists.Installed);
+    }
 
     private static string Describe(ObservedItem item) =>
         $"{(item.Name.Length > 0 ? item.Name : item.Id.ToString("D"))} as {item.Source} at {item.Home}";

@@ -407,7 +407,9 @@ violation logs an error and a debug event (`item.invariant-broken`) and fails th
 running: the scenario runner calls it after every run and fails the run on any violation
 (OI-LED-09). In Release (D7) it logs the error and puts the item in its ledger home, else in its
 owner's Lost and Found. Core unit tests cover each rule and a fuzz run of random ledger changes
-(OI-LED-04: a refused change leaves the ledger as it was).
+(OI-LED-04: a refused change leaves the ledger as it was). As built: the check before every save went
+with R4a's save rewrite and came back in #403 (`before-save`), and the Release repair covers every
+rule, strays included ([ledger.md](items/ledger.md#the-invariant-check)).
 
 ### One path for every host
 

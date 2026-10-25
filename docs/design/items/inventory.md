@@ -327,9 +327,9 @@ anything else of theirs is sent:
 3. The joiner is sent one `ClientboundInventoryRowsPacket`: each item's `Create`, built for them, and
    its saved state. Their game keeps the rows (`InventoryRows`) and draws each as its stand-in in its
    slot ([Stand-ins](#stand-ins)). A row that stays an object there (an enabled VR belt slot's, say)
-   isn't made from its row: `FillFromRows` hands its `Create` to the ordinary path
-   (`ProcessReceivedAsClient`, `CreateItem`), which makes it fresh from its prefab, without the row's
-   saved state, while the server keeps the item as data.
+   is made from its row with its saved state (`ClientItemManager.MadeFromRow`, `MakeFromRow`) and
+   placed by the row's update (OI-COLD-13); only a row with no state takes the ordinary path
+   (`ProcessReceivedAsClient`).
 4. An essential of theirs that another connected player holds as data has no object for interest to
    find, so they are sent its `Create` too and kept up to date with it (OI-ESS-17).
 

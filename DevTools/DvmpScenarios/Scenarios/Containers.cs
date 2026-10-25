@@ -26,8 +26,8 @@ namespace Dvmp.Scenarios
     /// two items and a box of the same kind, and opens it. Each stored row is a hidden proxy object
     /// in the client's game, a box's row with a <c>ColdProxyContainer</c> too, and none is an item:
     /// no <c>NetworkedItem</c>, no <c>ItemBase</c>, and the server keeps no record it didn't have
-    /// before the box was opened. Opened again, the old proxies are gone and the new ones are one per
-    /// row again.
+    /// before the box was opened. Closed, its proxies are gone; opened again, they are one per row
+    /// again.
     /// </summary>
     [Scenario("containers", "Deposit, reopen and withdraw through a container the player holds, a stateful item keeping its state; the host can't browse the client's container (WHO=host: the host's own, handled in-process; MODE=proxies: the open box's rows are hidden proxies, never items)")]
     public sealed class Containers : Scenario<Containers.Options>
@@ -120,8 +120,12 @@ namespace Dvmp.Scenarios
             Expect.Zero(open.WithItemBase, "proxies with an ItemBase");
             Expect.Empty(made, "records the server made while the box was open (a proxy kept as an item)");
             await pair.Client.Run(() => Boxes.CloseBox(box), 60);
-            // Closing keeps them until the next list replaces them (ContainerUi.ClearProxies, only on a new list).
-            Report.Note($"closed: {(await pair.Client.Run(() => InGame.ProxiesNow())).Proxies} proxy object(s) left");
+            // Closed, its proxies go with it (ContainerUi.Closed, from vanilla's active container
+            // changing); before R8 they stayed, hidden, until the next list replaced them.
+            ProxyView closed = await pair.Client.Run(() => InGame.ProxiesNow());
+            Report.Note($"closed: {closed}");
+            Expect.That(!closed.Active, "the box's view is closed on the client");
+            Expect.Zero(closed.Proxies, "proxy objects left after the box closed");
 
             // Opened again: the old proxies go, and there is again one per row, not twice as many.
             await pair.Client.Run(() => Boxes.OpenBox(box), 60);

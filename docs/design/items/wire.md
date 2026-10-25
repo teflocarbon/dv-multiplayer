@@ -43,8 +43,7 @@ inventory rows (`NetworkServer.SendItemUpdatesTo`, `SendInventoryRows`).
   session, so a row keeps its handle when it moves between lists.
 - **Never a GUID.** No item packet, nor anything inside one, has a `Guid` field
   (`ItemWirePacketTests.NoItemPacketCarriesAGuid` walks the types of every packet with `Item` in its
-  name; OI-ID-07). That leaves out `ClientboundInventoryRowsPacket`, whose rows are the same
-  `ItemUpdate` the walk covers through `ClientboundItemUpdatesPacket`.
+  name, and every packet of the `Items` namespace, `ClientboundInventoryRowsPacket` among them; OI-ID-07).
 
 ## Naming a player
 
@@ -88,7 +87,7 @@ An `ItemUpdate` has:
   `TrainInterior` the pose, the car's NetId and the pose in the car; `Shelf` the pose, the shelf's key
   and the pose on it (these three also whether it was thrown, and then the throw direction); `Hand`
   the holder and the hand; `Slot` the holder and the slot; `Attached` the car's NetId and which end;
-  `Snapped` the snap point's key; `Installed` the car's NetId (0 on the world); `Magazine` the tool's
+  `Snapped` the gadget item's NetId, never its key, which stays on the server ([live-state.md](live-state.md#attached-and-snapped-items)); `Installed` the car's NetId (0 on the world); `Magazine` the tool's
   NetId and the slot (`MagazineNetId`, `MagazineSlot`);
 - on `Create` or with object state: the item type's own values (`States`).
 
@@ -96,11 +95,11 @@ The transition reason `ClientAdoption` and the move reasons `ReturnedToRejoining
 are gone since R2 (a4b0faad, 2026-10-24): nothing makes or reads them.
 
 A home is one of the live placements (`ItemPlacementKind`). `Container` is never a live placement,
-only a save row's: a stored item has no record (`ItemSaveLoad.Save.cs`). `SnappedAttachment` comes
-only from save rows (the load's `Snapped` home, `ItemSaveLoad.Load.cs`, kept by the record made from
-the row); such a record goes out as `Snapped`. A live snap is `Attached` (`NetworkedItem.GetItemState`,
-`LiveItems.PlacementFrom`): on a car's end with the car's NetId, snapped anywhere else with car 0 and
-no key, so it goes out as `Attached` with car 0 and its ledger home is `Attached`, never `Snapped`.
+only a save row's: a stored item has no record (`ItemSaveLoad.Save.cs`). `SnappedAttachment` is an
+item on a gadget's snap point (a hanger, a mount), live or loaded: it goes out as `Snapped`, the gadget
+by its item's NetId (`ItemWorldParentKind.SnapPoint`), and its ledger home is `Snapped(key)`. An item
+on a car's end is `Attached` with the car's NetId (`LiveItems.PlacementFrom`).
+
 
 A player's own change never goes up as an update: it's a request.
 
@@ -120,7 +119,7 @@ arguments the action uses are written:
 | `Throw` | as `Drop`, with a direction | the live state |
 | `Recall` | the claim slot | `LiveItems.TryRecall`, or Lost and Found for an essential there |
 | `Retrieve` | none (the handle names the owned-items row) | owned items: into the owner's Lost and Found |
-| `CollectLost` | the slot, and the requester's inventory size and occupied slots | Lost and Found |
+| `CollectLost` | the slot | Lost and Found |
 | `Deposit` | the container's handle, or its shell's NetId; the slot | containers |
 | `Withdraw` | the slot | containers |
 | `MoveInContainer` | the container, its revision, the slot | containers |
@@ -131,9 +130,10 @@ arguments the action uses are written:
 | `LoadMagazine` | the tool's NetId and the magazine slot; states | the live state; refused on `magazine-tool-unknown`, `magazine-tool-foreign` (a tool another player holds), `magazine-slot-invalid`, `magazine-refused-item`, `magazine-slot-taken` ([containers.md](containers.md#ammo-in-a-magazine)) |
 | `UseUp` | the tool it is used in (`MagazineNetId`: a spray can's sprayer; 0 for a key) | `UseUp.Carry` ([vanilla-storage.md](vanilla-storage.md#used-up)); refused on `item-unknown` or `tool-unknown` (`UnknownItem`), else `NotAllowed`: `item-installed`, `key-not-in-hand`, `no-padlock-near`, `sprayer-not-in-hand`, `can-not-in-sprayer`, `not-a-consumable` |
 
-`ItemAction` is a byte, append-only. `CollectLost` still sends the inventory's capacity and occupied
-slots from the client, and the server plans the collection's slot from them
-(`LostAndFoundServer.TryCollect`, `LostItemRetrievalPlanner.Plan`), not from its own rows.
+`ItemAction` is a byte, append-only. `CollectLost` names only the slot asked for: the server plans
+the collection's slot from its own rows (`LostAndFoundServer.TryCollect`, `LostItemRetrievalPlanner.Plan`
+with `ServerLedger.TakenSlots`), as every slot is the server's (R3; before R8 the client sent its
+inventory's size and occupied slots).
 
 `ClientboundItemResultPacket { RequestId, Refusal, Detail, Revision, ItemNetId }` answers each
 request once: accepted (`Refusal == None`) or a refusal code and its detail, the revision the
@@ -204,8 +204,8 @@ really is (OI-LIST-22).
   packets are the `Items` namespace; every packet round-trips (the inventory rows with their states
   and `Full`, `InventoryRows_RoundTrip...`); a request for each action writes only its arguments; an
   update tells each relation and only the claimant the claim (a claimless update is smaller);
-  translation of a player's own change into a request, through the wire; a debug projector for five
-  of the packets (`ProjectorsCoverEveryPacketOfTheWire`): the inventory rows packet has none.
+  translation of a player's own change into a request, through the wire; a debug projector for each of
+  the six (`ProjectorsCoverEveryPacketOfTheWire`; the inventory rows' since R8).
 - `Multiplayer.Core.Tests/Items/LiveState/ItemRequestsTests.cs`: the request memory (new, pending,
   repeat, expired, request 0), refusal codes, relations.
 - Scenarios ([testing.md](../../testing.md)): `red`, `item-request-repeat`, `recall` (both `TAKEN`

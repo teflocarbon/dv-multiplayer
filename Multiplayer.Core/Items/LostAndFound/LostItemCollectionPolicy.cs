@@ -24,7 +24,6 @@ public sealed class LostItemCandidate
     public bool IsSnapped { get; set; }
     public bool IsInMachine { get; set; }
     public bool IsLicensePaper { get; set; }
-    public bool IsPersonalItem { get; set; }
     public bool OwnerPositionKnown { get; set; }
     public float OwnerDistanceSquared { get; set; }
     public bool NearestPlayerPositionKnown { get; set; }
@@ -53,8 +52,6 @@ public static class LostItemCollectionPolicy
     {
         if (item == null || item.NetId == 0 || item.Owner == Guid.Empty)
             return Ineligible("unowned");
-        if (!item.IsPersonalItem)
-            return Ineligible("not-a-personal-item");
         if (item.IsLicensePaper)
             return Ineligible("license-paper-excluded");
         // An offline owner counts as far away (decided by the user 2026-10-21), and their items are
@@ -79,6 +76,14 @@ public static class LostItemCollectionPolicy
             return new LostItemDecision(LostItemDecisionKind.WaitingForGrace, "collection-grace-period");
         return new LostItemDecision(LostItemDecisionKind.Collect, ownerAway ? "owner-away" : "owner-distance-eligible");
     }
+
+    /// <summary>
+    /// A refused collection rolls the item back to where it was, but the collection took it off a
+    /// coupler, a snap point or a tool's magazine (lost-and-found.md, "A refused collection"): from
+    /// there it goes into the world where it is.
+    /// </summary>
+    public static bool RollsBackIntoWorld(LivePlacement previous) =>
+        previous is LivePlacement.Attached or LivePlacement.SnappedAttachment or LivePlacement.Magazine;
 
     private static LostItemDecision Ineligible(string reason) =>
         new(LostItemDecisionKind.Ineligible, reason);

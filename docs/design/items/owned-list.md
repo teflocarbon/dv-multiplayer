@@ -167,10 +167,9 @@ on the object; `item-data-unavailable` if it couldn't be made.
    `nothing-to-retrieve`; the rule above allows it, else `nothing-to-retrieve` or
    `not-retrievable-yet`; for an item in a box, the walk finds what goes;
 3. out of a box that isn't the owner's, the row is asked about and taken out ("Out of a box"), and
-   goes on at step 6; for an item in a box, the outermost shell is settled
-   (`ContainerGraph.IsSettled`), else `container-busy`. An item whose home isn't `Container` is not
-   asked whether it is settled, so a box retrieved from the world, a car or a player's hand goes
-   without that check. The subject has a live record and object, else `unknown-item`;
+   goes on at step 6; what goes (the item, or the outermost shell of an item in a box) is settled
+   (`ContainerGraph.IsSettled`), else `container-busy`, wherever it is: in another box, the world, a
+   car or a player's hand. The subject has a live record and object, else `unknown-item`;
 4. `ItemAccessServer.Allows(owner, Retrieve, subject)`: the subject is the owner's, else
    `requester-not-persistent-owner` ([access.md](access.md));
 5. from another player's hand or inventory, `TakeFromHolder`; its transition's refusal if it fails;
@@ -183,8 +182,8 @@ The answer is one `ClientboundItemResultPacket` (`ItemRefusals.Classify` gives t
 
 A recall is one step ([wire.md](wire.md#recall)), so a retrieval never meets one half done
 (OI-LIST-17). An outermost box reached by the walk with a deposit or withdrawal part way inside it is
-refused `container-busy` (OI-LIST-18), as is a row part way out of or into a box; a box retrieved
-from anywhere but another box isn't checked (step 3).
+refused `container-busy` (OI-LIST-18), as is a row part way out of or into a box, and a box part way
+retrieved from anywhere else (step 3; before R8 only a box in a box was asked).
 
 ## Tests
 

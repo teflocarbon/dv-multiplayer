@@ -23,7 +23,9 @@ public enum ItemWorldParentKind : byte
 {
     World,
     TrainInterior,
-    StaticParent
+    StaticParent,
+    /// <summary>A gadget's snap point (a hanger, a mount): <c>WorldParentNetId</c> is its gadget item's, <c>WorldParentKey</c> the server's stable key.</summary>
+    SnapPoint
 }
 
 public enum ItemTransitionReason : byte

@@ -141,6 +141,8 @@ public sealed class HomeInvariantTests
         Assert.That(found.Select(v => v.Rule), Is.EqualTo(new[] { InvariantRule.OneItemPerSlot, InvariantRule.OneItemPerSlot }));
         Assert.That(found[0].Detail, Does.Contain("slot 4"));
         Assert.That(found[1].Detail, Does.Contain("claim slot 7").And.Contain("claimed by 2"));
+        Assert.That(found[0].Repair, Is.EqualTo(Home.InSlot(Liam, 4)), "the repair is told the slot");
+        Assert.That(found[1].Repair, Is.Null, "a clash of claims has no repair (R8's inbox QUESTION)");
     }
 
     [Test]
@@ -234,6 +236,32 @@ public sealed class HomeInvariantTests
             Assert.That(found, Is.Empty, $"step {step}: " + string.Join("; ", found));
         }
         Assert.That(committed, Is.GreaterThan(300), "the run moved things");
+    }
+
+    [Test]
+    public void Rule5_TheRepairsLists_FollowTheHome()
+    {
+        InvariantContext player = new() { HostPlayer = Liam };
+        InvariantContext dedicated = new() { DedicatedHost = true };
+        // In several: the home's own stays.
+        Assert.That(HomeInvariant.ListsFor(Home.World, VanillaLists.World | VanillaLists.LostAndFound, player),
+            Is.EqualTo(VanillaLists.World));
+        Assert.That(HomeInvariant.ListsFor(Home.LostAndFound, VanillaLists.World | VanillaLists.LostAndFound, player),
+            Is.EqualTo(VanillaLists.LostAndFound));
+        // Only the host's own player's items in the inventory list.
+        Assert.That(HomeInvariant.ListsFor(Home.InSlot(Liam, 2), VanillaLists.Inventory | VanillaLists.World, player),
+            Is.EqualTo(VanillaLists.Inventory));
+        Assert.That(HomeInvariant.ListsFor(Home.InSlot(Bentgear, 2), VanillaLists.Inventory, player),
+            Is.EqualTo(VanillaLists.None), "another player's item is in no list here");
+        // Nothing in a dedicated host's inventory: a loose item there goes into the world's.
+        Assert.That(HomeInvariant.ListsFor(Home.World, VanillaLists.Inventory, dedicated), Is.EqualTo(VanillaLists.World));
+        // Lost and Found's list only for a home there.
+        Assert.That(HomeInvariant.ListsFor(Home.TrainInterior("L-042"), VanillaLists.LostAndFound, player),
+            Is.EqualTo(VanillaLists.World));
+        // An item in no list stays in none, and the installed list is the gadget code's.
+        Assert.That(HomeInvariant.ListsFor(Home.World, VanillaLists.None, player), Is.EqualTo(VanillaLists.None));
+        Assert.That(HomeInvariant.ListsFor(Home.Installed("dash"), VanillaLists.Installed | VanillaLists.Inventory, player),
+            Is.EqualTo(VanillaLists.Installed));
     }
 
     private static LedgerEntry Entry(Guid id, Home home, int claimSlot = -1, Guid? owner = null, string prefab = null) =>

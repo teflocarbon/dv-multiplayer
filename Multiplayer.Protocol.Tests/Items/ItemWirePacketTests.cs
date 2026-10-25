@@ -39,9 +39,12 @@ public sealed class ItemWirePacketTests
     {
         Type[] packets = typeof(ClientboundItemUpdatesPacket).Assembly.GetTypes()
             .Where(t => t.Namespace?.StartsWith("Multiplayer.Shared.Protocol.Packets", StringComparison.Ordinal) == true &&
-                        t.Name.Contains("Item") && t.IsClass && !t.IsAbstract)
+                        (t.Name.Contains("Item") || t.Namespace == typeof(ClientboundInventoryRowsPacket).Namespace) &&
+                        t.IsClass && !t.IsAbstract)
             .ToArray();
-        Assert.That(packets, Has.Length.GreaterThanOrEqualTo(5));
+        // The six of the wire (the inventory rows among them, though its name has no "Item"), and the rest that name items.
+        Assert.That(packets, Has.Length.GreaterThanOrEqualTo(6));
+        Assert.That(packets, Does.Contain(typeof(ClientboundInventoryRowsPacket)));
         List<string> guids = new();
         foreach (Type packet in packets)
             FindGuids(packet, packet.Name, new HashSet<Type>(), guids);
@@ -147,7 +150,7 @@ public sealed class ItemWirePacketTests
         };
         yield return new ItemRequest { RequestId = 6, ItemNetId = 78, ExpectedRevision = 10, Action = ItemAction.Recall, Slot = 4 };
         yield return new ItemRequest { RequestId = 7, ItemHandle = 51, Action = ItemAction.Retrieve };
-        yield return new ItemRequest { RequestId = 8, ItemHandle = 52, ExpectedRevision = 3, Action = ItemAction.CollectLost, Slot = -1, InventoryCapacity = 12, OccupiedSlots = new[] { 0, 1, 2 } };
+        yield return new ItemRequest { RequestId = 8, ItemHandle = 52, ExpectedRevision = 3, Action = ItemAction.CollectLost, Slot = -1 };
         yield return new ItemRequest { RequestId = 9, ItemNetId = 78, ExpectedRevision = 11, Action = ItemAction.Deposit, Container = 17, ShellNetId = 800, Slot = 2 };
         yield return new ItemRequest { RequestId = 10, ItemHandle = 53, ExpectedRevision = 11, Action = ItemAction.Withdraw, Slot = 6 };
         yield return new ItemRequest { RequestId = 11, ItemHandle = 53, ExpectedRevision = 12, Action = ItemAction.MoveInContainer, Container = 18, ContainerRevision = 12, Slot = 1 };
@@ -404,7 +407,8 @@ public sealed class ItemWirePacketTests
             new ServerboundItemRequestPacket { Request = Requests().First(r => r.Action == ItemAction.Throw) },
             new ClientboundItemResultPacket { RequestId = 3, Refusal = ItemRefusal.Busy, Detail = "recall-busy" },
             new ServerboundItemListRequestPacket { RequestId = 4, Kind = ItemListKind.Container, ShellNetId = 800 },
-            new ClientboundItemListPacket { RequestId = 4, Kind = ItemListKind.LostAndFound, Rows = new[] { new ItemRow { Handle = 1, PrefabName = "Mug" } } }
+            new ClientboundItemListPacket { RequestId = 4, Kind = ItemListKind.LostAndFound, Rows = new[] { new ItemRow { Handle = 1, PrefabName = "Mug" } } },
+            new ClientboundInventoryRowsPacket { Full = true, Rows = new List<ItemUpdate> { Observed(ItemUpdate.ItemUpdateType.Create, ItemState.InInventory) }, States = new[] { "{}" } }
         };
         foreach (object packet in packets)
         {

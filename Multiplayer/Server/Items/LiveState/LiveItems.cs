@@ -157,7 +157,8 @@ public static partial class LiveItems
         ItemIdentity persistentIdentity = item.GetComponent<ItemIdentity>();
         Guid persistentItemId = item.IsSceneAuthored ? Guid.Empty : ServerLedger.ClaimPersistentId(item,
             (persistentIdentity ?? item.gameObject.AddComponent<ItemIdentity>()).Ensure());
-        ItemPlacementKind initialPlacement = PlacementFrom(seed?.ItemState ?? item.DebugCurrentState);
+        ItemPlacementKind initialPlacement = PlacementFrom(seed?.ItemState ?? item.DebugCurrentState,
+            seed?.WorldParentKind ?? ItemWorldParentKind.World);
         Vector3 initialPosition = seed?.ItemPosition ?? item.transform.position - WorldMover.currentMove;
         Quaternion initialRotation = seed?.ItemRotation ?? item.transform.rotation;
         LiveItem record = new()
@@ -273,7 +274,7 @@ public static partial class LiveItems
         });
 
         bool appliesPlacement = ItemUpdate.ChangesPlacement(snapshot.UpdateType);
-        ItemPlacementKind requestedPlacement = appliesPlacement ? PlacementFrom(snapshot.ItemState) : record.Placement;
+        ItemPlacementKind requestedPlacement = appliesPlacement ? PlacementFrom(snapshot.ItemState, snapshot.WorldParentKind) : record.Placement;
         if (appliesPlacement && snapshot.ItemState is ItemState.Dropped or ItemState.Thrown)
             requestedPlacement = snapshot.WorldParentKind switch
             {
@@ -367,6 +368,9 @@ public static partial class LiveItems
             record.WorldParentPersistentId = parentCar.CarGUID ?? string.Empty;
         else if (record.WorldParentKind != ItemWorldParentKind.TrainInterior)
             record.WorldParentPersistentId = string.Empty;
+        // A gadget's snap point by the gadget item's id, which a restart keeps (its NetId it doesn't).
+        if (record.WorldParentKind == ItemWorldParentKind.SnapPoint)
+            record.WorldParentKey = SnapPointKeyOf(record.WorldParentNetId);
         record.ParentLocalPosition = snapshot.ParentLocalPosition;
         record.ParentLocalRotation = snapshot.ParentLocalRotation;
         record.AttachedCarNetId = snapshot.CarNetId;
@@ -705,7 +709,7 @@ public static partial class LiveItems
         {
             ItemPlacementKind.PlayerHand => ItemState.InHand,
             ItemPlacementKind.PlayerInventory => ItemState.InInventory,
-            ItemPlacementKind.Attached => ItemState.Attached,
+            ItemPlacementKind.Attached or ItemPlacementKind.SnappedAttachment => ItemState.Attached,
             ItemPlacementKind.Installed => ItemState.Installed,
             ItemPlacementKind.Magazine => ItemState.InMagazine,
             _ => ItemState.Dropped
@@ -810,7 +814,12 @@ public static partial class LiveItems
         if (lost)
             LostAndFoundServer.SetInventoryClaimSlot(record.NetId, record.InventoryClaimSlot);
         if (item == null)
+        {
+            // Kept as data (D14): the owner's game is told from the record.
+            if (!lost)
+                PlayerItems.SendClaim(record);
             return;
+        }
         ItemUpdate correction = null;
         bool corrected = lost
             ? LostAndFoundServer.TryCreateCollectionProjection(item, out correction)
@@ -908,15 +917,21 @@ public static partial class LiveItems
         record.SettledTop = state.SettledTop;
     }
 
-    private static ItemPlacementKind PlacementFrom(ItemState state) => state switch
+    // On a coupler it is attached; on a gadget's snap point it is snapped (live-state.md, "Attached and snapped items").
+    private static ItemPlacementKind PlacementFrom(ItemState state, ItemWorldParentKind parent) => state switch
     {
         ItemState.InHand => ItemPlacementKind.PlayerHand,
         ItemState.InInventory => ItemPlacementKind.PlayerInventory,
+        ItemState.Attached when parent == ItemWorldParentKind.SnapPoint => ItemPlacementKind.SnappedAttachment,
         ItemState.Attached => ItemPlacementKind.Attached,
         ItemState.Installed => ItemPlacementKind.Installed,
         ItemState.InMagazine => ItemPlacementKind.Magazine,
         _ => ItemPlacementKind.World
     };
+
+    /// <summary>The stable key of the snap point of the gadget whose item has this NetId, or empty.</summary>
+    internal static string SnapPointKeyOf(ushort gadgetItemNetId) =>
+        records.TryGetValue(gadgetItemNetId, out LiveItem gadget) ? SnapPointKey.OfGadget(gadget.PersistentItemId) : string.Empty;
 
     private static bool HasRetrievalFlag(ItemInventoryClaimFlags flags) =>
         (flags & (ItemInventoryClaimFlags.Reserved | ItemInventoryClaimFlags.Locked)) != 0;

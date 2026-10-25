@@ -130,9 +130,10 @@ and `ClaimSlotPolicy` are gone. `LiveItem.InventoryClaimSlot` reads the ledger
 - **The owner's game is told.** A claim the ledger moved for another essential raises a `ClaimSlot`
   ledger change, and `ServerLedger.OnLedgerChanged` sends the owner the item's new claim
   (`LiveItems.SendClaim`). On the wire the claim goes only to its owner ([wire.md](wire.md#naming-a-player)).
-  For an item with no object on the server (data only, OI-COLD-06) nothing is sent:
-  `PushClaimSlotCorrection` returns when there is no object, after updating a Lost and Found
-  entry's claim (`LostAndFoundServer.SetInventoryClaimSlot`).
+  An item with no object on the server (data only, OI-COLD-06) is told the same way: its row's
+  update, with the new claim, goes to an owner who knows it (`PlayerItems.SendClaim`, from
+  `PushClaimSlotCorrection`), and the host's own stand-in takes the claim; a Lost and Found entry's
+  claim is updated (`LostAndFoundServer.SetInventoryClaimSlot`).
 - **Re-keys merge claims.** When an install GUID is re-keyed to a Steam id that already has data
   (`ItemLedger.Rekey`, OI-ID-19), a claim on a slot the new identity already claims moves to a free
   one, or none.
