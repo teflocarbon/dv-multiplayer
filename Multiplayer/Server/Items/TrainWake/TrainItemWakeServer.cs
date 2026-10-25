@@ -333,13 +333,16 @@ internal sealed class TrainItemWakeServer
             if (rejection == "no-eligible-train-item-simulator" ||
                 rejection == "item-representation-unavailable")
             {
+                // A retry keeps the first attempt's start, or a wake nobody can simulate never expires.
+                float createdAt = pendingByItem.TryGetValue(itemNetId, out PendingWake earlier)
+                    ? earlier.CreatedAt : Time.realtimeSinceStartup;
                 pendingByItem[itemNetId] = new PendingWake
                 {
                     ItemNetId = itemNetId,
                     PreferredSimulatorPlayerId = selectedSimulator,
                     InitialLocalVelocity = initialLocalVelocity,
                     Reason = reason,
-                    CreatedAt = Time.realtimeSinceStartup,
+                    CreatedAt = createdAt,
                     NextAttemptAt = Time.realtimeSinceStartup + 0.5f
                 };
                 Publish("train-item.wake-pending", itemNetId,

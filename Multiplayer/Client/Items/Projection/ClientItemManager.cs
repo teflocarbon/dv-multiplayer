@@ -14,8 +14,8 @@ namespace Multiplayer.Client.Items.Projection;
 /// <summary>
 /// The remote client's part of <see cref="NetworkedItemManager"/>: the host's snapshots as this game
 /// receives them (deferred world projections, job documents, Lost and Found tombstones), the
-/// projections of scene-authored items (AuthoredProjections), unbound local items and their
-/// temporary adoption, and the client's fall-rescue report (FallRescueClient). The Shared manager
+/// projections of scene-authored items (AuthoredProjections), unbound local items (kept dormant
+/// or destroyed), and the client's fall-rescue report (FallRescueClient). The Shared manager
 /// creates it on a remote client only and drives it (<see cref="IItemManagerClientPart"/>); client
 /// code reaches it as <see cref="Instance"/>.
 /// </summary>

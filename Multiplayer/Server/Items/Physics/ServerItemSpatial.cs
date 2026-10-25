@@ -207,6 +207,8 @@ internal sealed class ServerItemSpatial
         }
         NetworkServer.Instance.SendItemSpatialCommit(item,
             new ClientboundItemSpatialCommitPacket { State = state });
+        // A train item rests in its car at the new revision, so an impact on it can wake it.
+        manager.TrainItemWake.OnSpatialSettled(item, state, committed);
         Publish("item.server-pose-committed", item.NetId, new(SpatialDebug(state))
         {
             ["cause"] = cause.ToString()
