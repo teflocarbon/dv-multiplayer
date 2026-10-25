@@ -9,8 +9,8 @@ rigidbody that has only the mug's convex `MeshCollider` and none of the game's o
 does it too, on a host and on a client. Vanilla has nothing that catches it. `RespawnOnDrop`
 respawns an item only once it is too far from the player and from its spawn point. In multiplayer
 the mod's terrain guard now puts it back on the surface the same physics step
-([below](#the-terrain-guard-2026-10-21)); the fall rescue (`ServerItemManager.FallRescue.cs`,
-`ClientItemManager.FallRescue.cs`) is the backstop.
+([below](#the-terrain-guard-2026-10-21)); the fall rescue (`Server/Items/Physics/FallRescueServer.cs`,
+`Client/Items/Physics/FallRescueClient.cs`) is the backstop.
 
 ## What was measured
 
@@ -54,7 +54,7 @@ rarely on open ground. Any small item with a convex mesh collider is likely to b
 
 ## The terrain guard (2026-10-21)
 
-The mod now guards against it (`NetworkedItemManager.TerrainGuard.cs`,
+The mod now guards against it (`Shared/Items/Physics/ItemTerrainGuard.cs`,
 [design](../legacy/items/item-spatial-physics.md#landing-on-the-terrain)): right after each physics step,
 on the game simulating the item, an item that crossed the terrain collider in that step is put back
 on the surface where it crossed, without the velocity into the ground.
@@ -64,7 +64,7 @@ absolute (7173, 126, 6889) on `terrain_18`, the player standing 6 m away: each s
 `Terrain.SampleHeight` at a random offset of up to a metre and a random rotation, with velocity
 (2, -6, 0) m/s, so it hits the ground at about 9.9 m/s. It counts a fall-through when the mug's
 centre goes 0.5 m under the surface within 2 s. The guard is switched off for "before"
-(`NetworkedItemManager.TerrainGuardEnabled`), same seed for both. On the host the mugs are
+(`ItemTerrainGuard.Enabled`), same seed for both. On the host the mugs are
 `Instantiate`d from the prefab (networked world items, simulated by the host with no lease). On the
 client, a client's local `Instantiate` is removed by the mod, so the host spawns networked mugs by
 the client, and the client picks each up, throws it (it then holds the lease and simulates it), and

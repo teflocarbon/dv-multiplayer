@@ -105,7 +105,7 @@ public partial class NetworkClient : IItemClient
 
     private void SendWorldItemCatalogue()
     {
-        var summary = NetworkedItemManager.Instance.GetAuthoredCatalogueSummary();
+        var summary = NetworkedItemManager.Instance.Authored.Summary();
         SendPacketToServer(new ServerboundWorldItemCataloguePacket
         {
             ItemCount = summary.Count,
@@ -117,7 +117,7 @@ public partial class NetworkClient : IItemClient
 
     private void OnClientboundWorldItemCataloguePacket(ClientboundWorldItemCataloguePacket packet)
     {
-        ClientItemManager.Instance?.SetAuthoredCatalogueNegotiationResult(packet?.Accepted == true);
+        ClientItemManager.Instance?.Authored.SetNegotiationResult(packet?.Accepted == true);
         DebugRuntime.Publish("item-world", "world-item.catalogue-result", DebugRuntimeSide.Client,
             packet?.Accepted == true ? DebugSeverity.Info : DebugSeverity.Error, data: new()
             {

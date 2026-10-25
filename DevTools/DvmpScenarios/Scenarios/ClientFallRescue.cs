@@ -4,8 +4,10 @@ using System.Linq;
 using System.Threading.Tasks;
 using Dvmp.Agent;
 using HarmonyLib;
+using Multiplayer.Server.Items.Physics;
 using Multiplayer.Server.Items.Projection;
 using Multiplayer.Shared.Items.LiveState;
+using Multiplayer.Shared.Items.Physics;
 using Multiplayer.Shared.Session;
 using UnityEngine;
 
@@ -76,7 +78,7 @@ namespace Dvmp.Scenarios
         {
             private const string HarmonyId = "dvmp.client-fall-rescue.no-host-scan";
 
-            /// <summary>Host: turns the server's own fall-rescue scan (ServerItemManager.HostScanForFallenItems)
+            /// <summary>Host: turns the server's own fall-rescue scan (FallRescueServer.Scan)
             /// off (false) or back on, so an item under the map is rescued only through a client's
             /// below-map report: the server loads terrain around remote players, and its own scan
             /// would usually find the item first.</summary>
@@ -86,7 +88,7 @@ namespace Dvmp.Scenarios
                 var harmony = new Harmony(HarmonyId);
                 harmony.UnpatchAll(HarmonyId);
                 if (!on)
-                    harmony.Patch(AccessTools.Method(typeof(ServerItemManager), nameof(ServerItemManager.HostScanForFallenItems)),
+                    harmony.Patch(AccessTools.Method(typeof(FallRescueServer), nameof(FallRescueServer.Scan)),
                         prefix: new HarmonyMethod(typeof(InGame).GetMethod(nameof(Skip))));
             }
 
@@ -118,7 +120,7 @@ namespace Dvmp.Scenarios
                 yield return Items.Arrive(id, 30f);
                 NetworkedItem.TryGet(id, out NetworkedItem item);
                 yield return new WaitForSeconds(2f);
-                if (NetworkedItemManager.BelowTerrain(item.transform.position, out float surface) == null)
+                if (ItemFallRescue.BelowTerrain(item.transform.position, out float surface) == null)
                     throw new Exception("no terrain loaded under the item in the client's game");
                 step.Result = surface;
             }
@@ -145,7 +147,7 @@ namespace Dvmp.Scenarios
                     server.SendItemUpdate(snapshot, sendToPlayer: player);
                     sent++;
                 }
-                return new Sunk { Sent = sent, HostHasTerrain = NetworkedItemManager.BelowTerrain(item.transform.position, out _) != null };
+                return new Sunk { Sent = sent, HostHasTerrain = ItemFallRescue.BelowTerrain(item.transform.position, out _) != null };
             }
         }
     }

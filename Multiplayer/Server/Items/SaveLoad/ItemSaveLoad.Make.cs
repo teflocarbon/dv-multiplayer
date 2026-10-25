@@ -186,7 +186,7 @@ internal static partial class ItemSaveLoad
     private static NetworkedItem FindExisting(Guid persistentId, string authoredKey)
     {
         if (WorldItemStableIdentity.IsValid(authoredKey) &&
-            NetworkedItemManager.Instance.TryGetAuthoredItem(authoredKey, out NetworkedItem authored))
+            NetworkedItemManager.Instance.Authored.TryGet(authoredKey, out NetworkedItem authored))
             return authored;
         if (persistentId == Guid.Empty)
             return null;
@@ -347,7 +347,7 @@ internal static partial class ItemSaveLoad
     private static bool RestoreAuthoredTombstone(SavedItemRow saved, JObject source)
     {
         if (!WorldItemStableIdentity.IsValid(saved.AuthoredItemKey) ||
-            !NetworkedItemManager.Instance.TryGetAuthoredItem(saved.AuthoredItemKey, out NetworkedItem item) ||
+            !NetworkedItemManager.Instance.Authored.TryGet(saved.AuthoredItemKey, out NetworkedItem item) ||
             item == null)
             return false;
 

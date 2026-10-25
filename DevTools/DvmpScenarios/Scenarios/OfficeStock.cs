@@ -7,6 +7,7 @@ using Dvmp.Lib;
 using Multiplayer.Server.Items.LiveState;
 using Multiplayer.Server.Session;
 using Multiplayer.Shared.Items.LiveState;
+using Multiplayer.Shared.Items.WorldItems;
 using Multiplayer.Shared.Protocol.Data;
 using Multiplayer.Shared.Protocol.Data.Items;
 using UnityEngine;
@@ -110,7 +111,7 @@ namespace Dvmp.Scenarios
                 NetworkServer server = NetworkServer.Instance;
                 ServerPlayer client = server.ServerPlayers.First(p => p.Peer != server.SelfPeer && p != server.LocalPlayer);
                 NetworkedItem nearest = NetworkedItem.GetAll()
-                    .Where(i => i != null && NetworkedItemManager.IsEligibleAuthoredOfficeProp(i) &&
+                    .Where(i => i != null && AuthoredItems.IsEligibleOfficeProp(i) &&
                                 LiveItems.TryGet(i.NetId, out var r) && r.Placement == ItemPlacementKind.World &&
                                 (r.Position - r.BaselinePosition).sqrMagnitude < 0.01f)
                     .OrderBy(i => (i.transform.position - WorldMover.currentMove - client.AbsoluteWorldPosition).sqrMagnitude)

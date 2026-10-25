@@ -88,7 +88,7 @@ internal sealed partial class ClientItemManager
         {
             if (WorldItemStableIdentity.IsValid(snapshot.AuthoredItemKey))
             {
-                if (!TryBindAuthoredClientProjection(snapshot))
+                if (!Authored.TryBind(snapshot))
                     RefuseProjection(snapshot);
                 return;
             }
@@ -247,7 +247,7 @@ internal sealed partial class ClientItemManager
             budget--;
             PendingWorldProjections.Remove(pair.Key);
             bool projected = WorldItemStableIdentity.IsValid(pending.Create.AuthoredItemKey)
-                ? TryBindAuthoredClientProjection(pending.Create, false)
+                ? Authored.TryBind(pending.Create, false)
                 : CreateItem(pending.Create, false);
             if (!projected)
             {

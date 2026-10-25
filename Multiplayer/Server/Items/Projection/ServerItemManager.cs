@@ -43,6 +43,7 @@ internal sealed partial class ServerItemManager : IItemManagerServerPart
         HostSpatial = new ServerItemSpatial(shell.Spatial, this);
         TrainItemWake = new TrainItemWakeServer(shell.Spatial, HostSpatial);
         Replenishment = new OfficeStockReplenishment(this);
+        FallRescue = new FallRescueServer(this);
         // A player host's own inventory is rows, as a client's is (D14).
         InventoryRowHolder.Host = HostInventory.Instance;
     }
@@ -50,6 +51,8 @@ internal sealed partial class ServerItemManager : IItemManagerServerPart
     /// <summary>The host's side of the Shared spatial manager's leases.</summary>
     internal ServerItemSpatial HostSpatial { get; }
     internal TrainItemWakeServer TrainItemWake { get; }
+    /// <summary>Puts items that fell through the world back where they were last safe.</summary>
+    internal FallRescueServer FallRescue { get; }
 
     /// <summary>The server's item manager, while there is one.</summary>
     internal static ServerItemManager Instance => NetworkedItemManager.Instance?.ServerPart as ServerItemManager;
@@ -76,7 +79,7 @@ internal sealed partial class ServerItemManager : IItemManagerServerPart
         UpdatePlayerItemLists();
         ProcessChanged(tick);
         RunConvergence();
-        RunFallRescue();
+        FallRescue.Run();
     }
 
     public void Clear()
@@ -89,6 +92,7 @@ internal sealed partial class ServerItemManager : IItemManagerServerPart
         TrainItemWake.Clear();
         HostSpatial.Clear();
         Replenishment.Clear();
+        FallRescue.Clear();
         ItemSaveLoad.Clear();
         ServerLedger.Clear();
         PlayerItems.Clear();

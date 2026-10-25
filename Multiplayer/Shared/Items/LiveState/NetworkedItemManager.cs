@@ -6,6 +6,10 @@ using Multiplayer.Shared.Items.WorldItems;
 using UnityEngine;
 using JetBrains.Annotations;
 
+using Multiplayer.Core.Diagnostics;
+using Multiplayer.Debugging.Protocol;
+using Multiplayer.Shared.Debugging;
+using Multiplayer.Shared.Protocol.Data.Items;
 using Multiplayer.Shared.Session;
 using System;
 using DV;
@@ -51,14 +55,18 @@ public partial class NetworkedItemManager : SingletonBehaviour<NetworkedItemMana
     private readonly HashSet<NetworkedItem> PendingLocalStateObservationSet = new();
     private readonly Dictionary<NetworkedItem, string> PendingLocalStateReasons = new();
     private readonly Dictionary<NetworkedItem, float> PendingTrackedValueFinalizations = new();
-    private readonly AuthoredWorldItemCatalogue AuthoredCatalogue = new();
-    private bool authoredCatalogueBuilt;
+    // The scene-authored items, by stable key.
+    internal AuthoredItems Authored { get; private set; }
     internal NetworkedItemSpatialManager Spatial { get; private set; }
+    // Puts an item this game simulates back on the terrain it went through (ItemTerrainGuard).
+    internal ItemTerrainGuard TerrainGuard { get; private set; }
 
     protected override void Awake()
     {
         base.Awake();
         Spatial = new NetworkedItemSpatialManager();
+        TerrainGuard = new ItemTerrainGuard(this);
+        Authored = new AuthoredItems(this);
 
         serverPart = ItemServer.Current?.CreateItemManagerPart(this);
     }
@@ -68,7 +76,7 @@ public partial class NetworkedItemManager : SingletonBehaviour<NetworkedItemMana
         // The host's tick runs the server's part; a remote client's runs the client part, whose
         // fall-rescue scan reports its items under the map (#37: it was subscribed on the host only).
         NetworkLifecycle.Instance.OnTick += Common_OnTick;
-        StartCoroutine(GuardItemsAgainstTerrainTunnelling());
+        StartCoroutine(TerrainGuard.Run());
 
         BuildPrefabLookup();
     }
@@ -178,7 +186,7 @@ public partial class NetworkedItemManager : SingletonBehaviour<NetworkedItemMana
         // builds it at once, to register the scene's items.
         if (ServerPart is { } server)
         {
-            EnsureAuthoredCatalogue();
+            Authored.Ensure();
             server.Tick(tick);
         }
         ClientPart?.Tick(tick);
@@ -209,6 +217,60 @@ public partial class NetworkedItemManager : SingletonBehaviour<NetworkedItemMana
         string.Equals(prefabName, nameof(JobOverview), StringComparison.Ordinal) ||
         string.Equals(prefabName, nameof(JobBooklet), StringComparison.Ordinal) ||
         string.Equals(prefabName, nameof(JobReport), StringComparison.Ordinal);
+
+    // The host's cell index is the server's (ServerItemManager.WorldIndex.cs); these are for the
+    // Shared code that changes where an item is.
+    internal void RegisterHostWorldItem(NetworkedItem item) => ServerPart?.RegisterHostWorldItem(item);
+
+    internal void RefreshHostSpatialPosition(NetworkedItem item, Vector3 absolutePosition,
+        ItemWorldParentKind parentKind) => ServerPart?.RefreshHostSpatialPosition(item, absolutePosition, parentKind);
+
+    internal void AppendSpatialDebugState(ushort itemNetId, Dictionary<string, object> state)
+    {
+        Spatial?.AppendDebugState(itemNetId, state);
+        if (ServerPart != null)
+            ServerPart.AppendTrainWakeDebugState(itemNetId, state);
+        else if (state != null)
+        {
+            // Train items are woken by the host only: a client's copy is never settled or pending.
+            state["trainWakeSettled"] = false;
+            state["trainWakePending"] = false;
+        }
+    }
+
+    internal void OnTrainItemRemoved(ushort itemNetId) => ServerPart?.OnTrainItemRemoved(itemNetId);
+
+    internal bool TryGetLatestSpatialState(ushort itemNetId, out ItemSpatialStateData state)
+    {
+        state = null;
+        return Spatial?.TryGetLatestAccepted(itemNetId, out state) == true;
+    }
+
+    internal bool HasActiveSpatialState(ushort itemNetId) =>
+        Spatial?.TryGetLatestAccepted(itemNetId, out _) == true;
+
+    internal bool IsSpatiallySimulatedRemotely(ushort itemNetId) =>
+        Spatial?.IsSimulatedRemotely(itemNetId) == true;
+
+    internal bool TryGetCommittedSpatialState(ushort itemNetId, out ItemSpatialStateData state)
+    {
+        state = null;
+        return Spatial?.TryGetCommitted(itemNetId, out state) == true;
+    }
+
+    internal static void TraceSnapshot(string eventName, ItemUpdate snapshot)
+    {
+        if (!DebugRuntime.EnabledFor("item") || snapshot == null) return;
+        DebugRuntime.Publish("item", eventName, NetworkRole.DebugSide,
+            entityType: "Item", entityId: snapshot.ItemNetId.ToString(), data: DebugTrace.ItemSnapshotData(snapshot));
+    }
+
+    internal static void TraceItem(string eventName, NetworkedItem item, Dictionary<string, object> data)
+    {
+        if (!DebugRuntime.EnabledFor("item") || item == null) return;
+        DebugRuntime.Publish("item", eventName, NetworkRole.DebugSide,
+            entityType: "Item", entityId: item.NetId.ToString(), data: data);
+    }
 
     [UsedImplicitly]
     public new static string AllowAutoCreate()

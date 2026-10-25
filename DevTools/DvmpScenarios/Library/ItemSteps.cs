@@ -11,6 +11,7 @@ using Multiplayer.Server.Items.LiveState;
 using Multiplayer.Server.Items.LostAndFound;
 using Multiplayer.Server.Items.Projection;
 using Multiplayer.Shared.Items.LiveState;
+using Multiplayer.Shared.Items.Physics;
 using Multiplayer.Shared.Session;
 using UnityEngine;
 
@@ -155,7 +156,7 @@ namespace Dvmp.Scenarios
         public static ItemPose Pose(ushort netId)
         {
             if (!NetworkedItem.TryGet(netId, out NetworkedItem item) || item == null) return new ItemPose();
-            float? depth = NetworkedItemManager.BelowTerrain(item.transform.position, out _);
+            float? depth = ItemFallRescue.BelowTerrain(item.transform.position, out _);
             return new ItemPose
             {
                 Present = true,
