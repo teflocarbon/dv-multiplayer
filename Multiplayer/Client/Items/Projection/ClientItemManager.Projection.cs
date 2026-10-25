@@ -286,6 +286,10 @@ internal sealed partial class ClientItemManager
     {
         // Items riding a car are placed relative to it; their world position in the Create is
         // where the car was when it was sent and may be long gone. What they need is the car.
+        // A gadget's snap point names only its gadget item (no car): what it needs is that gadget
+        // installed here.
+        if (snapshot.ItemState == ItemState.Attached && snapshot.WorldParentKind == ItemWorldParentKind.SnapPoint)
+            return GadgetSnapPoints.PointOf(snapshot.WorldParentNetId) != null;
         if (snapshot.ItemState == ItemState.Attached)
             return NetworkedTrainCar.TryGet(snapshot.CarNetId, out TrainCar attachedCar) && attachedCar != null;
         if (snapshot.WorldParentKind == ItemWorldParentKind.TrainInterior)
