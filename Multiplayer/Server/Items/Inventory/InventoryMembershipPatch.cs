@@ -35,6 +35,10 @@ public static class InventoryMembershipPatch
             NetworkLifecycle.Instance == null || !NetworkLifecycle.Instance.IsHost() ||
             !item.TryGetComponent(out NetworkedItem networked) || networked.NetId == 0)
             return;
+        // The code that destroys it through the inventory may have said why already (a money deposit, a use-up).
+        if (networked.PendingRemovalCause is { } noted &&
+            unchecked(NetworkLifecycle.Instance.Tick - noted.Tick) <= NetworkLifecycle.TICK_RATE * 2)
+            return;
         networked.NoteRemovalCause(ItemChangeLog.Removal(global::Multiplayer.Core.Items.ChangeCauses.ItemRemovalReason.DestroyedFromInventory,
             detail: "callers " + ItemChangeCauses.Callers(typeof(InventoryMembershipPatch))));
     }

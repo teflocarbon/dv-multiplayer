@@ -127,7 +127,7 @@ committed it first, `ServerLedger.CommitStored`), `LeftInterest`, `WentCold`, an
 | `StarterKit`, `Issued` | the issuer (`StartingItemsIssuer`), through `RegisterMaterializedColdItem` and `Settle` |
 | `Granted` | an admin's give (`AdminItemGrants`), owned by its target |
 | `Claimed` | the first player to take an unowned personal item |
-| `Replaced` | `ServerLedger.RecordReplacement`; no game path calls it yet (OI-LIN-02..04, paused with gadgets) |
+| `Replaced` | `ServerLedger.RecordReplacement`: a spray can's empty can (`UseUp`, [vanilla-storage.md](vanilla-storage.md#used-up)); the gadget tools later (OI-LIN-02..04, paused with gadgets) |
 | `Made` | nothing yet |
 | `Migrated` | the load registering an owned item the ledger never saw; a gadget's saved owner; the check's repair of a stray; a restored, withdrawn or retrieved item with no entry |
 | `Duplicate` | a copy of an id already in use: `Register`, or `Own` for an object `ClaimPersistentId` re-minted |
@@ -136,8 +136,10 @@ An id is for life. When an object registers an id another live object has,
 `ServerLedger.ClaimPersistentId` keeps the first, gives the copy a new id (`ItemIdentity.CopiedFrom`
 names the original) and logs `item.duplicate-persistent-id`; once owned, the copy is born `Duplicate`
 from the original (OI-ID-05, -18). An ended id that comes back gets a new one too (`TakeNewId`). An
-entry ends with an `ItemRemovalReason`: binning (`Discarded`, by its binner, [vanilla-storage.md](vanilla-storage.md#bins)), using up, a deleted car, a money deposit, or
-`DestroyedByGame` when nothing said why.
+entry ends with an `ItemRemovalReason`: binning (`Discarded`, by its binner, [vanilla-storage.md](vanilla-storage.md#bins)), using up (`UsedUp`,
+[vanilla-storage.md](vanilla-storage.md#used-up)), a deleted car, a money deposit (`MoneyDeposited`, a client's or the host
+player's, [vanilla-storage.md](vanilla-storage.md#money)), the dev console (`DevConsole`), or `DestroyedByGame` when
+nothing said why.
 
 ## Cold and live homes
 

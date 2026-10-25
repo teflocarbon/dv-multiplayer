@@ -448,6 +448,8 @@ public partial class NetworkServer : IItemServer
                 return CarryBelowMapReport(request, player);
             case ItemAction.MoveSlot:
                 return CarryMoveSlot(request, player);
+            case ItemAction.UseUp:
+                return CarryUseUp(request, player);
             default:
                 return Refuse(request, "item-action-invalid", ItemRefusal.Invalid);
         }
@@ -462,7 +464,7 @@ public partial class NetworkServer : IItemServer
         if (PlayerItems.IsDataOnly(request.ShellNetId))
             return request.ShellNetId;
         // A load waits for its tool too: one a take is still making again is made by then (H4).
-        if (request.Action == ItemAction.LoadMagazine && PlayerItems.IsDataOnly(request.MagazineNetId))
+        if (request.Action is ItemAction.LoadMagazine or ItemAction.UseUp && PlayerItems.IsDataOnly(request.MagazineNetId))
             return request.MagazineNetId;
         LiveItems.LiveItem record = request.Action switch
         {
@@ -634,6 +636,18 @@ public partial class NetworkServer : IItemServer
         if (amount > double.Epsilon)
             Inventory.Instance.AddMoney(amount); // MoneyChanged broadcasts the new balance
         return Accept(request, 0, request.ItemNetId);
+    }
+
+    // Used up (vanilla-storage.md, "Used up"; OI-VAN-03): the server's step, which destroys it and makes its replacement.
+    private static ClientboundItemResultPacket CarryUseUp(ItemRequest request, ServerPlayer player)
+    {
+        if (!NetworkedItem.TryGet(request.ItemNetId, out NetworkedItem item) || item == null)
+            return Refuse(request, "item-unknown", ItemRefusal.UnknownItem);
+        NetworkedItem tool = null;
+        if (request.MagazineNetId != 0 && (!NetworkedItem.TryGet(request.MagazineNetId, out tool) || tool == null))
+            return Refuse(request, "tool-unknown", ItemRefusal.UnknownItem);
+        string refused = Items.Consumables.UseUp.Carry(player, item, tool);
+        return refused.Length > 0 ? Refuse(request, refused, ItemRefusal.NotAllowed) : Accept(request, 0, request.ItemNetId);
     }
 
     private static ClientboundItemResultPacket CarryBelowMapReport(ItemRequest request, ServerPlayer player)
