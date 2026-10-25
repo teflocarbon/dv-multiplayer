@@ -254,7 +254,7 @@ Concrete cases:
   is followed by the item's canonical state. Physics of a thrown or dropped item may be leased to one client, which
   sends samples and a settlement the host validates. See
   [design/items/wire.md](design/items/wire.md), [design/item-lifecycle.md](legacy/items/item-lifecycle.md) and
-  [design/item-spatial-physics.md](legacy/items/item-spatial-physics.md).
+  [design/items/physics.md](design/items/physics.md).
 - **Train topology.** `ServerboundTrainTopologyCommandPacket` (couple, uncouple, hoses, cocks,
   MU) is checked for range (the player within 8 m of the primary car, measured to the line
   between its couplers, unless using a remote; and the two couplers actually close), executed by
@@ -440,13 +440,13 @@ The regression scenarios for this are `rejoin` (including `CRASH=1`), `save-relo
 | [world-sync.md](world-sync.md) | World state outside trains and items: junctions, turntables, weather, time and sleep, shops, hazmat, explosions. |
 | [jobs.md](jobs.md) | Job generation, booklets, validation and reports. |
 | [design/trains.md](design/trains.md) | Train authority layers, topology commands and snapshots, controls, brakes, motion, baseline. |
-| [design/train-item-wake.md](legacy/items/train-item-wake.md) | Loose items riding on trains: gluing, waking on impacts and acceleration, settlement. |
+| [design/items/train-wake.md](design/items/train-wake.md) | Loose items riding on trains: gluing, waking on impacts and acceleration, settlement. |
 | [design/items/README.md](design/items/README.md) | Start here for items: the item system as the refactor builds it, its names and one code folder and doc per subsystem. The item docs below are legacy until each is replaced. |
 | [design/item-lifecycle.md](legacy/items/item-lifecycle.md) | Legacy: an item's life, its placements, the state machine and shared rules, and the doc for each item system. |
 | [design/owned-items.md](legacy/items/owned-items.md) | Ownership and the owned-items ledger, starting items, joining and leaving, recall, the owned-items list and retrieval. |
 | [design/lost-and-found.md](legacy/items/lost-and-found.md) | Lost and Found: collection, entries, retrieval, saving. |
-| [design/item-world-sync.md](legacy/items/item-world-sync.md) | Item catalogue, interest streaming, projection to clients, placement anchors, office stock. |
-| [design/item-spatial-physics.md](legacy/items/item-spatial-physics.md) | Thrown and dropped item physics: leases, samples, settlement, validation. |
+| [design/items/projection.md](design/items/projection.md), [world-items.md](design/items/world-items.md) | Item catalogue, interest streaming, projection to clients, placement anchors, office stock. |
+| [design/items/physics.md](design/items/physics.md) | Thrown and dropped item physics: leases, samples, settlement, validation. |
 | [design/container-storage.md](legacy/items/container-storage.md) | Cold containers: contents as server records, browse, deposit, withdraw. |
 | [design/item-persistence.md](legacy/items/item-persistence.md) | Where each item is saved, and loading. |
 | [design/item-ownership-open-questions.md](legacy/items/item-ownership-open-questions.md) | The ownership questions still open. |

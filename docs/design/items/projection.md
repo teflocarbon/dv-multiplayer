@@ -1,0 +1,270 @@
+# Projection
+
+> Status: built in R7 of the [item refactor](../item-refactor.md) (#389-#396, drafts, 2026-10-25), not yet
+> proved in a game: that is the end pass (OI-REF-01). It covers interest and what each client is
+> shown: the cells, who is sent which item, a client's copy of it, acknowledgements, retries and
+> convergence. Scene items, shelves and office stock are [world-items.md](world-items.md); leases and
+> settlement are [physics.md](physics.md); the packets are [wire.md](wire.md); why an item went is
+> [change-causes.md](change-causes.md). With world-items.md it replaces the legacy
+> [item-world-sync.md](../../legacy/items/item-world-sync.md).
+
+| Side | Code |
+| --- | --- |
+| Core | `Multiplayer.Core/Items/Projection/`: `ProjectionAcks`, `WorldItemIndexing`, `ItemPossessionInterestPolicy`, `RemoteItemProjectionPlanner`, `ItemWireStateProjection`; `KnownItemDeliveryEvaluator` (`Multiplayer.Core/Replication/InterestMembership.cs`) |
+| Server | `Multiplayer/Server/Items/Projection/`: `ServerItemManager` (`.WorldIndex`, `.Interest`, `.Convergence`), `WorldItemCellCoord`, `ItemHandles`; the ack and debug handlers in `NetworkServer.Items.cs`; `ServerPlayer.KnownItems`, `NearbyItems`, `AcknowledgedWorldItems`, `ProjectionRetryAt` |
+| Client | `Multiplayer/Client/Items/Projection/`: `ClientItemManager` (`.Projection`, `.Compatibility`; `.Rows`, `.StandIns`, `.TakeOut` are [inventory.md](inventory.md)'s) |
+| Shared | `InstalledItems` (`Multiplayer/Shared/Items/LiveState/InstalledItems.cs`) |
+
+## What the server keeps for each player
+
+The server's record ([live-state.md](live-state.md)) is the item. A client's object is a copy of it,
+made and taken away by the server. For each player (`ServerPlayer`) the server keeps:
+
+- **nearby** (`NearbyItems`): the items its interest takes in now;
+- **known** (`KnownItems`): the items it has been sent a Create for, with the tick it was last sent
+  anything. An item is known from the moment its Create goes, before any answer;
+- **acknowledged** (`AcknowledgedWorldItems`): the items its game said it has
+  ([Acknowledgements](#acknowledgements));
+- **a retry hold** (`ProjectionRetryAt`): when a Create it failed may go again.
+
+## Cells
+
+The world is cut into 128 m squares on absolute X and Z (`WorldItemCellCoord`, `Size = 128`). The
+server indexes every item it has (`ServerItemManager.RefreshHostWorldItem`):
+
+- **nowhere**: waiting for its restore (`ItemSaveLoad.IsRestorePending`), in Lost and Found,
+  destroyed, or an installed gadget's item not yet committed as installed;
+- **non-spatial** (`HostNonSpatialItems`): in a hand, an inventory, a container, a magazine, a train
+  interior, attached, snapped or installed;
+- **by its cell**: in the world or on a shelf (`WorldItemIndexing.IndexedByCell`). A world item its
+  owner has a recall claim on is in both.
+
+A shelf item lies where it is, as an item on the ground does. Before R7 a spatial sample or commit
+onto a shelf took it out of the cells, nothing else made it relevant, and every client was sent its
+retirement 0.3 s after it landed (SH2, F42, OI-SYNC-04).
+
+An item is indexed again in the same operation as every committed placement, at the record's pose
+(`OnAuthoritativeItemTransition`), so an item thrown out of a car is in its cell before its Unity
+state applies. So is every accepted change to one of the server's own copies (`ProcessChanged`) and
+every `RegisterHostWorldItem`. Spatial samples and commits take a cheaper path
+(`RefreshHostSpatialPosition`) that does nothing while the cell and the kind of parent stay the same.
+Each re-index clears every player's cached cells, so everyone's interest is rebuilt at the next tick
+(F43). That is the code's rule; OI-SYNC-05 is rewritten to it and ticks in R8.
+
+## Interest
+
+Every network tick (24 Hz), `UpdatePlayerItemLists` looks at each player at `ReadyForItems` or later.
+Their centre is the cell of `ServerPlayer.AbsoluteWorldPosition`, and their cells are the 3×3 around it.
+Their interest is rebuilt (`RefreshPlayerInterest`) when their cells change, when the index changed,
+or a quarter of a second after the last rebuild, for what moves with players (holders, cars).
+
+**What a player is sent.** The items indexed in their 3×3 cells, plus the non-spatial items relevant to
+them (`IsNonSpatialRelevantTo`):
+
+| Placement | Relevant to |
+| --- | --- |
+| installed | everyone: a gadget rides its car, and every player has every car |
+| a hand or an inventory | its holder; its owner while they have a recall claim on it; anyone whose cells hold the holder (`ItemPossessionInterestPolicy`) |
+| anything with an owner's recall claim | that owner, anywhere: their silhouette and Get button need it |
+| a train interior | the car's occupants (`ServerPlayer.CarId`), or anyone whose cells hold where it is in the car now |
+| a magazine | whoever knows its tool, or would be sent the tool |
+| attached, snapped | the car's occupants, or anyone whose cells hold the car |
+
+Only items the player's catalogue takes go in (`ServerPlayer.TakesAuthored`: any item but a scene item
+whose key was refused, [world-items.md](world-items.md#the-authored-catalogue)).
+
+**Staying.** An item already nearby stays until it is outside the 5×5 cells around the player. Without
+it, walking along a cell edge retired and re-made everything on the other side at each step (F44;
+OI-SYNC-06 is rewritten to this rule and ticks in R8).
+
+**Pinned.** Some items are in a player's interest whatever their cells say (`AddPinnedInterest`):
+
+- every item a remote player simulates (a lease, `ServerItemSpatial.SimulatedBy`) stays theirs until
+  the lease ends, wherever it flies;
+- a train wake that finds nobody with its item pins it, for 10 s, in the interest of each player in
+  range who lacks it, so their game gets it and can take the wake (`ServerItemManager.PinInterest`,
+  OI-PHY-12; [train-wake.md](train-wake.md)). A pin brings the player's next rebuild forward.
+
+**Lost and Found.** An item in Lost and Found is never nearby. It is sent once, as a collection
+projection (a tombstone), to each remote player who doesn't know it; an essential's owner who has no
+copy is sent its Create first, so their silhouette stays ([lost-and-found.md](lost-and-found.md)).
+
+## Leaving interest
+
+An item that leaves a remote player's interest is retired from their game. If they knew it, the
+server forgets it (known and acknowledged), and sends a Destroy with `InterestRetirement`. Its cause
+is `LeftInterest`, with where the item was (`WhyNotRelevant`: its placement and cell against the
+player's, or "in Lost and Found"), and it is published on the server as `world-item.interest-retired`
+(OI-SYNC-18). Leaving interest ends the player's right to act on the item: a late answer can't bring
+it back.
+
+## Delivery
+
+`ProcessChanged`, every tick:
+
+1. **The server's own copies.** A change to one (`NetworkedItem.GetSnapshot`) is committed as the
+   host's own, forced (`HostLocalState`): by the host's player on a player host, by the server itself
+   on a dedicated one (`HostItemActor`). For an item another player holds, only the server's own object
+   state is kept (`TryKeepRemotePossession`). Items in Lost and Found, waiting for a restore, destroyed
+   or installed are skipped.
+2. **Per remote player, per nearby item** (`KnownItemDeliveryEvaluator`): unknown gives a Create, known
+   at once; dirty gives the dirty update; known since before its last change gives a FullSync. A Create
+   is made from the record (`LiveItems.WriteToSnapshot`) and the last accepted spatial pose, a job
+   report's render recipe going first. A Create waits while the player's retry hold for it lasts.
+3. **Destroys** go only to the players who knew the item (`AddDirtyItemSnapshot`), and the item leaves
+   every player's known, acknowledged and nearby sets.
+4. Each player's updates go in one send, built for them ([wire.md](wire.md#the-update)), then the
+   leases open on what they were sent (`SendActiveLeasesTo`).
+
+A client's accepted update is sent on to every player at `ReadyForItems`, interest or not
+([live-state.md](live-state.md#a-change)). Relays that respect interest are paused (OI-SYNC-15).
+
+## On a client
+
+`ClientItemManager.ProcessReceivedAsClient` takes the server's updates in order. Inventory stand-ins
+go first ([inventory.md](inventory.md)). A Create is made at once unless its region isn't loaded:
+
+- **a scene item** (it has an authored key) binds this game's own object
+  ([world-items.md](world-items.md#authored-projections-on-a-client));
+- **a job document** binds the object the job system made, or waits for it
+  (`PendingSpecialItemSnapshots`);
+- **anything else** is a fresh prefab instance (`CreateItem`), for that Create's lifetime only. An
+  object already holding that NetId is retired first.
+
+Each one acknowledges `Projected`. One it can't make (no prefab, a scene key it lacks) acknowledges
+`Failed` (`RefuseProjection`). Before R7 this immediate path sent nothing, and the server believed the
+client had the item (OI-SYNC-07).
+
+**Deferred.** A Create for an item dropped, thrown or attached whose region isn't ready waits
+(`PendingWorldProjections`). Ready means its car exists, for an attached or train-interior item, or
+else `WorldStreamingInit.IsSceneAndTerrainRegionLoaded` at its position. Later updates for it queue
+(the last 64). A Destroy cancels it and acknowledges `Retired`. Up to 8 ready ones are made a frame:
+each is made without an ack, its queued updates are applied, and then one `Projected` goes with the
+last revision applied. One that can't be made acknowledges `Failed`.
+
+**Retired.** A Destroy takes the copy away (`RetireClientProjection`): unbound, out of vanilla's
+storage and inventory lists, inactive, NetId 0. A scene item goes dormant and keeps its key; a dynamic
+one is destroyed. A job document retired by interest goes dormant instead; a Lost and Found collection
+leaves a tombstone; an installed item is kept ([below](#installed-items)). An `InterestRetirement` is
+acknowledged `Retired`.
+
+## Acknowledgements
+
+A projection is known only once acknowledged (OI-SYNC-07). An ack (`ServerboundWorldItemProjectionAckPacket`)
+names the item, the revision the client applied and its kind (`ProjectionAck`, Core `ProjectionAcks`):
+
+| Kind | Says | Outcome on the server (`ProjectionAcks.Apply`) |
+| --- | --- | --- |
+| `Projected` | it has the item, at that revision | `Acknowledged` if the item exists, the player knows it and the revision is no later than the record's; else `Rejected` |
+| `Retired` | it took the item out, as a retirement said | `Unacknowledged` |
+| `Failed` | it was sent a Create it couldn't make | `Forgotten` if the item exists and the player knows it; else `Unacknowledged` |
+
+`NetworkServer.OnServerboundWorldItemProjectionAckPacket` carries it out:
+
+- **Acknowledged:** the item joins the player's acknowledged set.
+- **Rejected:** logged (`world-item.projection-ack-rejected`); nothing changes.
+- **Unacknowledged:** the item leaves the acknowledged set; what the server knows it sent stays.
+- **Forgotten:** it leaves the acknowledged and known sets, and a retry hold is set.
+
+An older revision than the record's still counts: other players' updates can move the item on while
+the ack is in flight, and those follow it on the same reliable ordered channel. Requiring an exact
+match left new job overviews unacknowledged and their pickups refused (`overview-pickup`).
+
+Before R7 an ack was a bool, so a retirement's and a failure's looked alike. A retirement's ack that
+arrived after the item came back into interest made the server forget the new Create, hold it back
+5 s and send it again over the copy the client had made (F45). Now only a failure forgets.
+
+**What it allows.** The acknowledged set is the server's word that a player's game has the item:
+
+- a player who doesn't hold an item may act on it only once it is acknowledged (a pickup, a book's
+  page, working it where it lies), else `item-not-projected-to-sender` (`NetworkedItemServer`); a
+  pickup must also be within reach ([physics.md](physics.md));
+- only a player who has the item acknowledged may simulate it (`ServerItemSpatial.Candidates`).
+
+A player whose release the server accepts has the item in their world, whether or not they were sent
+it there, and is added to the set. The item leaves it whenever it leaves their game: a retirement, a
+destroy, a deposit, a stash to data or a cold inventory, Lost and Found.
+
+### Retries
+
+A `Forgotten` Create is sent again once it is relevant and its hold is over: 5 s after the failure
+(`NetworkServer.ProjectionRetryDelaySeconds`), in case it keeps failing. The hold is cleared when the
+Create goes. Until then the player is sent no updates for an object it doesn't have.
+
+## Convergence
+
+Replication is by event: once a client knows an item, it hears of it again only when it changes. Some
+vanilla code moves things without the mod noticing, so the server re-sends a few items
+(`ServerItemManager.Convergence`). Every 0.1 s, each remote player at `Complete` is sent the next item
+they know, in turn, that is in the world, a train interior or on a shelf, with no open lease, not in
+Lost and Found and not waiting for a restore. It goes as a `Dropped` update with the record's revision
+and the server's live pose, and `TransitionReason.Convergence`.
+
+The client acts on it only if its copy disagrees (`NetworkedItemClient.IgnoresConvergence`): not while
+it is grabbed; a newer revision; the copy not lying in the world; more than 0.25 m off, in the car's
+frame for a train item. One it acts on is logged as `HostCorrection` with how it disagreed (OI-SYNC-18).
+
+## Installed items
+
+An installed gadget's item is every player's to know, and the item code never destroys it, on any game
+(OI-GAD-06, F49). Only the gadget code takes it out of `Installed`, first, when it goes
+([gadgets.md](../gadgets.md#the-installed-gadget-and-its-item)). `ProcessChanged` skips it: it changes
+only with its gadget.
+
+Every item-code destroy asks `InstalledItems.RefuseDestroy` first. It refuses, logs a warning and
+publishes `item.destroy-refused`. The server goes by its record (`IItemManagerServerPart.IsInstalled`),
+a client by the last state it was sent (`NetworkedItem.LastObservedState`). The server asks where a
+destroy doesn't need possession first: remaking an item from an unloadable state, a leaver's or a
+stashed item going cold or to data, Lost and Found data, a magazine load, a use-up, an abandoned stock
+fork, and an authored slot's old copy. A client asks as it retires a copy and at the server's Destroy.
+
+## The recipients debug state
+
+The server's item debug state (`IItemServer.AuthorityDebugState`) lists, under `recipients`, what each
+player has of the item (`ProjectionDebugState`, OI-SYNC-17): `playerId`, `self` (the host's own player),
+`known` and `knownTick`, `acknowledged`, `retryInSeconds`, `pinnedForSeconds` and `catalogueRefuses`.
+
+## Player-hosted and dedicated servers
+
+Projection runs the same on both, but for who the host's world is:
+
+- **On a player host** the host's own player (`HostItemActor.Player`, on the server's `SelfPeer`) plays
+  in the server's own world. Its interest is worked out, but it is sent no Creates, Destroys,
+  retirements, tombstones or convergence, and isn't pinned what it simulates. Its game's changes are
+  the server's own copies' changes, committed in its name.
+- **On a dedicated host** there is no player of the host's (`HostItemActor.IsServer`): every player is
+  a remote client, and the server commits its world's changes itself, with an empty actor
+  (`LiveItems.TryApplyServerTransition`). The server can simulate an item itself
+  ([physics.md](physics.md)).
+
+## Paused and not on this page
+
+- Paused (D4): a sync-completion barrier at join (OI-SYNC-14), relays that respect interest
+  (OI-SYNC-15), compressed or chunked bulk updates (OI-SYNC-16).
+- Leases, samples, settlement and pickup reach: [physics.md](physics.md). Items in moving trains:
+  [train-wake.md](train-wake.md). Stand-ins and rows: [inventory.md](inventory.md).
+
+## Tests
+
+- `Multiplayer.Core.Tests/Items/Projection/`: `ProjectionAcksTests` (each kind and outcome),
+  `WorldItemIndexingTests` (a shelf item by its cell), `ItemPossessionInterestPolicyTests`,
+  `RemoteItemProjectionPlannerTests`, `ItemWireStateProjectionTests`.
+- `Multiplayer.Core.Tests/Replication/InterestMembershipTests.cs`: dirty against full sync, known-item
+  delivery.
+- `Multiplayer.Protocol.Tests/WorldItemAuthorityPacketTests.cs`: the ack and catalogue packets.
+
+## Scenarios
+
+In [testing.md](../../testing.md) and `DevTools/Scenarios/gate.sh`. They run at the end pass (OI-REF-01),
+on both host kinds unless marked:
+
+- `projection-acks`: `failed` (a failed Create is re-sent and acknowledged), `MODE=late-retire` (F45),
+  `MODE=cause` (the recipients state; `HostCorrection` and `LeftInterest`), `MODE=collision`
+  (one key refused, [world-items.md](world-items.md));
+- `item-bug-shelf-unseen` (SH2, player host only), `item-bug-client-shelf`, `shelf-item` (a late joiner
+  sees a shelf item);
+- `installed-kept` (OI-GAD-06);
+- `container-interest` (a deposit's Destroy only to who knew it; player host only), `server-throw` (an
+  item indexed in its cell at once; player host only), `late-join-train-item` (`MODE=convergence`
+  too), `overview-pickup` (an older ack revision counts);
+- `rejoin` and `starting-items`, which re-prove OI-SYNC-01.

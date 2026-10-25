@@ -97,7 +97,8 @@ public partial class NetworkServer : IItemServer
             ["retryInSeconds"] = player.ProjectionRetryAt.TryGetValue(itemNetId, out float retryAt)
                 ? Mathf.Max(0f, retryAt - Time.time) : 0f,
             ["pinnedForSeconds"] = ServerItemManager.Instance?.PinnedFor(player, item) ?? 0f,
-            ["catalogueRefuses"] = item != null && !player.TakesAuthored(item)
+            // The host's own player has the server's scenes: it never sends a catalogue.
+            ["catalogueRefuses"] = item != null && player.Peer != SelfPeer && !player.TakesAuthored(item)
         }).ToArray();
     }
 

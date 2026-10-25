@@ -238,7 +238,7 @@ internal sealed partial class ClientItemManager
 
     private void ProcessPendingWorldProjections()
     {
-        // The budget limits projections per tick, not readiness checks: counting checks let a
+        // The budget limits projections per frame, not readiness checks: counting checks let a
         // handful of never-ready entries at the front of the table block every later one forever.
         int budget = 8;
         foreach (KeyValuePair<ushort, PendingWorldProjection> pair in PendingWorldProjections.ToArray())

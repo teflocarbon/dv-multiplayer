@@ -19,8 +19,9 @@ namespace Multiplayer.Server.Items.Projection;
 
 /// <summary>
 /// The server's part of <see cref="NetworkedItemManager"/>: which items each player is sent, what
-/// the host's own changes send, convergence, the host's fall rescue, adoption and recall, departing
-/// players' items, and the replenishment of authored slots. The Shared manager creates it on the
+/// the host's own changes send, convergence, and it holds the server's item parts: the leases
+/// (ServerItemSpatial), the train wake, the fall rescue (FallRescueServer) and the office stock
+/// (OfficeStockReplenishment); players' items are PlayerItems. The Shared manager creates it on the
 /// server and drives it (<see cref="IItemManagerServerPart"/>) where this code ran before the split;
 /// server code reaches it as <see cref="Instance"/>.
 /// </summary>

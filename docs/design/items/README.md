@@ -52,10 +52,10 @@ mirror them in `Multiplayer.Core.Tests/Items/` and `Multiplayer.Protocol.Tests/I
 | `Containers` | cold containers | ✓ | ✓ | ✓ | | [containers.md](containers.md) |
 | `OwnedList` | the owned-items page and retrieval | ✓ | ✓ | ✓ | | [owned-list.md](owned-list.md) |
 | `Access` | `ItemAccess`, fixtures | ✓ | ✓ | | | [access.md](access.md) |
-| `WorldItems` | scene-authored items, the catalogue, static parents, office stock | ✓ | ✓ | | ✓ | `world-items.md` (R7) |
-| `Projection` | interest and what each client is shown | ✓ | ✓ | ✓ | | `projection.md` (R7) |
-| `Physics` | leases, samples, settlement, throws, fall rescue, the terrain guard | ✓ | ✓ | ✓ | ✓ | `physics.md` (R7) |
-| `TrainWake` | items in moving trains (the item's own part is `NetworkedItem.TrainWake`, in Shared `LiveState`) | ✓ | ✓ | | | `train-wake.md` (R7) |
+| `WorldItems` | scene-authored items, the catalogue, static parents, office stock | ✓ | ✓ | ✓ | ✓ | [world-items.md](world-items.md) (R7) |
+| `Projection` | interest and what each client is shown | ✓ | ✓ | ✓ | | [projection.md](projection.md) (R7) |
+| `Physics` | leases, samples, settlement, throws, fall rescue, the terrain guard | ✓ | ✓ | ✓ | ✓ | [physics.md](physics.md) (R7) |
+| `TrainWake` | items in moving trains (the item's own part is `NetworkedItem.TrainWake`, in Shared `LiveState`) | ✓ | ✓ | | | [train-wake.md](train-wake.md) (R7) |
 | `ChangeCauses` | why an item moved or went away | ✓ | ✓ | ✓ | ✓ | [change-causes.md](change-causes.md) |
 | `VanillaStorage` | the guards that keep DV's own storage, Lost and Found and respawn from moving an item | ✓ | ✓ | | ✓ | [vanilla-storage.md](vanilla-storage.md) (R6) |
 | `Behaviours` | one item type's own sync: flashlight, lantern, lighter, shovel, page book, money, the grabber | ✓ | ✓ | ✓ | ✓ | `behaviours.md` (R8) |
@@ -64,7 +64,9 @@ A partial class can't span namespaces, so each one sits whole in the subsystem m
 belongs to: `NetworkedItem` and `NetworkedItemManager` in Shared `LiveState`, `ServerItemManager`
 and `ClientItemManager` in `Projection`. The parts that belong elsewhere become classes of their own
 in the PR that changes them: `ServerItemManager.PlayerItems` went to `Inventory` (`PlayerItems`) in R3, the
-fall-rescue, terrain-guard and world-integration parts to `Physics` and `WorldItems` in R7.
+fall-rescue, terrain-guard and world-integration parts to `Physics` and `WorldItems` in R7
+(`FallRescueServer`, `FallRescueClient`, `ItemFallRescue`, `ItemTerrainGuard`, `TrainItemImpactWitness`,
+`AuthoredItems`, `AuthoredProjections`).
 
 The item packets and their data are in `Multiplayer/Shared/Protocol` (`Packets/Items/`,
 `Data/Items/`): five packets since R2, described in [wire.md](wire.md).
