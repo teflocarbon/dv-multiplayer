@@ -59,6 +59,11 @@ public class ServerPlayer : IDisposable
     internal PlayerLoadingState LoadingState { get; set; } = PlayerLoadingState.None;
     /// <summary>When this player finished loading (Time.realtimeSinceStartup), or -1.</summary>
     internal float CompletedLoadingAt { get; set; } = -1f;
+    /// <summary>
+    /// When the first position after their load came (Time.realtimeSinceStartup), or -1: a position
+    /// from before it can be from before their game put them at their saved spot (OI-JOIN-10).
+    /// </summary>
+    internal float FirstPositionAfterLoadAt { get; private set; } = -1f;
     public DateTime LastLogin { get; set; }
     private float PreviousPlayTime { get; set; }
     public float TotalPlaytime => PreviousPlayTime + (DateTime.UtcNow - LastLogin).Minutes;
@@ -78,6 +83,23 @@ public class ServerPlayer : IDisposable
     public PlayerTrackingData TrackingData { get; set; }
     public PlayerPostureFlags Posture { get; set; }        // already exists — keep
     public ushort CarId { get; set; }
+    // The car whose frame TrackingData.Position is in (0: the world's). A packet names the car the
+    // player is on now even when it carries no new position, and the last one is still in the frame
+    // it was sent in: read in the new car's, a player who just boarded was hundreds of metres off
+    // (OI-JOIN-11).
+    private ushort positionCarId;
+
+    /// <summary>A position packet: its changes merged in, the player's car, and the frame its position is in.</summary>
+    internal void ApplyPosition(PlayerTrackingData delta, ushort carId)
+    {
+        TrackingData = TrackingData.MergeFrom(delta);
+        CarId = carId;
+        if (!delta.Position.HasValue)
+            return;
+        positionCarId = carId;
+        if (LoadingState == PlayerLoadingState.Complete && FirstPositionAfterLoadAt < 0f)
+            FirstPositionAfterLoadAt = Time.realtimeSinceStartup;
+    }
     private string _crewName;
     public string CrewName
     {
@@ -176,10 +198,10 @@ public class ServerPlayer : IDisposable
             Vector3 pos;
             try
             {
-                if (CarId == 0 || !NetworkedTrainCar.TryGet(CarId, out NetworkedTrainCar car))
+                if (positionCarId == 0 || !NetworkedTrainCar.TryGet(positionCarId, out NetworkedTrainCar car))
                 {
-                    if (CarId != 0)
-                        Multiplayer.LogDebug(() => $"AbsoluteWorldPosition() noID {Username}: CarId: {CarId}");
+                    if (positionCarId != 0)
+                        Multiplayer.LogDebug(() => $"AbsoluteWorldPosition() noID {Username}: CarId: {positionCarId}");
 
                     pos = RawPosition;
                 }
@@ -211,10 +233,10 @@ public class ServerPlayer : IDisposable
             Vector3 pos;
             try
             {
-                if (CarId == 0 || !NetworkedTrainCar.TryGet(CarId, out NetworkedTrainCar car))
+                if (positionCarId == 0 || !NetworkedTrainCar.TryGet(positionCarId, out NetworkedTrainCar car))
                 {
-                    if (CarId != 0)
-                        Multiplayer.LogDebug(() => $"WorldPosition() noID {Username}: CarId: {CarId}");
+                    if (positionCarId != 0)
+                        Multiplayer.LogDebug(() => $"WorldPosition() noID {Username}: CarId: {positionCarId}");
 
                     pos = RawPosition + WorldMover.currentMove;
                 }

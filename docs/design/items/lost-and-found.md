@@ -35,6 +35,42 @@ asked before the ledger moves, LF9).
 
 `LostItemReason` is a byte on the wire: append, never reorder.
 
+## The collection
+
+The server's sweep (`LostAndFoundServer.HostTick`, the pure rule `LostItemCollectionPolicy`) collects
+an owned item lying in the world 200 m or more from its owner, unless another player is within
+100 m, once it has been so for a 10 s grace (OI-LF-01). **An offline owner counts as far** (OI-LF-02):
+their items are collected from the world, a train's interior, a shelf (a shed's `ItemStaticParent`),
+a car's end or a snap point, under the same protection and grace. With nobody connected nothing is
+collected (OI-LF-03). Unknown state protects: an owner whose position isn't known, or no player's.
+
+Where a player is comes from their game's position packets (`ServerPlayer.ApplyPosition`):
+
+- **Their position is in the frame it was sent in.** On a car a game sends where the player is in
+  the car's frame, and every packet names the car they are on, with a new position or not. The
+  server reads the last position in the frame of the car it came with (`positionCarId`), not the
+  car the latest packet names: read in a just-boarded car's frame, a player standing in a cab was
+  hundreds of metres off, and their protection gone (OI-JOIN-11).
+- **A just-joined owner's position counts a grace period after the first one their loaded game
+  sent** (`FirstPositionAfterLoadAt`), not after the load itself: before it a position can be from
+  before their game put them at their saved spot, and after a restart on a dedicated host that took
+  longer than the grace, so a rejoined owner's ground item was collected (OI-JOIN-10). The host's
+  own player counts at once.
+
+Scenarios: `lost-and-found`, `offline-lost-and-found`, `owner-offline` (`WHERE=cab`, `WHERE=shelf`).
+
+## Leaving
+
+A player who leaves (a quit or a crash, `PlayerItems.Leave`) takes nothing with them and leaves
+nothing lying about (OI-JOIN-06, D5): their own or nobody's hand item goes into a free slot of their
+inventory, its claim first, and goes cold with the rest; with no free slot an owned one comes here
+(`InventoryOverflow`) and an unowned one drops at their feet. Someone else's item, in their hand or
+inventory, comes to its owner's Lost and Found at once (`BorrowerLeft`), whether its owner is online
+or not (OI-JOIN-04).
+
+Scenarios: `leave-holding` (own, unowned and borrowed, at a quit and a crash), `leave-full-inventory`,
+`borrowed-disconnect`, `cold-homes`.
+
 ## Kept as data
 
 An entry is data on the server (OI-COLD-08, D12): no object until it is retrieved or recalled. Every

@@ -1341,9 +1341,7 @@ public partial class NetworkServer : NetworkManager
     {
         using IDisposable debugScope = DebugTrace.BeginHandler(packet, DebugRuntimeSide.Server, "Player", player.Peer?.Id.ToString());
 
-        // Merge incoming delta into stored state
-        player.TrackingData = player.TrackingData.MergeFrom(packet.TrackingData);
-        player.CarId = packet.CarID;
+        player.ApplyPosition(packet.TrackingData, packet.CarID);
         player.Posture = packet.Posture;
         DebugRuntime.PublishHighFrequency("player", "player.tracking-applied", DebugRuntimeSide.Server, "Player", player.PlayerId.ToString(),
             () => DebugValueSnapshotter.SnapshotObject(new { packet.TrackingData, packet.CarID, packet.Posture, packet.IsOnCar }));

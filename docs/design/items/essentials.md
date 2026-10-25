@@ -41,8 +41,8 @@ every multiplayer game (`Shared/Career/StartingItemsControllerPatch.cs`). The se
 | Claim | none | yes, `Reserved` |
 
 Licence papers are never made in multiplayer (`PhysicalLicensePaperPatch` returns null from DV's
-`CreateLicense` overloads while a session runs); a licence is an entitlement only. That row,
-OI-START-07, is unproved and moves to R6.
+`CreateLicense` overloads while a session runs); a licence is an entitlement only (OI-START-07).
+Scenario: `licence-no-paper`.
 
 ### The issuer
 
