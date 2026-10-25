@@ -306,36 +306,6 @@ public static class LostAndFoundServer
             out rejectionReason);
     }
 
-    /// <summary>
-    /// A car is about to be deleted (CarDeletePlayerSafetyPatch): the items lying in it would go to
-    /// the car pool with it, leaving records that point at a car that no longer exists, in nobody's
-    /// reach and out of recall (a player's radio, 2026-10-17). A player's own item goes to their
-    /// Lost and Found; anything else goes with the car, as in single player, but cleanly.
-    /// </summary>
-    public static void CollectFromDeletedCar(TrainCar car)
-    {
-        if (car == null || NetworkLifecycle.Instance?.IsHost() != true)
-            return;
-        NetworkedTrainCar networkedCar = car.GetComponent<NetworkedTrainCar>();
-        if (networkedCar == null || networkedCar.NetId == 0)
-            return;
-        var inCar = LiveItems.GetAll()
-            .Where(record => record.Placement == ItemPlacementKind.TrainInterior && record.WorldParentNetId == networkedCar.NetId)
-            .Select(record => record.NetId).ToList();
-        foreach (ushort netId in inCar)
-        {
-            if (!NetworkedItem.TryGet(netId, out NetworkedItem item) || item == null)
-                continue;
-            // Off the car first, so the pool doesn't take it.
-            item.transform.SetParent(WorldMover.OriginShiftParent, true);
-            if (Collect(item, LostItemReason.ContainerCleared, $"car {car.ID} deleted"))
-                continue;
-            item.NoteRemovalCause(ItemChangeLog.Removal(ItemRemovalReason.DestroyedWithCar,
-                detail: $"car {car.ID} deleted, not a player's item"));
-            UnityEngine.Object.Destroy(item.gameObject); // NetworkedItem.OnDestroy replicates the destroy
-        }
-    }
-
     /// <param name="detail">What the reason leaves out, for the logged cause (the deleted car).</param>
     public static bool Collect(NetworkedItem item, LostItemReason reason, string detail = null)
     {
@@ -343,10 +313,12 @@ public static class LostAndFoundServer
             return false;
         if (registry.TryGet(item.NetId, out _))
             return false;
-        if (item.Item?.InventorySpecs?.BelongsToPlayer != true)
+        // An owned item, by the ledger: vanilla's BelongsToPlayer flips in the dumpster, the shop and
+        // a withdrawal, so nothing decides on it (docs/design/item-refactor.md, "Every vanilla path").
+        if (!LiveItems.TryGet(item.NetId, out LiveItems.LiveItem owned) || owned.Owner == Guid.Empty)
         {
             Publish("item.lost-and-found-collection-rejected", item,
-                new() { ["rejectionReason"] = "not-a-personal-item" }, DebugSeverity.Warning);
+                new() { ["rejectionReason"] = "item-has-no-owner" }, DebugSeverity.Warning);
             return false;
         }
         if (IsInLocalInventory(item))
