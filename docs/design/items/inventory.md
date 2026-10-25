@@ -13,7 +13,7 @@
 | --- | --- |
 | Core | `Multiplayer.Core/Items/Inventory/`: `InventorySlots`, `BeltSlots`, `SlotClaimPlanner`, `InventoryPresentationPlanner` (`InventoryPresentation.cs`), `JoinRows` |
 | Server | `Multiplayer/Server/Items/Inventory/`: `PlayerItems` (`PlayerItems.cs`, `.DataOnly.cs`, `.Rows.cs`, `.Host.cs`, `.Alarms.cs`, `.Ammo.cs`, `.Sounds.cs`, `.Lost.cs`), `ColdInventories`, `HostInventory`, `InventoryMembershipPatch`; `Multiplayer/Server/Jobs/JobPaperRows.cs` |
-| Shared | `Multiplayer/Shared/Items/Inventory/`: `InventoryStandIn`, `InventoryRowHolder`, `InventoryPutAwayPatch`, `InventoryTakeOutPatch`, `InventoryStandInPatches`, `VanillaInventorySlots`, `VanillaInventoryHazards`, `InventorySilhouettes`, `ItemStateText`, `StandInAmmo`, `StashedItems`, `StashedBoombox`, `StashedCassette`, `HeardStashedSounds`, `BoomboxStatePatch`, `CassetteAreaSetupPatch`, `AlarmRows`, `ForcedItemRows`, `TutorialRadio`, `InventoryIntegration`, `InventoryItemStatePatch`; `Multiplayer/Shared/Jobs/JobPapers.cs` |
+| Shared | `Multiplayer/Shared/Items/Inventory/`: `InventoryStandIn`, `InventoryRowHolder`, `InventoryPutAwayPatch`, `InventoryTakeOutPatch`, `InventoryStandInPatches`, `VanillaInventorySlots`, `VanillaInventoryHazards`, `InventorySilhouettes`, `LostAndFoundSilhouettes`, `ItemStateText`, `StandInAmmo`, `StashedItems`, `StashedBoombox`, `StashedCassette`, `HeardStashedSounds`, `BoomboxStatePatch`, `CassetteAreaSetupPatch`, `AlarmRows`, `ForcedItemRows`, `TutorialRadio`, `InventoryIntegration`, `InventoryItemStatePatch`; `Multiplayer/Shared/Jobs/JobPapers.cs` |
 | Client | `Multiplayer/Client/Items/Inventory/`: `InventoryRows`, `InventorySlotMovePatch`, `InventoryOwnershipUiPatch`; `Multiplayer/Client/Items/Projection/`: `ClientItemManager.StandIns.cs`, `.Rows.cs`, `.TakeOut.cs` |
 | Requests | `NetworkServer.CarryMoveSlot` and `DataOnlyNamed` (`Multiplayer/Server/Session/NetworkServer.Items.cs`) |
 
@@ -211,6 +211,17 @@ object would have kept it: whatever takes the object's claim away takes the stan
 
 A silhouette isn't stored: `Contains(go, false)` and a slot peek without dropped entries skip it, its
 item's updates go to the item's object, and none of the stashed items' effects run for it.
+
+An essential in Lost and Found is data on the server, with no object on its owner's game, but its
+claim still reserves the slot. Its silhouette is made from the owner's Lost and Found row, which
+carries the claim slot and the item's NetId (`ItemRow.ClaimSlot`, `ItemRow.ItemNetId`):
+`LostAndFoundSilhouettes` adds the item's stand-in to that slot as dropped (vanilla reserves it, the
+stand-in being the owner's essential). It's the same stand-in an object's silhouette is, by the
+same NetId, so the Get button recalls it, the retrieval's update finds it (`ReceiveAsStandIn`), and
+an object of it made on the host for a request takes the slot back (`ToObject`). It goes when the
+row goes, unless that update has made it the item's stand-in in its slot already; it moves when
+the claim moves; it's tried again each second while a row has none. On a client and for a player
+host's own player alike ([essentials.md](essentials.md#the-silhouette)).
 
 An update putting the essential back in its claim slot restores the entry (`RestoreClaim`); an item
 without a claim in that slot is moved aside first (`MakeRoomForClaim`).

@@ -238,7 +238,7 @@ public sealed class ItemWirePacketTests
     {
         ItemRow[] rows =
         {
-            new() { Handle = 1, PrefabName = "CommsRadio", DisplayName = "Radio", Where = "OwnerDistance", Slot = 0, Revision = 5 },
+            new() { Handle = 1, PrefabName = "CommsRadio", DisplayName = "Radio", Where = "OwnerDistance", Revision = 5, ClaimSlot = 0, ItemNetId = 729 },
             new() { Handle = 2, PrefabName = "Lantern", DisplayName = "Lantern", Where = "in L-042", Flags = ItemRowFlags.Retrievable, Revision = 8 },
             new() { Handle = 3, PrefabName = "Mug", Flags = ItemRowFlags.SomeoneElses | ItemRowFlags.Container, Slot = 7 }
         };
@@ -261,7 +261,9 @@ public sealed class ItemWirePacketTests
             Assert.That(result.Rows[1].Where, Is.EqualTo("in L-042"));
             Assert.That(result.Rows[1].Flags, Is.EqualTo(ItemRowFlags.Retrievable));
             Assert.That(result.Rows[2].Flags, Is.EqualTo(ItemRowFlags.SomeoneElses | ItemRowFlags.Container));
-            Assert.That(result.Rows.Select(r => r.Slot), Is.EqualTo(new[] { 0, -1, 7 }));
+            Assert.That(result.Rows.Select(r => r.Slot), Is.EqualTo(new[] { -1, -1, 7 }));
+            Assert.That(result.Rows.Select(r => r.ClaimSlot), Is.EqualTo(new[] { 0, -1, -1 }));
+            Assert.That(result.Rows.Select(r => r.ItemNetId), Is.EqualTo(new ushort[] { 729, 0, 0 }));
         });
     }
 

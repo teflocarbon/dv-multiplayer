@@ -39,10 +39,21 @@ public class ItemRow
     /// <summary>Where it is or why it's there, worded by the server (an owned item's place, a lost item's reason).</summary>
     public string Where { get; set; } = string.Empty;
     public ItemRowFlags Flags { get; set; }
-    /// <summary>Its slot in a container, or its claim slot in Lost and Found; -1 for none.</summary>
+    /// <summary>Its slot in a container; -1 for none.</summary>
     public int Slot { get; set; } = -1;
     /// <summary>The revision a request about this row expects.</summary>
     public uint Revision { get; set; }
+    /// <summary>
+    /// A lost essential's claim slot in its owner's inventory, which the server keeps reserved
+    /// while it's in Lost and Found; -1 for none. The owner's game shows its silhouette there
+    /// (docs/design/items/inventory.md, "Silhouettes").
+    /// </summary>
+    public int ClaimSlot { get; set; } = -1;
+    /// <summary>
+    /// With a <see cref="ClaimSlot"/>: the NetId the server keeps the item by, which its silhouette
+    /// stand-in is kept by too, so a recall from it and the retrieval's update find it; 0 otherwise.
+    /// </summary>
+    public ushort ItemNetId { get; set; }
 
     public static void Serialize(NetDataWriter writer, ItemRow row)
     {
@@ -53,6 +64,8 @@ public class ItemRow
         writer.Put((byte)row.Flags);
         writer.Put(row.Slot);
         writer.Put(row.Revision);
+        writer.Put(row.ClaimSlot);
+        writer.Put(row.ItemNetId);
     }
 
     public static ItemRow Deserialize(NetDataReader reader) => new()
@@ -63,6 +76,8 @@ public class ItemRow
         Where = reader.GetString(),
         Flags = (ItemRowFlags)reader.GetByte(),
         Slot = reader.GetInt(),
-        Revision = reader.GetUInt()
+        Revision = reader.GetUInt(),
+        ClaimSlot = reader.GetInt(),
+        ItemNetId = reader.GetUShort()
     };
 }

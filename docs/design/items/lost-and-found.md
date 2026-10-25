@@ -133,8 +133,11 @@ to data.
   (`ObservedSource.LostAndFoundRow`).
 - **A booklet** kept as data goes when its job ends, as its object would (the scan asks
   `JobPaperRows.Wanted`).
-- **Its owner's silhouette** of a lost essential, their recall, is sent from its record
-  (`SendDataEssentials`): an owner who joins after the collection has no copy for the tombstone.
+- **Its owner's silhouette** of a lost essential, their recall, is made from its row: a row with a
+  claim carries the claim slot and the item's NetId (`ItemRow.ClaimSlot`, `ItemRow.ItemNetId`), and
+  the owner's game puts the item's stand-in there, dropped and reserved (`LostAndFoundSilhouettes`;
+  [essentials.md](essentials.md#the-silhouette)). The list is sent at the join too, so an owner
+  who joins after the collection, and has no copy for the tombstone, has it.
 - **Clients** keep what they had: a game that had the item when it was collected keeps an inert copy
   (`EnforceLostAndFoundProjection`), as before. When an entry kept as data goes (`PlayerItems.LostDataGone`) every
   game is sent its destroy before its NetId is freed, so a reused NetId never names that copy (J7).

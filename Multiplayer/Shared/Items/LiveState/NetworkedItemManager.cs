@@ -92,6 +92,8 @@ public partial class NetworkedItemManager : SingletonBehaviour<NetworkedItemMana
         ClientPart?.Update();
         // The local player's stashed alarms and radios, from their rows.
         global::Multiplayer.Shared.Items.Inventory.StashedItems.Update();
+        // The local player's lost essentials' silhouettes, from their Lost and Found rows.
+        global::Multiplayer.Shared.Items.Inventory.LostAndFoundSilhouettes.Update();
     }
 
     internal void QueueLocalStateObservation(NetworkedItem item, string reason)
