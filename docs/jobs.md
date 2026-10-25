@@ -45,7 +45,7 @@ it. See [architecture.md](architecture.md) for the host/client model in general.
 | Packet | Direction | Purpose |
 | --- | --- | --- |
 | `ClientboundJobsCreatePacket` | host → clients | New jobs at one station (`JobData`). Also sent per job to a joining client. |
-| `ClientboundJobsUpdatePacket` | host → clients | Per-station batch of `JobUpdateStruct`: state, start/finish time, validator station, one item NetId and position, issued player. |
+| `ClientboundJobsUpdatePacket` | host → clients | Per-station batch of `JobUpdateStruct`: state, start/finish time, validator station, one item NetId and position, issued player. The item is the last changed paper while it's still an object; a booklet gone since (made from its row for a deposit, in the box that frame) sends none, or each client made one at the world's origin. |
 | `ClientboundTaskUpdatePacket` | host → clients | One task's new state and start/finish times. |
 | `ServerboundJobValidateRequestPacket` | client → host | An overview or booklet put in a validator: job, station, item NetId, `ValidationType`. |
 | `ClientboundJobValidateResponsePacket` | host → requester | Rejections only: `Invalid`, and `JobMissing` when the host has no such job. |

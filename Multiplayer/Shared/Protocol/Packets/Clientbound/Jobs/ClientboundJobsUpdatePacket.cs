@@ -35,9 +35,14 @@ public class ClientboundJobsUpdatePacket
                     }
                     break;
                 case NetworkedJob.DirtyCause.JobBooklet:
-                    validationItemNetId = job.LastChangedJobBooklet?.NetId ?? 0;
-                    if (job.LastChangedJobBooklet != null)
-                        itemPositionData = ItemPositionData.FromItem(job.LastChangedJobBooklet);
+                    // Only while it's an object: one gone since (made from its row for a deposit and
+                    // put in the box that frame) was sent by its NetId with no position, and each
+                    // client made a booklet of it at the world's origin.
+                    if (job.LastChangedJobBooklet is { } booklet && booklet != null)
+                    {
+                        validationItemNetId = booklet.NetId;
+                        itemPositionData = ItemPositionData.FromItem(booklet);
+                    }
                     break;
             }
 
