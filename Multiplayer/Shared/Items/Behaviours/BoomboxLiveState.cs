@@ -13,9 +13,9 @@ using UnityEngine;
 namespace Multiplayer.Shared.Items.Behaviours;
 
 /// <summary>
-/// A boombox plays the same on every game's copy (docs/design/items/live-state.md, "Tracked
-/// values"; everything heard in the world is shared). Its power, mode, volume, antenna and radio
-/// station are tracked values, as a lantern's wick is, and so is its cassette: the track, whether
+/// A boombox plays the same on every game's copy (docs/design/items/behaviours.md, "The boombox";
+/// everything heard in the world is shared). Its power, mode, volume, antenna and radio station are
+/// tracked values, as a lantern's wick is, and so is its cassette: the track, whether
 /// it plays, and where in the track it had got to. A copy made from a live Create gets them all
 /// with it; before, it got none, and a boombox one player took out playing was silent on the
 /// others' games.
