@@ -179,11 +179,12 @@ public static partial class ServerLedger
 
     /// <summary>
     /// Makes an item owned (a purchase, an issue, an admin's give, a first take, a gadget's saved
-    /// owner): its entry is born here, in <paramref name="home"/> or where its record has it. Empty
-    /// when it's owned, by this owner or already by someone; else why not.
+    /// owner): its entry is born here, in <paramref name="home"/> or where its record has it. A copy
+    /// is born a duplicate of <paramref name="copiedFrom"/>, else of what its object's identity says
+    /// it was copied from. Empty when it's owned, by this owner or already by someone; else why not.
     /// </summary>
     internal static string Own(LiveItems.LiveItem record, Guid owner, BirthReason reason, Guid by, string detail,
-        Home? home = null, int preferredClaim = -1)
+        Home? home = null, int preferredClaim = -1, Guid copiedFrom = default)
     {
         if (record == null || owner == Guid.Empty || record.PersistentItemId == Guid.Empty)
             return "item-has-no-id";
@@ -198,7 +199,8 @@ public static partial class ServerLedger
             return string.Empty;
         }
         NetworkedItem.TryGet(record.NetId, out NetworkedItem item);
-        Guid copiedFrom = item != null ? item.GetComponent<ItemIdentity>()?.CopiedFrom ?? Guid.Empty : Guid.Empty;
+        if (copiedFrom == Guid.Empty && item != null)
+            copiedFrom = item.GetComponent<ItemIdentity>()?.CopiedFrom ?? Guid.Empty;
         Registration registered = ledger.Register(new BirthRequest
         {
             Id = record.PersistentItemId,
