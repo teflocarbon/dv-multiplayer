@@ -37,7 +37,27 @@ internal static class CassetteAreaSetupPatch
         while (area != null && area.initCoro != null && Time.realtimeSinceStartup < until)
             yield return null;
         waiting.Remove(area);
-        if (area != null && area.areaControl != null && container != null)
+        if (area == null || area.areaControl == null || container == null)
+            yield break;
+        // The handler clicks the cassette in or out, as a 2D sound when the boombox isn't in the scene:
+        // for the server's copy of a boombox someone else keeps (a player host's), that's a click its
+        // own player hears from nowhere. A boombox in the scene clicks where it is, as vanilla's load does.
+        Transform boombox = area.transform.parent;
+        if (boombox != null ? boombox.gameObject.activeInHierarchy : area.gameObject.activeInHierarchy)
+        {
             area.OnMagazineDataChanged(container, 0, -1);
+            yield break;
+        }
+        AudioClip insert = area.insertCassetteSound, remove = area.removeCassetteSound;
+        area.insertCassetteSound = area.removeCassetteSound = null;
+        try
+        {
+            area.OnMagazineDataChanged(container, 0, -1);
+        }
+        finally
+        {
+            area.insertCassetteSound = insert;
+            area.removeCassetteSound = remove;
+        }
     }
 }
