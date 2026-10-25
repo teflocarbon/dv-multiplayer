@@ -133,6 +133,10 @@ to data.
   (`ObservedSource.LostAndFoundRow`).
 - **A booklet** kept as data goes when its job ends, as its object would (the scan asks
   `JobPaperRows.Wanted`).
+- **One being destroyed** is gone to the scan (`NetworkedItem.Destroying`): a box's destroy sends its
+  contents here, and their owner's list runs the scan inside the box's OnDestroy, while the dying box
+  still answers to Unity's null check. Taken for one that stays, it would be made data again, a row
+  whose entry has ended.
 - **Its owner's silhouette** of a lost essential, their recall, is made from its row: a row with a
   claim carries the claim slot and the item's NetId (`ItemRow.ClaimSlot`, `ItemRow.ItemNetId`), and
   the owner's game puts the item's stand-in there, dropped and reserved (`LostAndFoundSilhouettes`;
