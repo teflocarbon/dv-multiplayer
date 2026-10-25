@@ -295,12 +295,27 @@ public partial class NetworkServer : IItemServer
         List<ItemUpdate> built = new(updates.Count);
         foreach (ItemUpdate update in updates)
             if (update != null)
+            {
                 built.Add(BuildFor(update, recipient));
+                MarkKnown(update, recipient);
+            }
         if (built.Count == 0)
             return;
         ClientboundItemUpdatesPacket packet = new() { Updates = built };
         TraceItemDeliveryExpected(packet, recipient.Peer, DeliveryMethod.ReliableOrdered);
         SendPacket(recipient.Peer, packet, DeliveryMethod.ReliableOrdered);
+    }
+
+    // A Create makes the item in the recipient's game, so it knows it now, and whatever ends the
+    // server's object (its Destroy, its going to data) is sent there too. Interest marks its own
+    // Creates; a flow's (a Lost and Found retrieval, a recall: sent to everyone) wasn't marked, and
+    // a game that wasn't near it kept its copy for good.
+    private static void MarkKnown(ItemUpdate update, ServerPlayer recipient)
+    {
+        if (update.UpdateType.HasFlag(ItemUpdate.ItemUpdateType.Create) &&
+            !update.UpdateType.HasFlag(ItemUpdate.ItemUpdateType.Destroy) &&
+            NetworkedItem.TryGet(update.ItemNetId, out NetworkedItem item) && item != null)
+            recipient.KnownItems[item] = NetworkLifecycle.Instance.Tick;
     }
 
     // What one player is told of an item: its relation to it, never the owner (D3), and the claim
