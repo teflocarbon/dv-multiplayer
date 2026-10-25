@@ -49,6 +49,18 @@ internal sealed class ServerItemSpatial
 
     internal void Clear() => pendingHostBegins.Clear();
 
+    /// <summary>
+    /// The items <paramref name="playerId"/> simulates under a lease now: theirs to keep in interest
+    /// until it ends. Retired mid-flight, its samples stopped and it settled where it last was.
+    /// </summary>
+    internal IEnumerable<NetworkedItem> SimulatedBy(byte playerId)
+    {
+        foreach (Lease lease in leases.Values)
+            if (lease.SimulatorPlayerId == playerId && NetworkedItem.TryGet(lease.ItemNetId, out NetworkedItem item) &&
+                item != null)
+                yield return item;
+    }
+
     internal void Update()
     {
         if (NetworkLifecycle.Instance == null || !NetworkLifecycle.Instance.IsHost())
@@ -356,7 +368,7 @@ internal sealed class ServerItemSpatial
             return false;
         }
         if (!TrySelectTrainWakeSimulator(item, record, preferredSimulatorPlayerId,
-                out ServerPlayer simulator))
+                out byte simulator))
         {
             rejection = "no-eligible-train-item-simulator";
             return false;
@@ -393,7 +405,7 @@ internal sealed class ServerItemSpatial
         baseline.SimulationEpoch = epoch;
         baseline.SampleSequence = 0;
         baseline.SourceTick = NetworkLifecycle.Instance.Tick;
-        baseline.SimulatorPlayerId = simulator.PlayerId;
+        baseline.SimulatorPlayerId = simulator;
         baseline.Phase = ItemSpatialPhase.Sliding;
         baseline.LinearVelocity = Vector3.ClampMagnitude(initialLocalVelocity, 6f);
         baseline.AngularVelocity = Vector3.zero;
@@ -404,15 +416,15 @@ internal sealed class ServerItemSpatial
             ItemNetId = itemNetId,
             AuthorityRevision = record.Revision,
             Epoch = epoch,
-            SimulatorPlayerId = simulator.PlayerId,
+            SimulatorPlayerId = simulator,
             StartedAt = now,
             LastAcceptedAt = now,
             LastAccepted = baseline.Clone(),
             Target = baseline.Clone()
         };
         leases[itemNetId] = lease;
-        simulatorPlayerId = simulator.PlayerId;
-        bool localHost = simulator.PlayerId == HostItemActor.SimulatorId;
+        simulatorPlayerId = simulator;
+        bool localHost = simulator == HostItemActor.SimulatorId;
         ConfigureLeasePresentation(item, localHost, baseline);
         if (localHost)
             ApplySimulationVelocity(item, baseline);
@@ -430,10 +442,10 @@ internal sealed class ServerItemSpatial
         return true;
     }
 
-    private static bool TrySelectTrainWakeSimulator(NetworkedItem item,
-        LiveItems.LiveItem record, byte preferredPlayerId, out ServerPlayer selected)
+    private bool TrySelectTrainWakeSimulator(NetworkedItem item,
+        LiveItems.LiveItem record, byte preferredPlayerId, out byte selected)
     {
-        selected = null;
+        selected = 0;
         if (NetworkServer.Instance == null || item == null || record == null)
             return false;
         Vector3 absolute = record.Position;
@@ -441,21 +453,47 @@ internal sealed class ServerItemSpatial
             parentCar != null)
             absolute = (parentCar.interior ?? parentCar.transform)
                 .TransformPoint(record.ParentLocalPosition) - WorldMover.currentMove;
-        IEnumerable<ServerPlayer> eligible = NetworkServer.Instance.ServerPlayers
-            .Where(player => player != null && player.LoadingState >= PlayerLoadingState.ReadyForItems &&
-                (player.CarId == record.WorldParentNetId ||
-                 (player.AbsoluteWorldPosition - absolute).sqrMagnitude <=
-                    MaximumSimulatorDistance * MaximumSimulatorDistance))
-            .Where(player => player.PlayerId == HostItemActor.SimulatorId
+        SimulatorCandidate[] candidates = Candidates(item, absolute, record.WorldParentNetId).ToArray();
+        if (ItemSimulatorChoice.ForWake(candidates, preferredPlayerId, MaximumSimulatorDistance, out selected))
+            return true;
+        // Nobody has it yet: the players in range are sent it, and the wake, pending, finds one of
+        // them once their game has it (OI-PHY-12; before, a client had to know the item already).
+        foreach (byte lacking in ItemSimulatorChoice.Lacking(candidates, MaximumSimulatorDistance))
+            if (NetworkServer.Instance.ServerPlayers.FirstOrDefault(p => p != null && p.PlayerId == lacking) is { } player)
+                manager.PinInterest(player, item, WakeInterestSeconds);
+        return false;
+    }
+
+    // How long a pending wake keeps its item in a would-be simulator's interest: as long as the wake
+    // waits (TrainItemWakeServer.PendingWakeSeconds).
+    private const float WakeInterestSeconds = 10f;
+
+    /// <summary>
+    /// Who could simulate the item at <paramref name="absolute"/> (ItemSimulatorChoice): every
+    /// player with a world, and on a dedicated host the server itself where its world is solid
+    /// (OI-PHY-07). A player has it once projected and acknowledged; the host's own world, while
+    /// its object is active.
+    /// </summary>
+    private static IEnumerable<SimulatorCandidate> Candidates(NetworkedItem item, Vector3 absolute,
+        ushort parentCarNetId)
+    {
+        ServerPlayer hostPlayer = HostItemActor.Player;
+        foreach (ServerPlayer player in NetworkServer.Instance.ServerPlayers)
+        {
+            if (player == null || player.LoadingState < PlayerLoadingState.ReadyForItems)
+                continue;
+            bool host = player == hostPlayer;
+            bool hasItem = host
                 ? item.gameObject.activeInHierarchy
-                : player.KnownItems.ContainsKey(item) &&
-                  player.AcknowledgedWorldItems.Contains(item.NetId));
-        selected = eligible
-            .OrderByDescending(player => player.PlayerId == preferredPlayerId)
-            .ThenByDescending(player => player.CarId == record.WorldParentNetId)
-            .ThenBy(player => (player.AbsoluteWorldPosition - absolute).sqrMagnitude)
-            .FirstOrDefault();
-        return selected != null;
+                : player.KnownItems.ContainsKey(item) && player.AcknowledgedWorldItems.Contains(item.NetId);
+            yield return new SimulatorCandidate(player.PlayerId, hasItem,
+                (player.AbsoluteWorldPosition - absolute).sqrMagnitude,
+                parentCarNetId != 0 && player.CarId == parentCarNetId, hostWorld: host);
+        }
+        if (HostItemActor.IsServer)
+            yield return new SimulatorCandidate(HostItemActor.ServerSimulatorId,
+                item.gameObject.activeInHierarchy && Coverage.ServerWorldCoverage.IsSolidAt(item.transform.position),
+                0f, hostWorld: true, serverItself: true);
     }
 
     internal void SendActiveLeasesTo(ServerPlayer player, IEnumerable<ItemUpdate> snapshots)
@@ -526,18 +564,12 @@ internal sealed class ServerItemSpatial
             !LiveItems.PlacementUnchangedSince(record, previous.AuthorityRevision))
             return false;
 
-        ServerPlayer candidate = NetworkServer.Instance.ServerPlayers
-            .Where(player => player != null && player.PlayerId != previous.SimulatorPlayerId &&
-                             player.LoadingState >= PlayerLoadingState.ReadyForItems &&
-                             (player.AbsoluteWorldPosition - previous.LastAccepted.AbsolutePosition).sqrMagnitude <=
-                             MaximumSimulatorDistance * MaximumSimulatorDistance)
-            .OrderByDescending(player => player.PlayerId == HostItemActor.SimulatorId &&
-                                         item.gameObject.activeInHierarchy)
-            .ThenBy(player => (player.AbsoluteWorldPosition - previous.LastAccepted.AbsolutePosition).sqrMagnitude)
-            .FirstOrDefault(player => player.PlayerId == HostItemActor.SimulatorId
-                ? item.gameObject.activeInHierarchy
-                : player.KnownItems.ContainsKey(item) && player.AcknowledgedWorldItems.Contains(item.NetId));
-        if (candidate == null)
+        // A dedicated host takes it too, where its world is solid (OI-PHY-07): before, a thrown
+        // item whose thrower left with nobody else near froze where its last sample had it.
+        if (!ItemSimulatorChoice.ForTransfer(Candidates(item, previous.LastAccepted.AbsolutePosition,
+                    previous.LastAccepted.WorldParentKind == ItemWorldParentKind.TrainInterior
+                        ? previous.LastAccepted.WorldParentNetId : (ushort)0),
+                previous.SimulatorPlayerId, MaximumSimulatorDistance, out byte candidateId))
             return false;
 
         leases.Remove(item.NetId);
@@ -550,21 +582,21 @@ internal sealed class ServerItemSpatial
         baseline.SimulationEpoch = epoch;
         baseline.SampleSequence = 0;
         baseline.SourceTick = NetworkLifecycle.Instance.Tick;
-        baseline.SimulatorPlayerId = candidate.PlayerId;
+        baseline.SimulatorPlayerId = candidateId;
         float now = Time.realtimeSinceStartup;
         Lease transferred = new()
         {
             ItemNetId = item.NetId,
             AuthorityRevision = record.Revision,
             Epoch = epoch,
-            SimulatorPlayerId = candidate.PlayerId,
+            SimulatorPlayerId = candidateId,
             StartedAt = now,
             LastAcceptedAt = now,
             LastAccepted = baseline.Clone(),
             Target = baseline.Clone()
         };
         leases[item.NetId] = transferred;
-        bool localHost = candidate.PlayerId == HostItemActor.SimulatorId;
+        bool localHost = candidateId == HostItemActor.SimulatorId;
         ConfigureLeasePresentation(item, localHost, baseline);
         if (localHost)
             ApplySimulationVelocity(item, baseline);
@@ -580,7 +612,7 @@ internal sealed class ServerItemSpatial
             ["previousSimulationEpoch"] = previous.Epoch,
             ["simulationEpoch"] = epoch,
             ["previousSimulatorPlayerId"] = previous.SimulatorPlayerId,
-            ["simulatorPlayerId"] = candidate.PlayerId,
+            ["simulatorPlayerId"] = candidateId,
             ["reason"] = reason ?? string.Empty
         });
         return true;

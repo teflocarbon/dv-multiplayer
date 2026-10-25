@@ -36,6 +36,41 @@ internal sealed partial class ServerItemManager
     // (holders, train interiors).
     private const uint InterestRefreshTicks = NetworkLifecycle.TICK_RATE / 4;
     private readonly Dictionary<byte, uint> lastInterestRefreshTick = new();
+    // Items a player's interest keeps whatever their cells say, each until a time: a pending train
+    // wake's item, sent to the players who could simulate it (ServerItemSpatial, OI-PHY-12).
+    private readonly Dictionary<byte, Dictionary<NetworkedItem, float>> pinnedInterest = new();
+
+    /// <summary>Keeps <paramref name="item"/> in <paramref name="player"/>'s interest for <paramref name="seconds"/>.</summary>
+    internal void PinInterest(ServerPlayer player, NetworkedItem item, float seconds)
+    {
+        if (player == null || item == null)
+            return;
+        if (!pinnedInterest.TryGetValue(player.PlayerId, out Dictionary<NetworkedItem, float> pins))
+            pinnedInterest[player.PlayerId] = pins = new();
+        pins[item] = Time.realtimeSinceStartup + seconds;
+        // Their next refresh is now, not in a quarter of a second.
+        lastInterestRefreshTick.Remove(player.PlayerId);
+    }
+
+    private void AddPinnedInterest(ServerPlayer player, HashSet<NetworkedItem> desiredItems)
+    {
+        // What they simulate stays theirs until its lease ends, wherever it flies.
+        if (player.Peer != NetworkServer.Instance.SelfPeer)
+            desiredItems.UnionWith(HostSpatial.SimulatedBy(player.PlayerId)
+                .Where(item => !LostAndFoundServer.Contains(item.NetId)));
+        if (!pinnedInterest.TryGetValue(player.PlayerId, out Dictionary<NetworkedItem, float> pins))
+            return;
+        float now = Time.realtimeSinceStartup;
+        foreach (KeyValuePair<NetworkedItem, float> pin in pins.ToArray())
+        {
+            if (pin.Key == null || pin.Value < now)
+                pins.Remove(pin.Key);
+            else if (!pin.Key.IsSceneAuthored || player.WorldItemCatalogueAccepted)
+                desiredItems.Add(pin.Key);
+        }
+        if (pins.Count == 0)
+            pinnedInterest.Remove(player.PlayerId);
+    }
 
     private void UpdatePlayerItemLists()
     {
@@ -107,6 +142,7 @@ internal sealed partial class ServerItemManager
             HashSet<NetworkedItem> retainable = RelevantItems(WorldItemCellCoord.Neighbourhood(centre, 2));
             desiredItems.UnionWith(player.NearbyItems.Keys.Where(item => item != null && retainable.Contains(item)));
         }
+        AddPinnedInterest(player, desiredItems);
         bool membershipChanged = cellsChanged || player.NearbyItems.Count != desiredItems.Count ||
                                  player.NearbyItems.Keys.Any(item => !desiredItems.Contains(item));
         if (membershipChanged)
