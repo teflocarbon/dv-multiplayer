@@ -164,7 +164,7 @@ accepts the host's own samples and settlements directly
 (`Shared/Items/Physics/NetworkedItemSpatialManager.cs:793-830`), the wake witness and recall branch on
 `IsHost()` (`Server/Items/TrainWake/TrainItemWakeServer.cs:214`,
 `NetworkedItemManager.ProjectionAndCompatibility.cs:270-283`), and fall rescue has a host scan
-(`NetworkedItemManager.FallRescue.cs:61-64`). They find the host's `ServerPlayer` by `SelfId`.
+(`Server/Items/Physics/FallRescueServer.cs`). They find the host's `ServerPlayer` by `SelfId`.
 
 ### What else reads the host's client
 

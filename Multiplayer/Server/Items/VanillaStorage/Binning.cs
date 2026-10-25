@@ -163,7 +163,7 @@ internal static class Binning
         float reach = Mathf.Max(bounds.extents.x, bounds.extents.z) + 0.7f;
         Vector3 world = bounds.center + toward.normalized * reach;
         world.y = bounds.min.y + 0.3f;
-        ServerItemManager.Instance?.PutAt(item, record, world - WorldMover.currentMove,
+        ServerItemManager.Instance?.FallRescue.PutAt(item, record, world - WorldMover.currentMove,
             ItemChangeLog.Move(ItemMoveReason.BinRefused,
                 detail: $"{by.Name} can't bin {ItemChangeLog.PlayerName(record.Owner)}'s item"));
     }

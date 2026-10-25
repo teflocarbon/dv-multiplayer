@@ -165,6 +165,7 @@ runs=( # name | scenario | variables | pair kind it prefers (default player)
   "containers-nested|containers-nested|"
   "containers-nested-host|containers-nested|WHO=host|player"
   "client-fall-rescue|client-fall-rescue|"
+  "fall-rescue-interior|fall-rescue-interior|"
   "manual-uncouple|manual-uncouple|N=3"
   "manual-recouple-lag|manual-uncouple|MODE=recouple N=3 LAG=150"
   "host-chain-screw|host-chain-screw||player"

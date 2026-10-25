@@ -313,7 +313,7 @@ namespace Dvmp.Scenarios
                 collided = authored[1];
                 collidedKey = collided.AuthoredItemKey;
                 collided.AuthoredItemKey = authored[0].AuthoredItemKey;
-                NetworkedItemManager.Instance.AuthoredCatalogue.Rebuild();
+                NetworkedItemManager.Instance.Authored.Catalogue.Rebuild();
                 Multiplayer.Client.Session.NetworkClient.Instance.SendWorldItemCatalogue();
                 return authored[0].AuthoredItemKey;
             }
@@ -327,7 +327,7 @@ namespace Dvmp.Scenarios
                     collided.AuthoredItemKey = collidedKey;
                 collided = null;
                 collidedKey = "";
-                NetworkedItemManager.Instance.AuthoredCatalogue.Rebuild();
+                NetworkedItemManager.Instance.Authored.Catalogue.Rebuild();
                 Multiplayer.Client.Session.NetworkClient.Instance.SendWorldItemCatalogue();
                 return true;
             }

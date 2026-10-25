@@ -3,12 +3,13 @@ using System.Collections.Generic;
 using System.Linq;
 using Multiplayer.Debugging.Protocol;
 using Multiplayer.Shared.Debugging;
-using Multiplayer.Shared.Items.Physics;
+using Multiplayer.Shared.Items.LiveState;
 using UnityEngine;
 
-namespace Multiplayer.Shared.Items.LiveState;
+namespace Multiplayer.Shared.Items.Physics;
 
-public partial class NetworkedItemManager
+/// <summary>Puts an item this game simulates back on the terrain the physics step it went through it.</summary>
+internal sealed class ItemTerrainGuard
 {
     // Terrain tunnelling guard. A small item with a convex mesh collider (a mug) can go straight
     // through DV's terrain heightfield with no contact at all, in plain PhysX: near the track
@@ -24,17 +25,20 @@ public partial class NetworkedItemManager
     // so items near a portal (TunnelCollisionIgnore) or with the terrain ignored are left alone, as
     // are items riding a train and items moved by code rather than by their velocity.
 
-    internal static bool TerrainGuardEnabled = true;   // off only to measure vanilla behaviour
-    internal static int TerrainGuardCatches;
+    internal static bool Enabled = true;   // off only to measure vanilla behaviour
+    internal static int Catches;
 
     private const float TunnelPortalClearance = 10f;   // metres from a portal's trigger
     private const float TerrainGuardLift = 0.02f;      // metres between the item and the surface
 
+    private readonly NetworkedItemManager manager;
     private static readonly WaitForFixedUpdate AfterPhysicsStep = new();
     private readonly Dictionary<NetworkedItem, AboveTerrain> lastAboveTerrain = new();
     private readonly Collider[] portalOverlap = new Collider[128];
     private readonly RaycastHit[] terrainCrossings = new RaycastHit[16];
     private int terrainGuardStep;
+
+    internal ItemTerrainGuard(NetworkedItemManager manager) => this.manager = manager;
 
     private struct AboveTerrain
     {
@@ -44,13 +48,13 @@ public partial class NetworkedItemManager
 
     // WaitForFixedUpdate resumes after the physics step and its collision callbacks, so a crossing
     // is undone before anything renders or samples it.
-    private IEnumerator GuardItemsAgainstTerrainTunnelling()
+    internal IEnumerator Run()
     {
         while (true)
         {
             yield return AfterPhysicsStep;
             terrainGuardStep++;
-            if (TerrainGuardEnabled)
+            if (Enabled)
                 GuardItemsAgainstTerrain();
         }
     }
@@ -66,7 +70,7 @@ public partial class NetworkedItemManager
             Rigidbody body = item != null ? item.Item?.ItemRigidbody : null;
             if (body == null || body.isKinematic || body.IsSleeping() || !item.gameObject.activeInHierarchy)
                 continue;
-            if (TerrainUnder(body.position) is not Terrain terrain)
+            if (ItemFallRescue.TerrainUnder(body.position) is not Terrain terrain)
                 continue;
 
             Vector3 absolute = body.position - WorldMover.currentMove;
@@ -118,7 +122,7 @@ public partial class NetworkedItemManager
         body.position = target;
         item.transform.position = target;
         body.velocity = velocity;
-        TerrainGuardCatches++;
+        Catches++;
 
         Multiplayer.LogDebug(() => $"Terrain guard: {item.name} ({item.NetId}) went through the terrain at " +
             $"{hit.point - WorldMover.currentMove}, put back on it ({under.y - hit.point.y:0.00} m under)");
@@ -127,7 +131,7 @@ public partial class NetworkedItemManager
             ["crossedAt"] = DebugValueSnapshotter.Snapshot(hit.point - WorldMover.currentMove),
             ["depth"] = hit.point.y - under.y,
             ["speed"] = moved.magnitude / Time.fixedDeltaTime
-        }, ServerPart != null ? DebugRuntimeSide.Server : DebugRuntimeSide.Client);
+        }, manager.ServerPart != null ? DebugRuntimeSide.Server : DebugRuntimeSide.Client);
     }
 
     private bool TryCrossTerrainCollider(Vector3 from, Vector3 moved, out RaycastHit crossing)

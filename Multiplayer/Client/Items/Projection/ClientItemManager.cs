@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using Multiplayer.Client.Items.Inventory;
 using Multiplayer.Client.Items.LiveState;
 using Multiplayer.Client.Items.Physics;
+using Multiplayer.Client.Items.WorldItems;
 using Multiplayer.Shared.Items.Inventory;
 using Multiplayer.Shared.Items.LiveState;
 using Multiplayer.Shared.Protocol.Data.Items;
@@ -13,23 +14,22 @@ namespace Multiplayer.Client.Items.Projection;
 /// <summary>
 /// The remote client's part of <see cref="NetworkedItemManager"/>: the host's snapshots as this game
 /// receives them (deferred world projections, job documents, Lost and Found tombstones), the
-/// projections of scene-authored items, unbound local items and their temporary adoption, and the
-/// client's fall-rescue report. The Shared manager creates it on a remote client only and drives it
-/// (<see cref="IItemManagerClientPart"/>); client code reaches it as <see cref="Instance"/>.
+/// projections of scene-authored items (AuthoredProjections), unbound local items and their
+/// temporary adoption, and the client's fall-rescue report (FallRescueClient). The Shared manager
+/// creates it on a remote client only and drives it (<see cref="IItemManagerClientPart"/>); client
+/// code reaches it as <see cref="Instance"/>.
 /// </summary>
 internal sealed partial class ClientItemManager : IItemManagerClientPart, IInventoryRowHolder
 {
     // Exact scene-authored Unity objects remain dormant while outside host interest. They are
     // rebound only by stable authored key; dynamic projections are never pooled or reused.
-    private readonly HashSet<NetworkedItem> DormantAuthoredClientProjections = new();
+    internal readonly HashSet<NetworkedItem> DormantAuthoredClientProjections = new();
     private readonly Queue<NetworkedItem> PendingUnboundClientItems = new();
     private readonly HashSet<NetworkedItem> PendingUnboundClientItemSet = new();
     private readonly Dictionary<ushort, ItemUpdate> PendingSpecialItemSnapshots = new();
     private readonly Dictionary<ushort, PendingWorldProjection> PendingWorldProjections = new();
     private readonly HashSet<ushort> ClientLostAndFoundTombstones = new();
-    private readonly HashSet<string> ClientDetachedAuthoredSlots = new(StringComparer.Ordinal);
     private bool ClientInitialised = false;
-    private bool authoredCatalogueAccepted;
     private readonly NetworkedItemManager shell;
 
     private sealed class PendingWorldProjection
@@ -42,7 +42,14 @@ internal sealed partial class ClientItemManager : IItemManagerClientPart, IInven
     {
         this.shell = shell;
         Spatial = new ClientItemSpatial(shell.Spatial);
+        Authored = new AuthoredProjections(this, shell);
     }
+
+    /// <summary>Reports items near this player that sank below its terrain.</summary>
+    internal FallRescueClient FallRescue { get; } = new();
+
+    /// <summary>The host's scene-authored items bound to this game's copies.</summary>
+    internal AuthoredProjections Authored { get; }
 
     /// <summary>This game's side of the Shared spatial manager's leases.</summary>
     internal ClientItemSpatial Spatial { get; }
@@ -89,12 +96,15 @@ internal sealed partial class ClientItemManager : IItemManagerClientPart, IInven
         }
     }
 
-    public void Tick(uint tick) => RunFallRescue();
+    public void Tick(uint tick) => FallRescue.Run();
+
+    public void DetachAuthoredProjectionForPossession(NetworkedItem item, ItemUpdate snapshot) =>
+        Authored.DetachForPossession(item, snapshot);
 
     public void Clear()
     {
         Spatial.Clear();
-        ClientDetachedAuthoredSlots.Clear();
+        Authored.Clear();
         InventoryRows.Clear();
         RetireStandIns();
     }

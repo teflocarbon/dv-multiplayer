@@ -63,7 +63,7 @@ internal sealed class OfficeStockReplenishment
     }
 
     private static bool IsEligibleAuthoredOfficeProp(NetworkedItem item) =>
-        NetworkedItemManager.IsEligibleAuthoredOfficeProp(item);
+        AuthoredItems.IsEligibleOfficeProp(item);
 
     internal void OnAuthoritativeTransition(NetworkedItem item, LiveItems.LiveItem record,
         ItemPlacementKind previousPlacement, bool appliesPlacement)
@@ -84,7 +84,7 @@ internal sealed class OfficeStockReplenishment
             TakenNetId = item.NetId,
             AuthoredShopSlot = item.IsAuthoredShopSlot
         };
-        owner.Shell.RemoveAuthoredItemProjection(key, item);
+        owner.Shell.Authored.Remove(key, item);
         Guid persistentId = LiveItems.PromoteAuthoredToPersistent(item,
             replenishableStockFork: true);
         item.DetachAuthoredItemKey();

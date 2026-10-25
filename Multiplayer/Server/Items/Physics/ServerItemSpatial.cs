@@ -154,6 +154,66 @@ internal sealed class ServerItemSpatial
         committedStates.Remove(itemNetId);
     }
 
+    /// <summary>
+    /// The server puts a loose item where its object now is, at rest, as a committed change: a
+    /// fall rescue, a refused bin (OI-PHY-11). Its lease ends, its record takes the pose (and the
+    /// car or shelf it is in) at a new revision, and every game that has it gets the commit.
+    /// Before R7 the rescue moved the record's position alone, at no revision, and sent the
+    /// pose as convergence, so a client could keep its own and a train item was never rescued.
+    /// </summary>
+    internal bool CommitServerPose(NetworkedItem item, LiveItems.LiveItem record,
+        ChangeCause<ItemMoveReason> cause, string leaseReason)
+    {
+        if (!NetworkLifecycle.Instance.IsHost() || item == null || record == null ||
+            item.NetId == 0 || record.NetId != item.NetId)
+            return false;
+        RevokeHostLease(item.NetId, leaseReason, notify: true);
+        pendingHostBegins.Remove(item.NetId);
+        uint epoch = epochs.TryGetValue(item.NetId, out uint previous) ? previous + 1 : 1;
+        epochs[item.NetId] = epoch;
+        Rigidbody body = item.Item?.ItemRigidbody;
+        if (body != null && !body.isKinematic)
+        {
+            body.velocity = Vector3.zero;
+            body.angularVelocity = Vector3.zero;
+        }
+        ItemSpatialStateData state = Capture(item, record.Revision, epoch, 0,
+            HostItemActor.ServerSimulatorId, ItemSpatialPhase.Settled);
+        state.SourceTick = NetworkLifecycle.Instance.Tick;
+        state.LinearVelocity = Vector3.zero;
+        state.AngularVelocity = Vector3.zero;
+        state.Sleeping = true;
+        if (!LiveItems.TryCommitSpatialPose(item, record.Revision, state,
+                out LiveItems.LiveItem committed, out string rejection))
+        {
+            Publish("item.server-pose-rejected", item.NetId, new()
+            {
+                ["reason"] = rejection ?? string.Empty,
+                ["cause"] = cause.ToString()
+            });
+            return false;
+        }
+        state.AuthorityRevision = committed.Revision;
+        ItemChangeLog.RecordMove(item, committed, cause);
+        committed.LastSpatialCause = cause;
+        committedStates[item.NetId] = state.Clone();
+        ApplyCommitMetadata(item, state);
+        manager.RefreshHostSpatialPosition(item, state.AbsolutePosition, state.WorldParentKind);
+        if (body != null)
+        {
+            body.Sleep();
+            if (state.WorldParentKind == ItemWorldParentKind.TrainInterior)
+                body.isKinematic = true;
+        }
+        NetworkServer.Instance.SendItemSpatialCommit(item,
+            new ClientboundItemSpatialCommitPacket { State = state });
+        Publish("item.server-pose-committed", item.NetId, new(SpatialDebug(state))
+        {
+            ["cause"] = cause.ToString()
+        });
+        return true;
+    }
+
     internal bool ResetAuthoredItemToBaseline(NetworkedItem item,
         LiveItems.LiveItem record, string reason)
     {

@@ -498,7 +498,7 @@ public partial class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
         IsReplenishableAuthoredOfficeSlot |= replenishableOfficeSlot;
         IsAuthoredShopSlot |= authoredShopSlot;
         ItemServer.Current?.MarkAuthoredIdentity(this);
-        NetworkedItemManager.Instance?.ReplaceAuthoredItemProjection(key, this);
+        NetworkedItemManager.Instance?.Authored.Replace(key, this);
     }
 
     internal string DetachAuthoredItemKey()

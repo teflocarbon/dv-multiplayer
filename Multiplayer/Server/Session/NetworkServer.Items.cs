@@ -133,7 +133,7 @@ public partial class NetworkServer : IItemServer
     {
         if (!TryGetServerPlayer(peer, out ServerPlayer player))
             return;
-        var host = NetworkedItemManager.Instance.GetAuthoredCatalogueSummary();
+        var host = NetworkedItemManager.Instance.Authored.Summary();
         // The same scene keys on both sides; a key that collides in either is refused alone
         // (Core AuthoredCatalogueKeys, OI-SYNC-08).
         bool accepted = packet != null &&
@@ -710,7 +710,7 @@ public partial class NetworkServer : IItemServer
     {
         if (float.IsNaN(request.SurfaceHeight) || float.IsInfinity(request.SurfaceHeight))
             return Refuse(request, "surface-height-invalid", ItemRefusal.Invalid);
-        ServerItemManager.Instance?.HandleBelowMapReport(player, request.ItemNetId, request.SurfaceHeight);
+        ServerItemManager.Instance?.FallRescue.HandleBelowMapReport(player, request.ItemNetId, request.SurfaceHeight);
         return Accept(request, RevisionOf(request.ItemNetId), request.ItemNetId);
     }
 

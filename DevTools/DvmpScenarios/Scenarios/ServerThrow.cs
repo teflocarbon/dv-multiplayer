@@ -10,6 +10,7 @@ using Multiplayer.Server.Items.Projection;
 using Multiplayer.Server.Session;
 using Multiplayer.Shared.Items.LiveState;
 using Multiplayer.Shared.Protocol.Data.Items;
+using Multiplayer.Shared.Items.Physics;
 using Multiplayer.Shared.Session;
 using UnityEngine;
 
@@ -107,7 +108,7 @@ namespace Dvmp.Scenarios
         {
             /// <summary>Either game: how many times its terrain guard has put an item back on the ground.</summary>
             [Step]
-            public static int GuardCatches() => NetworkedItemManager.TerrainGuardCatches;
+            public static int GuardCatches() => ItemTerrainGuard.Catches;
 
             /// <summary>
             /// Host: once the mug lies in the cab under the lease its drop opened, throws it out of the
@@ -189,7 +190,7 @@ namespace Dvmp.Scenarios
                 {
                     yield return null;
                     if (fellThrough) continue;   // underground, then rescued: no longer the throw's flight
-                    if (NetworkedItemManager.BelowTerrain(item.transform.position, out _) is float depth && depth > 0.3f)
+                    if (ItemFallRescue.BelowTerrain(item.transform.position, out _) is float depth && depth > 0.3f)
                     {
                         fellThrough = true;
                         fellAfter = Time.realtimeSinceStartup - t1;

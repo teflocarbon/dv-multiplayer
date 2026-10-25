@@ -26,7 +26,7 @@ internal sealed partial class ClientItemManager
     // projection, kept dormant, or destroyed.
     // Dynamic client projections are fresh instances owned by one host-authoritative logical
     // lifetime.
-    private bool CreateItem(ItemUpdate snapshot, bool acknowledge = true)
+    internal bool CreateItem(ItemUpdate snapshot, bool acknowledge = true)
     {
         if (snapshot == null || snapshot.ItemNetId == 0)
         {
@@ -60,7 +60,7 @@ internal sealed partial class ClientItemManager
     /// <summary>The world has loaded: classify every item this game made before the host's arrive.</summary>
     internal void QuarantineUnboundClientItems()
     {
-        shell.EnsureAuthoredCatalogue();
+        shell.Authored.Ensure();
 
         // The host owns canonical existence. Preserve exact authored scene projections in a
         // dormant state and destroy every other unbound client object.
@@ -127,7 +127,7 @@ internal sealed partial class ClientItemManager
         RetireClientProjection(existing, "authoritative-binding-collision");
     }
 
-    private void RetireClientProjection(NetworkedItem netItem, string reason)
+    internal void RetireClientProjection(NetworkedItem netItem, string reason)
     {
         if (netItem == null)
             return;

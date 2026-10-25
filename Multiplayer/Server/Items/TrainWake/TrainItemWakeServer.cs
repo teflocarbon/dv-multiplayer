@@ -34,14 +34,14 @@ internal enum TrainItemWakeReason : byte
 /// Train-only host policy around the existing spatial lease manager. Settled membership and
 /// support evidence are canonical host records; Unity collision evidence may be supplied by the
 /// current simulator, but only the host can turn it into a new spatial epoch. The simulator's side
-/// of a collision is NetworkedItemManager.ObserveTrainItemCollision.
+/// of a collision is TrainItemImpactWitness.Observe.
 /// </summary>
 internal sealed class TrainItemWakeServer
 {
     internal const int MaximumWakeItems = 32;
     internal const int MaximumWakeDepth = 8;
-    internal const float ImpactRelativeSpeedThreshold = NetworkedItemManager.TrainItemImpactRelativeSpeedThreshold;
-    internal const float ImpactImpulseThreshold = NetworkedItemManager.TrainItemImpactImpulseThreshold;
+    internal const float ImpactRelativeSpeedThreshold = TrainItemImpactWitness.RelativeSpeedThreshold;
+    internal const float ImpactImpulseThreshold = TrainItemImpactWitness.ImpulseThreshold;
     internal const float MotionSampleInterval = 0.1f;
     internal const float WholeCarWakeCooldown = 1f;
     internal const float WitnessDedupeSeconds = 0.25f;

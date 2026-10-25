@@ -13,6 +13,7 @@ using Multiplayer.Server.Items.LiveState;
 using Multiplayer.Server.Items.LostAndFound;
 using Multiplayer.Server.Items.SaveLoad;
 using Multiplayer.Shared.Items.LiveState;
+using Multiplayer.Shared.Items.WorldItems;
 using Multiplayer.Shared.Protocol.Data.Items;
 using UnityEngine;
 
@@ -231,7 +232,7 @@ namespace Dvmp.Scenarios
                 NetworkedItem item = UnityEngine.Resources.FindObjectsOfTypeAll<NetworkedItem>()
                     .Where(n => n != null && n.gameObject.scene.IsValid() && n.IsSceneAuthored && n.NetId != 0 &&
                                 Pickable.Contains(n.name.Replace("(Clone)", "")) &&
-                                !NetworkedItemManager.IsEligibleAuthoredOfficeProp(n) && !n.IsAuthoredShopSlot &&
+                                !AuthoredItems.IsEligibleOfficeProp(n) && !n.IsAuthoredShopSlot &&
                                 LiveItems.TryGet(n.NetId, out var r) && r.Placement == ItemPlacementKind.World &&
                                 !ItemAccessServer.Fixtures.Contains(r.PrefabName, n.AuthoredItemKey))
                     .OrderBy(n => Vector3.Distance(Flat(Dev.Abs(n.transform.position)), at))

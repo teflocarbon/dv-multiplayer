@@ -1,3 +1,4 @@
+using Multiplayer.Shared.Items.Physics;
 using UnityEngine;
 
 namespace Multiplayer.Shared.Items.LiveState;
@@ -13,6 +14,6 @@ public partial class NetworkedItem
             otherBody.GetComponent<NetworkedItem>() ?? otherBody.GetComponentInParent<NetworkedItem>();
         if (other == null || other == this || other.NetId == 0)
             return;
-        NetworkedItemManager.Instance.ObserveTrainItemCollision(this, other, collision);
+        TrainItemImpactWitness.Observe(NetworkedItemManager.Instance, this, other, collision);
     }
 }
