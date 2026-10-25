@@ -823,7 +823,17 @@ public static partial class LiveItems
     }
 
 
-    public static void Remove(ushort netId) => records.Remove(netId);
+    public static void Remove(ushort netId)
+    {
+        if (records.TryGetValue(netId, out LiveItem record))
+            EndLease(record, "record-removed");
+        records.Remove(netId);
+    }
+
+    // Every change that ends an item's physics lease ends it here, explicitly (OI-PHY-02), when it
+    // doesn't pass through ApplyTransition (which tells the spatial server itself).
+    private static void EndLease(LiveItem record, string reason) =>
+        ServerItemManager.Instance?.HostSpatial.EndLease(record.NetId, reason);
     public static void Clear()
     {
         records.Clear();

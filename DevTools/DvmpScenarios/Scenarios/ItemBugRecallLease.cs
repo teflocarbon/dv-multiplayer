@@ -14,9 +14,8 @@ namespace Dvmp.Scenarios
     /// Item bug SL4 (docs/research/item-bug-review.md): the client drops its comms radio in a moving
     /// loco's cab, where the item has a physics lease, and recalls it into its slot. Before R3 the
     /// recall committed the inventory placement without ending the lease, so the save wrote the
-    /// lease's placement and after a restart the radio was back in the cab. Since R3 the lease is
-    /// gone after the recall (likely because an item in a remote player's inventory is data on
-    /// the server, OI-COLD-06, so its object goes with its lease). The radio doesn't always still have a lease when it's recalled (it may have settled):
+    /// lease's placement and after a restart the radio was back in the cab. Since R7 the recall
+    /// ends the lease itself (OI-ESS-11), and the host records why ("revoked:recalled"). The radio doesn't always still have a lease when it's recalled (it may have settled):
     /// such a run checks only the recall and the restart, and says so.
     /// </summary>
     [Scenario("item-bug-recall-lease", "An essential recalled out of a moving cab has no physics lease left, and is in the inventory after a save and restart")]
@@ -55,6 +54,12 @@ namespace Dvmp.Scenarios
             bool stillLeased = await pair.Host.Run(() => InGame.Leased(d.Item));
             Report.Note($"10 s after the recall: {record.Placement} of {record.PlacementPlayer}, lease {stillLeased}");
             Expect.That(!stillLeased, "no physics lease left on the recalled radio");
+            // The recall itself ended it (R7, OI-ESS-11), not something that noticed later: a save
+            // between the two would have written the lease's place.
+            string ended = await pair.Host.Run(() => InGame.LastLeaseEnd(d.Item));
+            Report.Note("its last lease ended: " + (ended.Length > 0 ? ended : "never"));
+            if (leased)
+                Expect.Equal("revoked:recalled", ended, "the recall ended the radio's lease");
 
             await pair.Host.Run(() => Saves.Manual());
             await pair.Restart(o.Session);
@@ -71,6 +76,10 @@ namespace Dvmp.Scenarios
             /// <summary>Host: the item has a live physics lease.</summary>
             [Step]
             public static bool Leased(ushort id) => NetworkedItemManager.Instance.HasActiveSpatialState(id);
+
+            /// <summary>Host: why the item's last physics lease ended, or empty.</summary>
+            [Step]
+            public static string LastLeaseEnd(ushort id) => NetworkedItemManager.Instance.Spatial.LastLeaseEnd(id);
 
             /// <summary>Client: where its comms radio is.</summary>
             [Step]

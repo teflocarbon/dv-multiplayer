@@ -94,6 +94,8 @@ public static partial class LiveItems
         record.Holder = Guid.Empty;
         record.PlacementHand = PlayerHand.None;
         record.LastReason = ItemTransitionReason.LostAndFoundCollection;
+        // Collected mid-flight: its lease ends with the collection (OI-PHY-02, -03).
+        EndLease(record, "lost-and-found");
         Publish("item.lost-and-found-authority-applied", item, record, null);
         return true;
     }

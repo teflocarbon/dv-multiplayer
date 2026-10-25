@@ -97,6 +97,9 @@ public static partial class LiveItems
         WriteToSnapshot(record, snapshot, ItemTransitionReason.OwnerRecall);
         snapshot.MoveCause = recalled;
         ItemChangeLog.RecordMove(item, record, recalled);
+        // Out of a moving cab, say: its lease ends with the recall, so nothing (the save) takes the
+        // lease's place for it (SL4, OI-ESS-11).
+        EndLease(record, "recalled");
         PlayerItems.Stored(record, sendRow: true);
         Publish("item.recall-accepted", item, record, new()
         {
