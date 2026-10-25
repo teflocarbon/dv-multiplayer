@@ -55,9 +55,18 @@ internal static partial class PlayerItems
     // scans for them.
     private static readonly Dictionary<ushort, Pending> pendingData = new();
     private static readonly HashSet<ushort> materializing = new();
-    // Who had the item when the server's object went (its holder, an owner with a silhouette): the
-    // object made again is known to them, so they aren't sent it a second time.
+    // Who had the item when the server's object went (its holder, an owner with a silhouette, a game
+    // keeping an inert copy of a Lost and Found entry): the object made again is known to them, so
+    // they aren't sent it a second time. By player id, which the next player to join may be given: a
+    // leaver's and a joiner's id is taken out (ForgetKnower).
     private static readonly Dictionary<ushort, byte[]> knownBy = new();
+
+    private static void ForgetKnower(byte playerId)
+    {
+        foreach (KeyValuePair<ushort, byte[]> entry in knownBy.ToArray())
+            if (Array.IndexOf(entry.Value, playerId) >= 0)
+                knownBy[entry.Key] = entry.Value.Where(id => id != playerId).ToArray();
+    }
 
     // The state each holder's game sent as it put an item away (D14, OI-COLD-13), laid over the
     // server's own when its object goes: the holder's copy is the item as it was in their hands.

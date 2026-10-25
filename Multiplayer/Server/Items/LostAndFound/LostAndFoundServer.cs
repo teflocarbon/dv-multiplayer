@@ -325,6 +325,7 @@ public static class LostAndFoundServer
             TraceRecallRejection(itemNetId, rejectionReason);
             return false;
         }
+        objectFrame.Remove(itemNetId);
         // The transition indexed the item while its entry still held it, which skips it: index it
         // now, or a player who joins later (its owner, rejoining) is never sent it.
         ServerItemManager.Instance?.RegisterHostWorldItem(item);

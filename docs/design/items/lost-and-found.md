@@ -148,6 +148,7 @@ to data.
   game is sent its destroy before its NetId is freed, so a reused NetId never names that copy (J7).
   The games that knew the object as it went to data (`PlayerItems.ToLostData`) know the one made
   again (`TakeUpObject`, as for an inventory's data), so that object's own Destroy reaches their copy.
+  They're kept by player id, and a game that leaves or joins is taken out of them (`ForgetKnower`): its id may be the next player's.
 - **Its id** is the entry's: the ledger gives a second item asking for it a new one
   (`ServerLedger.ClaimPersistentId`, J6), as it does for an id a live object holds.
 
