@@ -112,7 +112,9 @@ internal static partial class PlayerItems
             ItemNetId = record.NetId,
             PrefabName = record.PrefabName
         };
-        LiveItems.WriteToSnapshot(record, destroy, record.LastReason);
+        // Not its last reason: that's the collection's, and a client applies a Destroy carrying it as
+        // the tombstone again, keeping the copy.
+        LiveItems.WriteToSnapshot(record, destroy, ItemTransitionReason.HostLocalState);
         destroy.RemovalCause = ItemChangeLog.Removal(paper ? ItemRemovalReason.JobDocumentDestroyed : ItemRemovalReason.DestroyedByGame,
             null, "a Lost and Found entry kept as data, gone");
         foreach (ServerPlayer player in NetworkServer.Instance.ServerPlayers)
