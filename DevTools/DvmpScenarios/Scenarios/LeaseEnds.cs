@@ -95,6 +95,7 @@ namespace Dvmp.Scenarios
                     Report.Note(f.ActedDetail);
                     Expect.That(f.Acted, "the host moved and saved it while it flew", f.ActedDetail);
                     Require.That(f.LeaseStale, "its lease was still open past the move (the probe kept it)", f.ActedDetail);
+                    Require.That(f.LeaseFromRecord > 10, "the open lease's pose is far from the record's (what a stale save would write)", f.ActedDetail);
                     Expect.That(f.Saved, "the owned mug's row is in the save", f.ActedDetail);
                     Expect.AtMost(f.RowFromRecord, 0.5, "metres from the saved row's position to the record's (the lease's pose is 20 m off)");
                     break;
@@ -109,7 +110,7 @@ namespace Dvmp.Scenarios
         public sealed class Flight
         {
             public bool Leased, Acted, Saved, LeaseStale;
-            public double RowFromRecord = -1;
+            public double RowFromRecord = -1, LeaseFromRecord = -1;
             public uint LeaseRevision;
             public int ChangedWhileLeased;
             public string Revisions = "", Ended = "", ActedDetail = "";
@@ -173,7 +174,11 @@ namespace Dvmp.Scenarios
                         Dev.Abs(item.transform.position) + Vector3.right * 20f,
                         ItemChangeLog.Move(ItemMoveReason.HostCorrection, detail: "lease-ends scenario"));
                     LiveItems.TryGet(id, out record);
-                    f.LeaseStale = NetworkedItemManager.Instance.HasActiveSpatialState(id);
+                    // What the save reads (RowOf): a lease with a pose, not only an open one.
+                    f.LeaseStale = NetworkedItemManager.Instance.Spatial.TryGetActiveLeaseIdentity(id, out _, out _, out _,
+                        out ItemSpatialStateData latest) && latest != null;
+                    if (f.LeaseStale)
+                        f.LeaseFromRecord = Vector3.Distance(latest.AbsolutePosition, record.Position);
                     SaveGameManager.Instance.Save(DV.Common.SaveType.Manual);
                     JToken saved = SaveGameManager.Instance.data?.GetJObject("Multiplayer")?
                         [Multiplayer.Server.Items.SaveLoad.ItemsSaveCodec.Key];
@@ -184,7 +189,7 @@ namespace Dvmp.Scenarios
                     f.Saved = at != null;
                     if (at != null)
                         f.RowFromRecord = Vector3.Distance(new Vector3((float)at[0], (float)at[1], (float)at[2]), record.Position);
-                    f.ActedDetail = $"moved r{before} to r{record.Revision}, lease {(f.LeaseStale ? "still open" : "ended")}; " +
+                    f.ActedDetail = $"moved r{before} to r{record.Revision}, lease {(f.LeaseStale ? $"still open, its pose {f.LeaseFromRecord:0.#} m from the record" : "ended or without a pose")}; " +
                                     $"the mug ({persistent}) {(at != null ? $"saved at {at.ToString(Newtonsoft.Json.Formatting.None)}" : "has no saved position")}, its record at {record.Position}";
                 }
                 finally

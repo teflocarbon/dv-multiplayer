@@ -149,6 +149,18 @@ public sealed class ItemReleaseSyncTests
     }
 
     [Test]
+    public void StateMachine_AParentChangeAfterAWakeKeepsTheSettlersWindow()
+    {
+        // F3: player 2 settles a mug in a car (-> 5), a wake sets it sliding at that revision, and
+        // it slides onto the next car (parent change -> 6). Player 2's grab made at 4, which their
+        // own settlement covered, still holds.
+        LiveItemState settled = Settle(State(revision: 4, placement: LivePlacement.World), settler: 2);
+        LiveItemState nextCar = ParentChange(settled);
+        TransitionResult grab = ItemStateMachine.Apply(nextCar, Command(actor: 2, expected: 4, LivePlacement.PlayerHand));
+        Assert.That(grab.Accepted, Is.True, grab.RejectionReason);
+    }
+
+    [Test]
     public void StateMachine_SettlersWindowOutlivesObjectStateButNotAMove()
     {
         LiveItemState state = State(revision: 4, placement: LivePlacement.World);

@@ -138,8 +138,11 @@ every 0.5 s, so it finds one of them once their game has the item. A pending wak
 the first attempt of the trigger that is waiting: a retry keeps it, and a fresh trigger for an item
 already waiting (a derailment after a braking) starts its own. Before #397 a retry restarted the
 clock, so a wake never expired; #397's first fix let a fresh trigger take the waiting one's clock,
-so a derailment, which fires once, could expire untried. A missing server object waits the same way. Any other
-refusal, a first attempt or a retry, drops the wake without an event and keeps the record.
+so a derailment, which fires once, could expire untried. So triggers that keep coming (a train
+braking hard again and again) keep an item nobody can simulate pending, and pinned, for as long as
+they come; that is by design: each is a real disturbance, and the pin is what lets a player take it.
+A missing server object waits the same way. Any other refusal, a first attempt or a retry, drops
+the wake without an event and keeps the record.
 
 ## Late joiners
 

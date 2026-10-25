@@ -154,7 +154,8 @@ The commit's window is anyone's (`ItemPlacementRevision.Anyone`): the item is st
 so a request anyone made from before it still holds (`UnchangedFor`), as a settler's own does after a
 settlement. Before the R7 fixes it was the simulator's alone, and a player catching a thrown mug just
 as it crossed into a flatcar was refused, the mug snapping back into the thrower's flight. The
-settlement that follows keeps the window for its settler.
+settlement that follows keeps the window for its settler, and a parent change carries on the window
+before it: a player who settled the item before a wake set it sliding into the next car still holds.
 
 ## Throws and release
 

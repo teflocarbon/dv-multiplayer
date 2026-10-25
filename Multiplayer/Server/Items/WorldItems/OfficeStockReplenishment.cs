@@ -106,7 +106,7 @@ internal sealed class OfficeStockReplenishment
 
         foreach (PendingSlot slot in pending.Values.ToArray())
         {
-            if (AnyPlayerInterested(slot.BaselinePosition))
+            if (AnyPlayerInterested(slot.BaselinePosition, lying: false))
             {
                 slot.EmptySince = -1f;
                 continue;
@@ -144,7 +144,7 @@ internal sealed class OfficeStockReplenishment
 
             observed.Add(record.NetId);
             Vector3 currentPosition = item.transform.position - WorldMover.currentMove;
-            if (AnyPlayerInterested(currentPosition) || AnyPlayerHas(item))
+            if (AnyPlayerInterested(currentPosition, lying: true) || AnyPlayerHas(item))
             {
                 abandonedForkEmptySince.Remove(record.NetId);
                 continue;
@@ -200,8 +200,8 @@ internal sealed class OfficeStockReplenishment
                              RotationResetToleranceDegrees ||
                              Quaternion.Angle(item.transform.rotation, record.BaselineRotation) >
                              RotationResetToleranceDegrees;
-            if (!displaced || !OfficeStockRules.MayReset(AnyPlayerInterested(record.BaselinePosition),
-                    AnyPlayerInterested(observedPosition) || AnyPlayerHas(item), Moving(item),
+            if (!displaced || !OfficeStockRules.MayReset(AnyPlayerInterested(record.BaselinePosition, lying: false),
+                    AnyPlayerInterested(observedPosition, lying: true) || AnyPlayerHas(item), Moving(item),
                     item.Item != null && item.Item.IsGrabbed()))
             {
                 disturbedEmptySince.Remove(key);
@@ -233,23 +233,26 @@ internal sealed class OfficeStockReplenishment
             disturbedEmptySince.Remove(key);
     }
 
-    // A player still loading protects every place (OfficeStockRules.Protects, OI-SYNC-10). A place
-    // is in a player's interest as far as their items are kept, 5x5 cells, not only as far as new
-    // ones enter: before the R7 fixes a player a cell and a half away still had the prop when it
-    // was reset or cleared in front of them.
-    private static bool AnyPlayerInterested(Vector3 absolutePosition)
+    // A player still loading protects every place (OfficeStockRules.Protects, OI-SYNC-10). Where an
+    // item already lies (lying), a player protects it as far as interest keeps items, 5x5 cells:
+    // before the R7 fixes one a cell and a half away still had the prop when it was reset or cleared
+    // in front of them. An empty slot or a prop's place is where a new item would appear, and new
+    // items enter interest at 3x3: at 5x5 a player shunting a cell or two away kept an office empty.
+    private static bool AnyPlayerInterested(Vector3 absolutePosition, bool lying)
     {
         WorldItemCellCoord slotCell = WorldItemCellCoord.FromAbsolute(absolutePosition);
+        int radius = lying ? WorldItemCellCoord.KeepRadius : 1;
         return NetworkServer.Instance.ServerPlayers.Any(player => player != null &&
             OfficeStockRules.Protects(player.LoadingState >= PlayerLoadingState.ReadyForItems,
                 WorldItemCellCoord.Neighbourhood(WorldItemCellCoord.FromAbsolute(player.AbsoluteWorldPosition),
-                    WorldItemCellCoord.KeepRadius).Contains(slotCell)));
+                    radius).Contains(slotCell)));
     }
 
-    // A player whose game has the item, wherever it lies (pinned, or simulated by them).
+    // A player whose interest has the item, wherever it lies (pinned there too). Not KnownItems:
+    // an item materialized from a container is known to every player, near or not, and stays known.
+    // A simulated one is Moving.
     private static bool AnyPlayerHas(NetworkedItem item) =>
-        NetworkServer.Instance.ServerPlayers.Any(player => player != null &&
-            (player.KnownItems.ContainsKey(item) || player.NearbyItems.ContainsKey(item)));
+        NetworkServer.Instance.ServerPlayers.Any(player => player != null && player.NearbyItems.ContainsKey(item));
 
     // Flying or sliding under a lease: its simulator has it, wherever it is going.
     private bool Moving(NetworkedItem item) => owner.Shell.HasActiveSpatialState(item.NetId);

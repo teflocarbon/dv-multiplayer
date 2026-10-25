@@ -141,10 +141,13 @@ A station office's props are stock: each is a slot the server keeps stocked, not
 player's item or an essential, not snapped, and not a container, a gadget or a job paper.
 
 **A player who could see it protects a place** (`OfficeStockRules.Protects`): every connected player whose
-5×5 cells hold it, as far as interest keeps items (`WorldItemCellCoord.KeepRadius`), not only the 3×3
-it takes new ones in by. A knocked prop or a fork is also kept while any player's game has it (known or
-nearby), wherever it lies. Before the R7 fixes only 3×3 was checked, and a player a cell and a half
-away still had the prop when it was reset or cleared in front of them. **A player still loading protects everywhere**: where they will appear isn't known
+cells hold it. Where an item already lies (a knocked prop, a fork) that is 5×5, as far as interest keeps
+items (`WorldItemCellCoord.KeepRadius`), and the item is also kept while it is in any player's nearby
+set, wherever it lies (not their known set: an item made from a container is known to every player and
+stays so). Before the R7 fixes only 3×3 was checked there, and a player a cell and a half away still
+had the prop when it was reset or cleared in front of them. An empty slot or a prop's place stays 3×3:
+what would appear there is new, and new items enter interest at 3×3, so 5×5 kept an office empty for a
+player shunting nearby. **A player still loading protects everywhere**: where they will appear isn't known
 yet, and before R7 a player joining beside an office watched its props vanish (OI-SYNC-10, F30). On a
 player host the host's own player counts; a dedicated host has none.
 

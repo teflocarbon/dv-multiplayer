@@ -309,7 +309,9 @@ internal sealed class TrainItemWakeServer
 
     // pendingSince: a retry's first attempt. A fresh trigger starts its own clock, even for an item
     // already waiting: a derailment fires once, and inheriting an earlier wake's clock let it expire
-    // untried (C1).
+    // untried (C1). So triggers that keep coming (a train braking hard again and again) keep an item
+    // nobody can simulate pending, and pinned in nearby players' interest, for as long as they come:
+    // by design, as each is a real disturbance and the pin is what lets a player take the wake.
     private void Wake(IEnumerable<ushort> itemNetIds, byte preferredSimulatorPlayerId,
         Vector3 initialLocalVelocity, TrainItemWakeReason reason, float? pendingSince = null)
     {

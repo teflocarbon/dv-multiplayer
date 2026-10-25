@@ -44,7 +44,9 @@ public static class ItemPlacementRevision
     /// <summary>
     /// The settler's window after its settlement commits at <paramref name="revisionBefore"/>: from
     /// the oldest revision whose placement it still matched (the object-state run's base, or the
-    /// earlier settlement's base if the settler's own or anyone's), to the settlement's revision.
+    /// earlier settlement's base if the settler's own or anyone's), to the settlement's revision. A
+    /// flight's change of parent (<see cref="Anyone"/>) carries any earlier window on: a player who
+    /// settled the item before a wake still knows where it came from.
     /// </summary>
     public static (Guid By, uint Base, uint Top) SettledAfter(Guid settler, uint revisionBefore,
         uint runBase, uint runTop, Guid settledBy, uint settledBase, uint settledTop)
@@ -52,7 +54,8 @@ public static class ItemPlacementRevision
         if (settler == Guid.Empty || revisionBefore == uint.MaxValue)
             return (Guid.Empty, 0, 0);
         uint oldest = runTop == revisionBefore && runTop != 0 ? runBase : revisionBefore;
-        if ((settledBy == settler || settledBy == Anyone) && SettlementIsLatestPlacement(revisionBefore, runBase, runTop, settledTop))
+        if ((settledBy == settler || settledBy == Anyone || settler == Anyone) &&
+            SettlementIsLatestPlacement(revisionBefore, runBase, runTop, settledTop))
             oldest = Math.Min(oldest, settledBase);
         return (settler, oldest, revisionBefore + 1);
     }
