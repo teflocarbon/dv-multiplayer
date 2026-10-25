@@ -72,11 +72,18 @@ internal sealed class NetworkedItemSpatialManager
     private readonly Dictionary<ushort, Lease> leases = new();
     private readonly Dictionary<ushort, ItemSpatialStateData> committedStates = new();
     private readonly Dictionary<ushort, uint> epochs = new();
+    // Why each item's last lease ended, on the host (a commit, a revoke): what scenarios and the
+    // debug snapshot read to tell an explicit end from one noticed later (OI-PHY-02).
+    private readonly Dictionary<ushort, string> leaseEnds = new();
     // The host's side (ServerItemSpatial) grants, transfers and commits leases in these.
     internal Dictionary<ushort, Lease> Leases => leases;
     internal Dictionary<ushort, ItemSpatialStateData> CommittedStates => committedStates;
     internal Dictionary<ushort, uint> Epochs => epochs;
+    internal Dictionary<ushort, string> LeaseEnds => leaseEnds;
 
+    /// <summary>Why the item's last lease ended on the host, or empty while none has.</summary>
+    internal string LastLeaseEnd(ushort itemNetId) =>
+        leaseEnds.TryGetValue(itemNetId, out string reason) ? reason : string.Empty;
 
     internal void Clear()
     {
@@ -85,6 +92,7 @@ internal sealed class NetworkedItemSpatialManager
         leases.Clear();
         committedStates.Clear();
         epochs.Clear();
+        leaseEnds.Clear();
     }
 
     internal bool TryGetLatestAccepted(ushort itemNetId, out ItemSpatialStateData state)
@@ -511,6 +519,8 @@ internal sealed class NetworkedItemSpatialManager
 
     internal void AppendDebugState(ushort itemNetId, Dictionary<string, object> state)
     {
+        if (state != null && leaseEnds.TryGetValue(itemNetId, out string ended))
+            state["spatialLastLeaseEnd"] = ended;
         if (state == null || !leases.TryGetValue(itemNetId, out Lease lease))
         {
             if (state != null) state["spatialLeaseActive"] = false;

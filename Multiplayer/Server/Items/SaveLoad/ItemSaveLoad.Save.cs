@@ -3,7 +3,9 @@ using DV.ThingTypes;
 using Multiplayer.Core.Items.Containers;
 using Multiplayer.Core.Items.Inventory;
 using Multiplayer.Core.Items.Ledger;
+using Multiplayer.Core.Items.LiveState;
 using Multiplayer.Core.Items.LostAndFound;
+using Multiplayer.Core.Items.Physics;
 using Multiplayer.Server.Items.Containers;
 using Multiplayer.Server.Items.Inventory;
 using Multiplayer.Server.Items.Ledger;
@@ -263,10 +265,16 @@ internal static partial class ItemSaveLoad
     /// <summary>The item's saved row: its record, and its state from the object.</summary>
     internal static SavedItemRow RowOf(LiveItems.LiveItem record, NetworkedItem item)
     {
+        // A flight's latest pose, while its lease holds: an item loose in the world, a car or on a
+        // shelf since the lease began. A lease left over from before a recall or a collection would
+        // have saved the item where the lease last had it (SL4, F25, OI-PER-11). Ammo in a magazine
+        // is where its tool is, not where it was loaded (containers.md): not loose.
         ItemSpatialStateData checkpoint = null;
-        // Ammo in a magazine is where its tool is, not where it was loaded (containers.md).
-        if (record.Placement != ItemPlacementKind.Magazine)
-            NetworkedItemManager.Instance?.TryGetLatestSpatialState(record.NetId, out checkpoint);
+        if (NetworkedItemManager.Instance?.Spatial is { } spatial &&
+            spatial.TryGetActiveLeaseIdentity(record.NetId, out uint leaseRevision, out _, out _, out ItemSpatialStateData latest) &&
+            ItemLeaseRules.Holds((LivePlacement)(byte)record.Placement, leaseRevision, record.Revision,
+                record.ObjectStateRunBase, record.ObjectStateRunTop))
+            checkpoint = latest;
         ItemWorldParentKind parentKind = checkpoint?.WorldParentKind ?? record.WorldParentKind;
         ItemPlacementKind placement = checkpoint == null ? record.Placement : parentKind switch
         {

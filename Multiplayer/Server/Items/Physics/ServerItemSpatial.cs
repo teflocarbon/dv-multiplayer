@@ -74,6 +74,13 @@ internal sealed class ServerItemSpatial
                 ApplyAcceptedHostSample(item, lease, state);
                 CommitHostSettlement(item, lease, state, "host-settlement");
             }
+            else if (hostActs)
+            {
+                // Its last sample, refused: it settles where it last was good, or the lease ends
+                // (OI-PHY-04). Left open, it sampled nothing more and never ended.
+                Reject(state, actor, rejection ?? "host-settlement-rejected");
+                CommitHostSettlement(item, lease, lease.LastAccepted, $"host-settlement-rejected:{rejection}");
+            }
             else
                 Reject(state, actor, rejection ?? "host-settlement-rejected");
             return;
@@ -95,29 +102,40 @@ internal sealed class ServerItemSpatial
         LiveItems.LiveItem record, ServerPlayer actor, ItemPlacementKind previousPlacement,
         bool appliesPlacement)
     {
-        if (!NetworkLifecycle.Instance.IsHost() || item == null || record == null || !appliesPlacement)
+        if (!NetworkLifecycle.Instance.IsHost() || item == null || record == null)
             return;
 
-        bool entersWorld = snapshot.ItemState is ItemState.Dropped or ItemState.Thrown &&
-                           record.Placement is ItemPlacementKind.World or ItemPlacementKind.TrainInterior or
-                               ItemPlacementKind.StaticParent;
-        bool releasedByPlayer = previousPlacement is ItemPlacementKind.PlayerHand or
-            ItemPlacementKind.PlayerInventory || snapshot.ItemState == ItemState.Thrown;
+        bool releasedByPlayer = snapshot.ItemState is ItemState.Dropped or ItemState.Thrown &&
+            (previousPlacement is ItemPlacementKind.PlayerHand or ItemPlacementKind.PlayerInventory ||
+             snapshot.ItemState == ItemState.Thrown);
         // No actor: the server's own release, on a host with no player (HostItemActor.IsServer).
-        if (entersWorld && releasedByPlayer && (actor != null || HostItemActor.IsServer))
+        bool released = releasedByPlayer && (actor != null || HostItemActor.IsServer);
+        switch (ItemLeaseRules.AfterChange(appliesPlacement, (LivePlacement)(byte)record.Placement, released))
         {
-            pendingHostBegins[item.NetId] = (item, record.Revision,
-                actor?.PlayerId ?? HostItemActor.ServerSimulatorId,
-                snapshot.ItemState == ItemState.Thrown ? ItemSpatialPhase.InFlight : ItemSpatialPhase.Sliding);
-            return;
+            case LeaseAfterChange.Begins:
+                pendingHostBegins[item.NetId] = (item, record.Revision,
+                    actor?.PlayerId ?? HostItemActor.ServerSimulatorId,
+                    snapshot.ItemState == ItemState.Thrown ? ItemSpatialPhase.InFlight : ItemSpatialPhase.Sliding);
+                return;
+            case LeaseAfterChange.Ends:
+                // Anywhere else, and the server moving it about the world itself: the old lease
+                // simulates a place the item has left, so it ends here, not at its next sample.
+                EndLease(item.NetId, "placement:" + record.Placement);
+                return;
         }
+    }
 
-        if (!entersWorld)
-        {
-            pendingHostBegins.Remove(item.NetId);
-            RevokeHostLease(item.NetId, "logical-placement-changed");
-            committedStates.Remove(item.NetId);
-        }
+    /// <summary>
+    /// A committed change moved the item out of its lease's hands (a recall, a Lost and Found
+    /// collection, its record gone): the lease ends now and its simulator is told (OI-PHY-02).
+    /// </summary>
+    internal void EndLease(ushort itemNetId, string reason)
+    {
+        if (!NetworkLifecycle.Instance.IsHost())
+            return;
+        pendingHostBegins.Remove(itemNetId);
+        RevokeHostLease(itemNetId, reason);
+        committedStates.Remove(itemNetId);
     }
 
     internal bool ResetAuthoredItemToBaseline(NetworkedItem item,
@@ -263,6 +281,7 @@ internal sealed class ServerItemSpatial
         if (!leases.TryGetValue(itemNetId, out Lease lease))
             return;
         leases.Remove(itemNetId);
+        spatial.LeaseEnds[itemNetId] = "revoked:" + (reason ?? string.Empty);
         if (restoreBody)
             RestoreLocalBodyAfterLease(lease);
         if (notify && NetworkedItem.TryGet(itemNetId, out NetworkedItem item) && item != null)
@@ -469,6 +488,15 @@ internal sealed class ServerItemSpatial
             if (!NetworkedItem.TryGet(lease.ItemNetId, out NetworkedItem item) || item?.Item == null)
             {
                 RevokeHostLease(lease.ItemNetId, "representation-missing");
+                continue;
+            }
+            // A change that skipped the explicit end still ends it, at once, not at every sample's
+            // refusal (OI-PHY-03: a lease whose placement changed without a transition).
+            if (!LiveItems.TryGet(lease.ItemNetId, out LiveItems.LiveItem record) ||
+                !ItemLeaseRules.Holds((LivePlacement)(byte)record.Placement, lease.AuthorityRevision,
+                    record.Revision, record.ObjectStateRunBase, record.ObjectStateRunTop))
+            {
+                EndLease(lease.ItemNetId, "placement-changed");
                 continue;
             }
             if (lease.SimulatorPlayerId == hostId)
@@ -700,7 +728,10 @@ internal sealed class ServerItemSpatial
         if (!LiveItems.TryCommitSpatialPose(item, lease.AuthorityRevision, state,
                 out LiveItems.LiveItem record, out string rejection, PlayerNumbers.Identity(lease.SimulatorPlayerId)))
         {
+            // A refused settlement ends its lease (OI-PHY-03, -04): the change that made it stale
+            // has its own update, and an open lease failed again every frame, never ending.
             Reject(state, null, rejection);
+            EndLease(item.NetId, $"settlement-refused:{rejection}");
             return;
         }
         state = state.Clone();
@@ -714,6 +745,7 @@ internal sealed class ServerItemSpatial
         ApplyCommitMetadata(item, state);
         manager.RefreshHostSpatialPosition(item, state.AbsolutePosition, state.WorldParentKind);
         leases.Remove(item.NetId);
+        spatial.LeaseEnds[item.NetId] = "settled:" + (reason ?? string.Empty);
         Rigidbody body = item.Item?.ItemRigidbody;
         if (body != null)
         {
