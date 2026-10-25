@@ -189,6 +189,12 @@ public partial class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
     public ChangeCause<ItemRemovalReason>? LastRemovalCause { get; private set; }
     // Host: why the code destroying this item is doing it, for OnDestroy to log and send.
     private ChangeCause<ItemRemovalReason>? pendingRemovalCause;
+    /// <summary>
+    /// Its OnDestroy is running: the object still answers (Unity's null check passes until it
+    /// returns), but whatever its going sets off (a box's contents to Lost and Found, and that
+    /// owner's list) must not take it for one that stays.
+    /// </summary>
+    internal bool IsDestroying { get; private set; }
     public bool IsForeignOwned => InventoryIntegration.Project(this).ForeignOwned;
     public string AuthoredItemKey { get; private set; }
     public bool IsSceneAuthored => WorldItemStableIdentity.IsValid(AuthoredItemKey);
@@ -263,6 +269,7 @@ public partial class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
 
     protected override void OnDestroy()
     {
+        IsDestroying = true;
         bool suppressNetworkDestroy = UnloadWatcher.isQuitting || UnloadWatcher.isUnloading;
 
         if (!suppressNetworkDestroy)

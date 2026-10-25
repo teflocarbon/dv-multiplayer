@@ -710,7 +710,10 @@ public static class LostAndFoundServer
             return;
         foreach (LostItemRecord lost in registry.GetAll())
         {
-            bool itemPresent = NetworkedItem.TryGet(lost.NetId, out NetworkedItem item) && item != null;
+            // One being destroyed is gone: a box's destroy sends its contents here, and their owner's
+            // list runs this scan inside the box's OnDestroy, which would make the dying box data
+            // again, a row with its entry ended (NoStray).
+            bool itemPresent = NetworkedItem.TryGet(lost.NetId, out NetworkedItem item) && item != null && !item.IsDestroying;
             SavedItemRow row = null;
             bool data = !itemPresent && rows.TryGetValue(lost.PersistentItemId, out row);
             // A booklet kept as data goes when its job ends, as its object would (OI-COLD-08).
