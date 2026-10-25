@@ -361,6 +361,18 @@ public static class LostAndFoundServer
         ItemPlacementKind previousPlacement = previousAuthority.Placement;
         Guid previousHolder = previousAuthority.Holder;
         ItemTransitionReason previousReason = previousAuthority.LastReason;
+        // One entry per id (OI-ID-06), asked before the ledger moves (LF9): a refusal here leaves
+        // both items' homes as they were. Only an id the ledger's check missed gets this far.
+        if (registry.TryGetByPersistentId(previousAuthority.PersistentItemId, out LostItemRecord holding) &&
+            holding.NetId != item.NetId)
+        {
+            Multiplayer.LogError($"Lost and Found: collecting {item.name} (netId {item.NetId}, " +
+                                 $"{previousAuthority.PersistentItemId:D}) was refused: " +
+                                 $"{LostItemRegistryResult.DuplicatePersistentItemId} (netId {holding.NetId} has it)");
+            Publish("item.lost-and-found-collection-rejected", item,
+                new() { ["rejectionReason"] = "duplicate-persistent-item-id" }, DebugSeverity.Warning);
+            return false;
+        }
         // Distance collection takes only loose world items, except for an owner who isn't here, whose
         // items in trains and on shelves go too (owned-items.md, PR 3).
         bool ownerAway = !PlayerNumbers.IsConnected(previousAuthority.Owner);
