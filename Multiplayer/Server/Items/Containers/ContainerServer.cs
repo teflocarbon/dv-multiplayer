@@ -882,10 +882,19 @@ public static class ContainerServer
             GameObject containerPrefab = FindItemSpec(destination.PrefabName)?.gameObject;
             GameObject itemPrefab = FindItemSpec(item.PrefabName)?.gameObject;
             AItemContainer runtime = containerPrefab?.GetComponent<AItemContainer>();
-            accepted = runtime != null && itemPrefab != null && runtime.ValidItem(itemPrefab);
+            accepted = runtime != null && itemPrefab != null && ValidOnPrefab(runtime, itemPrefab);
             cache[key] = accepted;
             return accepted;
         }
+
+        // Vanilla's ValidItem reads the item's type from its ItemBase, set up as the item wakes: a
+        // prefab's never is, so every item read as no type, and a cold move between boxes was refused
+        // unless a live deposit of the same kinds had been seen first (container-nested-move). A box
+        // reads the type from the prefab's spec instead, as ValidItem would from a woken item's.
+        private static bool ValidOnPrefab(AItemContainer container, GameObject item) =>
+            container is DV.Items.ItemContainer box
+                ? item.GetComponent<DV.CabControls.Spec.Item>() is { } spec && (box.allowedItemTypes & spec.itemType) != 0
+                : container.ValidItem(item);
 
         public void Remember(string destinationPrefabName, string itemPrefabName, bool accepted)
         {
