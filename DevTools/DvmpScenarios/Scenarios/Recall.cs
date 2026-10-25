@@ -74,7 +74,7 @@ namespace Dvmp.Scenarios
 
         // Earlier runs in the same save can leave the client's essentials dropped or in its Lost
         // and Found (lost-and-found and starting-items do): bring one back first, as its player would.
-        private static async Task EssentialToInventory(Pair pair)
+        internal static async Task EssentialToInventory(Pair pair)
         {
             Essential e = await pair.Client.Run<Essential>(s => InGame.FindEssential(s));
             if (e.Where == "inventory")

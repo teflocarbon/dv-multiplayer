@@ -45,6 +45,35 @@ Which slot a change gets (`LiveItems.TryApplyTransition` and the methods beside 
 The lowest free slot is counted from 0, so the belt comes last (`InventorySlots.FirstFree`). With no
 free slot a move into an inventory is refused `inventory-full`.
 
+### A full inventory
+
+Every route into an inventory lands in a slot or falls back, never in no slot (OI-START-10):
+
+- **A Lost and Found retrieval** with no free slot is refused `inventory-full`; the item stays in
+  Lost and Found.
+- **A withdrawal** comes out anyway: an owned item into its owner's Lost and Found
+  (`InventoryOverflow`), an unowned one at the player's feet (OI-ACC-04).
+- **A recall** goes into its claim, which its silhouette keeps, so a full inventory still has room.
+- **A cold row going live, a starting item** that finds no slot after all goes to the holder's feet
+  (`LiveItems.RegisterMaterializedColdItem`), and from there to their Lost and Found when it's theirs.
+- **The holder's game** puts the item where the server says. A claim its vanilla inventory refuses
+  isn't counted as placed, reserved or not: the item goes to the first free slot instead
+  (`NetworkedItem` `HandleInventoryOrHandState`, `InventoryStandIn.Place`).
+
+## Vanilla's hazards
+
+Vanilla's own inventory and storage bookkeeping has holes that could hide or lose an item
+(OI-ESS-13). `VanillaInventoryHazards` and `StorageControllerPatch` mend them on every game:
+
+| | Vanilla | Now |
+| --- | --- | --- |
+| H1 | `SwapItems` doesn't move the claim map (reserved and locked slots, by the object), so a purge after a swap blanked the other item's slot | the map follows the swap |
+| H2 | the load places items by saved slot and ignores the result: of two for one slot, one is in none | the server gives each a slot (`ServerLedger.GiveSlots`, one item per slot) and the issuer counts what's carried |
+| H3 | `AddItemToStorageItemList` takes an item out of its old storage list before it asks whether the new one takes it: a refused move left it in none, so it wasn't saved | asked first, owned or not: a refused move keeps its list |
+| H4-H6 | a slot lock read a dead object and threw halfway; slot and lock confusion | the server keeps the slots (the client's inventory is a view it corrects, R3); a lock on a dead entry clears the entry |
+| H7 | a destroyed item is purged only when it has a claim (the purge reads the claim map): an ordinary one stayed, counting against the 36 slots | its entry goes as its object does (`NetworkedItem.OnDestroy`) |
+| H8 | an item saved once per list | one home per item (the ledger) |
+
 An old save's inventory items without a slot are given one at load (`ServerLedger.GiveSlots`):
 essentials first, each its saved claim if free, else the lowest free one; cold rows the same.
 
@@ -444,7 +473,8 @@ docs/jobs.md ("Papers in inventories") has the job side.
   `inventory-slots`: stash, move, swap, the belt, a reserved slot refused, the same slots after a
   rejoin; `stash-state`: an item's state through a stash and a take-out; `hotbar-cycle`: every vanilla
   item out of the hotbar and back, a stand-in in its slot, the take-out within a frame;
-  `takeout-refused`; `stashed-items`: the clock, the alarm and the boombox in a pocket; `stashed-cassette`: a cassette playing on
+  `takeout-refused`; `full-inventory-routes`: a retrieval, a withdrawal and a recall into a full
+  inventory; `stashed-items`: the clock, the alarm and the boombox in a pocket; `stashed-cassette`: a cassette playing on
   from its row, heard by a player near its holder, resumed where it had got to; `join-rows`;
   `cold-homes`: data on the server, a move while data, a refused move rolled back, cold rows and D5
   across a rejoin; `item-bug-essential-slot-rejoin`; `item-bug-booklet-restart`: a carried booklet

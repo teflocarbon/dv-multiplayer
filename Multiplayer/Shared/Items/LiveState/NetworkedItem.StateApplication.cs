@@ -698,11 +698,11 @@ public partial class NetworkedItem
                 // essential in its claim slot goes through the claim, which keeps its silhouette;
                 // anything else goes to its slot exactly. Left in the world, the item was reported
                 // dropped, the host sent it back to the inventory, and so on every update.
-                bool reserved = (snapshot.InventoryClaimFlags &
-                    (ItemInventoryClaimFlags.Reserved | ItemInventoryClaimFlags.Locked)) != 0;
+                // A refused claim isn't a placement, reserved or not: the item goes to the first free
+                // slot rather than in none (OI-START-10).
                 bool inClaim = snapshot.InventoryClaimSlot >= 0 &&
                     (snapshot.InventorySlot < 0 || snapshot.InventorySlot == snapshot.InventoryClaimSlot);
-                bool placed = inClaim ? RestoreLocalInventoryClaim(snapshot) || reserved
+                bool placed = inClaim ? RestoreLocalInventoryClaim(snapshot)
                     : snapshot.InventorySlot >= 0 && InventoryIntegration.PlaceAt(gameObject, snapshot.InventorySlot) >= 0;
                 if (!placed && InventoryIntegration.AddActive(gameObject) < 0)
                     PublishClaimInvariant("local-inventory-placement-failed", -1,

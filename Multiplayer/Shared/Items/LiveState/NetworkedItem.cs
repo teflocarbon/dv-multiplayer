@@ -276,6 +276,9 @@ public partial class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
 
         // The host logs why it went, keeps a tombstone, sends the Destroy and drops its record.
         ItemServer.Current?.OnItemDestroyed(this, suppressNetworkDestroy);
+        // Vanilla keeps an ordinary item it still names after its object goes (H7, OI-ESS-13).
+        if (!suppressNetworkDestroy)
+            VanillaInventoryHazards.ForgetDestroyed(gameObject);
 
         if (Item != null)
         {

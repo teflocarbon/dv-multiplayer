@@ -58,6 +58,7 @@ runs=( # name | scenario | variables | pair kind it prefers (default player)
   "recall-stashed|recall|STASHED=1|player"
   "lost-essential-rejoin|item-bug-dropped-essential-rejoin|"
   "full-inventory-essential|item-bug-full-inventory-essential|"
+  "full-inventory-routes|full-inventory-routes|"
   "hotbar-cycle|hotbar-cycle|"
   "hotbar-cycle-host|hotbar-cycle|WHO=host|player"
   "hotbar-cycle-quick|hotbar-cycle|QUICK=1 PREFABS=Lantern,Mug,Flashlight"
