@@ -227,6 +227,8 @@ internal sealed class NetworkedItemSpatialManager
                             now - lease.LowMotionSince >= SettlementDwellSeconds) || stableTrainPose);
         if (!settled && now - lease.LastSentAt < interval)
             return false;
+        if (settled)
+            AdoptRestingShelf(item);
 
         state = Capture(item, lease.AuthorityRevision, lease.Epoch,
             lease.NextLocalSequence++, lease.SimulatorPlayerId,
@@ -244,6 +246,39 @@ internal sealed class NetworkedItemSpatialManager
             lease.SettlementSent = true;
         return true;
     }
+
+    /// <summary>
+    /// An item coming to rest on a shelf before vanilla has parented it there: vanilla does on its
+    /// next collision with the shelf (<c>ItemReparentingBase.OnCollisionEnter</c>), about eight frames
+    /// after a drop, and a dropped mug can sleep sooner. Its settlement was then the world's, and the
+    /// parenting that followed this game's alone (SH1). The shelf under it is taken first, as vanilla
+    /// would take it: the first thing under the item, if that is part of a shelf.
+    /// </summary>
+    private static void AdoptRestingShelf(NetworkedItem item)
+    {
+        if (item.GetComponentInParent<ItemStaticParent>() != null ||
+            item.TryGetPhysicalTrainParent(out TrainCar car) && car != null)
+            return;
+        Collider[] own = item.GetComponentsInChildren<Collider>();
+        Bounds bounds = new(item.transform.position, Vector3.zero);
+        foreach (Collider collider in own)
+            if (collider != null && !collider.isTrigger)
+                bounds.Encapsulate(collider.bounds);
+        RaycastHit[] hits = UnityEngine.Physics.RaycastAll(bounds.center, Vector3.down, bounds.extents.y + ShelfReach, ~0,
+            QueryTriggerInteraction.Ignore);
+        foreach (RaycastHit hit in hits.OrderBy(hit => hit.distance))
+        {
+            if (hit.collider == null || own.Contains(hit.collider))
+                continue;
+            ItemStaticParent shelf = hit.collider.GetComponentInParent<ItemStaticParent>();
+            if (shelf != null)
+                item.GetComponent<ItemReparentingBase>()?.ParentItemExternal(shelf.transform, null, shelf);
+            return;
+        }
+    }
+
+    // How far below an item's colliders a shelf it rests on may be, m.
+    private const float ShelfReach = 0.15f;
 
     internal static void ApplyObservedPose(NetworkedItem item, Lease lease, float now)
     {
@@ -418,7 +453,7 @@ internal sealed class NetworkedItemSpatialManager
             NetworkedTrainCar.TryGet(state.WorldParentNetId, out TrainCar car))
             return car.interior ?? car.transform;
         if (state.WorldParentKind == ItemWorldParentKind.StaticParent &&
-            WorldItemStaticParentRegistry.TryResolve(state.WorldParentKey, out Transform parent))
+            WorldItemStaticParentRegistry.TryResolve(state.WorldParentKey, state.AbsolutePosition, out Transform parent))
             return parent;
         return null;
     }

@@ -1,5 +1,7 @@
 using DV.CabControls;
+using Multiplayer.Core.Items.WorldItems;
 using System;
+using System.Collections.Generic;
 using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
@@ -55,14 +57,18 @@ internal static class WorldItemStableIdentity
     public static bool IsValid(string key) =>
         !string.IsNullOrEmpty(key) && key.Length == KeyHexLength;
 
+    /// <summary>
+    /// A shelf's key, the same in every game: its path by names (StaticParentKeys, OI-SYNC-09). The
+    /// key before R7 hashed sibling indices and the absolute position, and differed between games.
+    /// </summary>
     public static string CaptureStaticParent(Transform transform)
     {
         if (transform == null) return string.Empty;
-        Vector3 absolute = transform.position - WorldMover.currentMove;
-        string material = $"static-parent|{NormalizeScene(transform.gameObject.scene.name ?? string.Empty)}|" +
-                          $"{HierarchyPath(transform)}|{F(absolute.x)}|{F(absolute.y)}|{F(absolute.z)}";
+        List<string> names = new();
+        for (Transform current = transform; current != null; current = current.parent)
+            names.Insert(0, current.name);
         using SHA256 sha = SHA256.Create();
-        byte[] digest = sha.ComputeHash(Encoding.UTF8.GetBytes(material));
+        byte[] digest = sha.ComputeHash(Encoding.UTF8.GetBytes(StaticParentKeys.Material(names)));
         StringBuilder key = new(KeyHexLength);
         for (int i = 0; i < KeyHexLength / 2; i++) key.Append(digest[i].ToString("x2", CultureInfo.InvariantCulture));
         return key.ToString();

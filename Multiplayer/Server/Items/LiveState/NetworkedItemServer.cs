@@ -205,7 +205,7 @@ public static class NetworkedItemServer
                  (parentCar.transform.position - WorldMover.currentMove - senderPlayer.AbsoluteWorldPosition).sqrMagnitude > 192f * 192f))
                 return Refused(item, "invalid-or-distant-train-parent");
             if (snapshot.WorldParentKind == ItemWorldParentKind.StaticParent &&
-                (!WorldItemStaticParentRegistry.TryResolve(snapshot.WorldParentKey, out Transform staticParent) ||
+                (!WorldItemStaticParentRegistry.TryResolve(snapshot.WorldParentKey, snapshot.ItemPosition, out Transform staticParent) ||
                  (staticParent.position - WorldMover.currentMove - senderPlayer.AbsoluteWorldPosition).sqrMagnitude > 192f * 192f))
                 return Refused(item, "invalid-or-distant-static-parent");
         }
