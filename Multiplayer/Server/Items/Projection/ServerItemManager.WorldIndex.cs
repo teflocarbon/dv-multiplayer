@@ -1,4 +1,6 @@
 using System.Collections.Generic;
+using Multiplayer.Core.Items.LiveState;
+using Multiplayer.Core.Items.Projection;
 using Multiplayer.Server.Gadgets;
 using Multiplayer.Server.Items.LiveState;
 using Multiplayer.Server.Items.LostAndFound;
@@ -104,7 +106,14 @@ internal sealed partial class ServerItemManager
         if (!NetworkLifecycle.Instance.IsHost() || item == null)
             return;
         bool hadPreviousCell = HostCellByItem.TryGetValue(item, out WorldItemCellCoord previous);
-        if (parentKind == ItemWorldParentKind.World)
+        // On the ground or a shelf it lies in its cell (SH2, OI-SYNC-04); in a car it follows the car.
+        bool byCell = WorldItemIndexing.IndexedByCell(parentKind switch
+        {
+            ItemWorldParentKind.StaticParent => LivePlacement.StaticParent,
+            ItemWorldParentKind.TrainInterior => LivePlacement.TrainInterior,
+            _ => LivePlacement.World
+        });
+        if (byCell)
         {
             WorldItemCellCoord unchanged = WorldItemCellCoord.FromAbsolute(absolutePosition);
             if (hadPreviousCell && previous.Equals(unchanged))
@@ -121,7 +130,7 @@ internal sealed partial class ServerItemManager
         }
         HostCellByItem.Remove(item);
         HostNonSpatialItems.Remove(item);
-        if (parentKind != ItemWorldParentKind.World)
+        if (!byCell)
         {
             HostNonSpatialItems.Add(item);
             HostPlayerCells.Clear();

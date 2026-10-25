@@ -15,8 +15,8 @@ namespace Dvmp.Scenarios
     /// <c>ItemStaticParent</c>, which takes what lands in it) and drops it on the floor (or throws
     /// it, RELEASE=throw). The server's record must have it on that shelf, the ledger's home must be
     /// <c>Shelf</c>, and the owner's row must read "on a shelf". The host's own player does it by
-    /// default; WHO=client is <c>item-bug-client-shelf</c> (SH1: a client's drop never reaches the
-    /// server's shelf).
+    /// default; WHO=client is <c>item-bug-client-shelf</c> (SH1, fixed in R7: a client's drop didn't reach the
+    /// server's shelf); <c>shelf-item</c> follows a shelved mug through a rejoin, a restart and a retrieval.
     /// </summary>
     [Scenario("owned-list-shelf", "An owned item put on a shelf (a shed) is homed there in the ledger and listed \"on a shelf\"")]
     [Needs(Need.PlayerHost)]
@@ -30,13 +30,13 @@ namespace Dvmp.Scenarios
             /// <summary>How it goes onto the shelf: "drop" at the player's feet, or "throw" onto the floor.</summary>
             public string Release = "drop";
             /// <summary>Also: the client has its object of the mug on the shelf (brought beside it when the host
-            /// drops it). Off by default: SH2, <c>item-bug-shelf-unseen</c>.</summary>
+            /// drops it): <c>item-bug-shelf-unseen</c> (SH2).</summary>
             public bool Seen = false;
         }
 
         protected override Task Run(Pair pair, Options o) => Shelve(pair, o);
 
-        internal static async Task Shelve(Pair pair, Options o)
+        internal static async Task<ushort> Shelve(Pair pair, Options o)
         {
             bool host = o.Who == "host";
             if (host && pair.Dedicated) throw new HarnessException("WHO=host needs a player host");
@@ -60,7 +60,7 @@ namespace Dvmp.Scenarios
             Expect.Equal("on a shelf", await pair.Host.Run(() => LedgerRows.InGame.RowWhere(owner, id)), $"the {o.Who}'s owned-items row for the mug");
             Expect.Empty(await LedgerSave.SettledAudit(pair, new[] { id }), "what the ledger disagrees with");
             if (!o.Seen)
-                return;
+                return mug;
             // Everyone sees it there: the client too, brought beside it when the host dropped it.
             if (host)
             {
@@ -76,6 +76,7 @@ namespace Dvmp.Scenarios
             }
             Report.Note("client copy: " + seen);
             Expect.That(seen.Contains("parent OldShed"), "the client has the mug on the shelf", seen);
+            return mug;
         }
 
         // ---- runs inside the games

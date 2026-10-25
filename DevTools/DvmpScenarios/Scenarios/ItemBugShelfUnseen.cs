@@ -7,10 +7,10 @@ namespace Dvmp.Scenarios
     /// The host's own player drops a mug of its own on the floor of the nearest shed, as
     /// <c>owned-list-shelf</c> does, and the server has it there; the client is then brought beside it,
     /// but its game never gets the mug. A client's own drop meets it too (<c>item-bug-client-shelf</c>):
-    /// its object leaves its interest just after the drop and isn't made again.
+    /// its object leaves its interest just after the drop and isn't made again. Fixed in R7: a shelf
+    /// item is indexed by its cell, as one on the ground is (OI-SYNC-04).
     /// </summary>
     [Scenario("item-bug-shelf-unseen", "An item on a shelf (a shed) is shown to a client beside it (SH2)")]
-    [KnownBug("SH2")]
     [Needs(Need.PlayerHost)]
     [Budget(180)]
     public sealed class ItemBugShelfUnseen : Scenario<ItemBugShelfUnseen.Options>

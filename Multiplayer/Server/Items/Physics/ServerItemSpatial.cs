@@ -734,7 +734,7 @@ internal sealed class ServerItemSpatial
                     (car.transform.position - WorldMover.currentMove - sender.AbsoluteWorldPosition).sqrMagnitude <=
                     MaximumSimulatorDistance * MaximumSimulatorDistance);
         return state.WorldParentKind == ItemWorldParentKind.StaticParent &&
-               WorldItemStaticParentRegistry.TryResolve(state.WorldParentKey, out Transform parent) && parent != null &&
+               WorldItemStaticParentRegistry.TryResolve(state.WorldParentKey, state.AbsolutePosition, out Transform parent) && parent != null &&
                (sender == null ||
                 (parent.position - WorldMover.currentMove - sender.AbsoluteWorldPosition).sqrMagnitude <=
                 MaximumSimulatorDistance * MaximumSimulatorDistance);

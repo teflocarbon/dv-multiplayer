@@ -200,7 +200,7 @@ public partial class NetworkedItem
                 reparenting.ParentItemExternal(parent, trainCar.rb, null);
         }
         else if (snapshot.WorldParentKind == ItemWorldParentKind.StaticParent &&
-                 WorldItemStaticParentRegistry.TryResolve(snapshot.WorldParentKey, out parent))
+                 WorldItemStaticParentRegistry.TryResolve(snapshot.WorldParentKey, snapshot.ItemPosition, out parent))
         {
             ItemReparentingBase reparenting = GetComponent<ItemReparentingBase>();
             if (reparenting != null)
