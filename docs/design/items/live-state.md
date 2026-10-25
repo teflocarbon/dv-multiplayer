@@ -219,7 +219,9 @@ Each game adds its part:
   So is one they simulate after letting go (their drop or throw in flight, under their lease,
   `ServerItemSpatial.SimulatedByAnother`), unless the host's own player is working it: the copy
   follows their samples, and on a player host the knob of a lantern falling from their hand swung
-  its wick from 0.2 to 0.4, sent as the host's own change (end pass).
+  its wick from 0.2 to 0.4, sent as the host's own change (end pass). It's put back for a second
+  after their lease ends in its settlement too: the body is held from then, but its knob may still
+  swing.
   "Holds or carries" is the record's word as well as the snapshot's (`HeldByAnotherPlayer`): an object
   made for an item kept as data in their inventory lies inactive at the safety position and reads
   itself as dropped there, and that was taken as the server moving it out of their slot into the

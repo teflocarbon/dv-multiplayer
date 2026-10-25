@@ -50,7 +50,16 @@ internal sealed class ServerItemSpatial
     private Dictionary<ushort, ItemSpatialStateData> committedStates => spatial.CommittedStates;
     private Dictionary<ushort, uint> epochs => spatial.Epochs;
 
-    internal void Clear() => pendingHostBegins.Clear();
+    // When another player's lease on each item ended in its settlement: its copy here may still swing
+    // a moment (a lantern's knob), and that's drift too (SimulatedByAnother).
+    private readonly Dictionary<ushort, float> remoteSettledAt = new();
+    private const float RemoteSettleDriftSeconds = 1f;
+
+    internal void Clear()
+    {
+        pendingHostBegins.Clear();
+        remoteSettledAt.Clear();
+    }
 
     /// <summary>
     /// The items <paramref name="playerId"/> simulates under a lease now: theirs to keep in interest
@@ -64,9 +73,21 @@ internal sealed class ServerItemSpatial
                 yield return item;
     }
 
-    /// <summary>Whether another player than the server's own simulates the item under a lease now.</summary>
-    internal bool SimulatedByAnother(ushort itemNetId) =>
-        leases.TryGetValue(itemNetId, out Lease lease) && lease.SimulatorPlayerId != HostItemActor.SimulatorId;
+    /// <summary>
+    /// Whether another player than the server's own simulates the item under a lease now, or settled it
+    /// under one less than <see cref="RemoteSettleDriftSeconds"/> ago.
+    /// </summary>
+    internal bool SimulatedByAnother(ushort itemNetId)
+    {
+        if (leases.TryGetValue(itemNetId, out Lease lease))
+            return lease.SimulatorPlayerId != HostItemActor.SimulatorId;
+        if (!remoteSettledAt.TryGetValue(itemNetId, out float settledAt))
+            return false;
+        if (Time.realtimeSinceStartup - settledAt < RemoteSettleDriftSeconds)
+            return true;
+        remoteSettledAt.Remove(itemNetId);
+        return false;
+    }
 
     internal void Update()
     {
@@ -935,6 +956,8 @@ internal sealed class ServerItemSpatial
         manager.RefreshHostSpatialPosition(item, state.AbsolutePosition, state.WorldParentKind);
         leases.Remove(item.NetId);
         spatial.LeaseEnds[item.NetId] = "settled:" + (reason ?? string.Empty);
+        if (lease.SimulatorPlayerId != HostItemActor.SimulatorId)
+            remoteSettledAt[item.NetId] = Time.realtimeSinceStartup;
         Rigidbody body = item.Item?.ItemRigidbody;
         if (body != null)
         {
