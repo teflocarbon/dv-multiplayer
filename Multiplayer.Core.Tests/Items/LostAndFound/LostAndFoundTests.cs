@@ -472,7 +472,7 @@ public sealed class LostAndFoundTests
         Assert.That(LostItemCollectionPolicy.RollsBackIntoWorld(previous), Is.False);
 
     [TestCase(LivePlacement.Attached, LivePlacement.World, true)]
-    [TestCase(LivePlacement.SnappedAttachment, LivePlacement.World, true)]   // a deleted car's hanger: once, not twice
+    [TestCase(LivePlacement.SnappedAttachment, LivePlacement.World, true)]   // a deleted car's hanger, or a gadget gone at load: once, not twice
     [TestCase(LivePlacement.Magazine, LivePlacement.World, true)]
     [TestCase(LivePlacement.SnappedAttachment, LivePlacement.SnappedAttachment, false)]
     [TestCase(LivePlacement.TrainInterior, LivePlacement.World, false)]

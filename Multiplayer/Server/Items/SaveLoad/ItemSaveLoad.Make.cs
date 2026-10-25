@@ -268,11 +268,14 @@ internal static partial class ItemSaveLoad
         {
             Multiplayer.LogWarning($"Saved item {record.PrefabName} ({record.PersistentItemId:D}) is snapped to {record.WorldParentKey}, " +
                                    $"which isn't here after {SnapPointWaitSeconds} s");
-            // Owned, to its owner's Lost and Found; unowned (or refused), into the world where it is,
-            // as off a deleted car: never left snapped to nothing.
-            if (record.Owner == Guid.Empty || !ServerLedger.SendToLostAndFound(record.PersistentItemId,
-                    LostItemReason.SaveRecovery, "its snap point's gadget is gone", out _))
-                DeletedCarItems.IntoWorld(item, record, "its snap point's gadget is gone");
+            // Kept for someone (its owner, or a booklet's issued player: OI-LF-17), to their Lost and
+            // Found; anything else into the world where it is, as off a deleted car: never left
+            // snapped to nothing. A refused collection's rollback has put it in the world already.
+            const string why = "its snap point's gadget is gone";
+            if ((LiveItems.KeeperOf(record) == Guid.Empty || !LostAndFoundServer.Collect(item, LostItemReason.SaveRecovery, why)) &&
+                LiveItems.TryGet(item.NetId, out LiveItems.LiveItem now) &&
+                !LostItemCollectionPolicy.RolledBackIntoWorld(LivePlacement.SnappedAttachment, (LivePlacement)(byte)now.Placement))
+                DeletedCarItems.IntoWorld(item, now, why);
             yield break;
         }
         record.WorldParentNetId = gadget;

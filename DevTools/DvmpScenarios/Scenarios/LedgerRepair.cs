@@ -306,7 +306,8 @@ namespace Dvmp.Scenarios
         // 4c. OneHome, two copies, the copy in Lost and Found: the client's mug lies in the world, its
         // home, and a mug in Lost and Found carries its id. Without the re-key the copy's Lost and
         // Found entry kept the old id: no entry was saved under the new one, and the old id's
-        // lookups found the copy.
+        // lookups found the copy. Without the re-key's resend the client's list (not asked for
+        // here) still names the copy as it was, and its first click would be refused.
         private static async Task ALostCopy(Pair pair, string client)
         {
             ushort a = await pair.Host.Run<ushort>(s => Items.SpawnPersonal(s, "Mug", "client"));
@@ -322,6 +323,11 @@ namespace Dvmp.Scenarios
             Expect.Equal(1, born.Length, "entries born from the id");
             Expect.Equal(client, await pair.Host.Run(() => InGame.LostOwner(born[0].Id)), "the copy's Lost and Found entry, under the new id");
             Expect.Equal("", await pair.Host.Run(() => InGame.LostOwner(copy.Id)), "no Lost and Found entry under the old id");
+            string fresh = await pair.Host.Run(() => InGame.HandleOf(born[0].Id));
+            string listed = await Until.Value(() => pair.Client.Run(() => InGame.ListedHandles()),
+                h => h.Split(',').Contains(fresh), 20, $"the client's Lost and Found list names the copy by its new handle {fresh}");
+            string old = await pair.Host.Run(() => InGame.HandleOf(copy.Id));
+            Expect.That(!listed.Split(',').Contains(old), "the client's list no longer names the copy by its old handle", listed);
             await Track(pair, copy.Id);
             await Track(pair, born[0].Id);
             await Holds(pair, "a mug and a copy in Lost and Found", copy.Id, born[0].Id);
@@ -587,6 +593,15 @@ namespace Dvmp.Scenarios
                     !LostAndFoundServer.TryGetEntry(item, out _))
                     ServerLedger.Ledger.End(item, ItemRemovalReason.DestroyedByGame, detail: StraysDetail);
             }
+
+            /// <summary>Host: the handle the item's id goes by in players' lists.</summary>
+            [Step]
+            public static string HandleOf(string id) => Multiplayer.Server.Items.Projection.ItemHandles.Of(Guid.Parse(id)).ToString();
+
+            /// <summary>Client: the handles in this player's Lost and Found list as the server last sent it (not asked for).</summary>
+            [Step]
+            public static string ListedHandles() =>
+                string.Join(",", Multiplayer.Client.Items.LostAndFound.LostAndFoundList.Items.Select(row => row.Handle.ToString()));
 
             /// <summary>Host: the owner Lost and Found's entry of this id names, or "" for no entry.</summary>
             [Step]

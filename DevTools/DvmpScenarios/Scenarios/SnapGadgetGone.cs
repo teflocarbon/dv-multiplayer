@@ -20,7 +20,9 @@ namespace Dvmp.Scenarios
     /// ledger home are made <c>SnappedAttachment</c> on a gadget no game has (<c>gadget:&lt;new
     /// id&gt;</c>), as a load leaves an item whose gadget hasn't come, and the load's wait is started
     /// for it. Before the fix an unowned one stayed <c>SnappedAttachment</c> for good (the wait sent
-    /// only an owned one anywhere). OWNED=1: the client's mug, which must go to its Lost and Found.
+    /// only an owned one anywhere). OWNED=1: the client's mug, which must go to its Lost and Found: a
+    /// regression guard only, since an owned one went there before the fix too. That a refused one
+    /// goes into the world once, not twice, is the Core rule <c>LostItemCollectionPolicy.RolledBackIntoWorld</c>'s.
     /// Either kind of host.
     /// </summary>
     [Scenario("snap-gadget-gone", "A saved item snapped to a gadget that never loads: unowned, into the world after the wait; OWNED=1, to its owner's Lost and Found")]

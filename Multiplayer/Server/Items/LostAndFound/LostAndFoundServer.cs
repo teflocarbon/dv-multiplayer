@@ -843,6 +843,9 @@ public static class LostAndFoundServer
             rows[fresh] = row;
         }
         generation++;
+        // Its owner's open list names it as it was: sent again, so their first click isn't refused.
+        if (PlayerNumbers.TryGetSession(OwnerOf(lost), out ServerPlayer owner))
+            NetworkServer.Instance.SendLostAndFoundList(owner);
         return true;
     }
 

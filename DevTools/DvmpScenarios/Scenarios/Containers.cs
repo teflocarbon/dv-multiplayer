@@ -140,25 +140,35 @@ namespace Dvmp.Scenarios
             // The stored box's row clicked on the inventory screen, as vanilla's click does it (its
             // ColdProxyContainer made the active container): the view moves to the stored box's
             // list, the box shown still vanilla's active one. Before the fix the view closed and its
-            // proxies went, the one just made active with them.
+            // proxies went, the one just made active with them. Vanilla never sees the proxy made
+            // active (its change event, run before the review's fix, found no inventory model for it
+            // and logged an error, and the box shown made active again replayed its open effects),
+            // and the screen's title names the stored box, not the box shown.
             ChildView child = await pair.Client.Run<ChildView>(s => InGame.ClickBoxRow(s), 30);
             Report.Note($"the stored box's row clicked: {child}");
             Expect.That(child.Active, "the view is open after the stored box's row is clicked");
             Expect.Equal(child.RowHandle, child.ViewHandle, "the view shows the stored box (its row's handle)");
             Expect.Zero(child.Rows, "rows in the stored box's list (it's empty)");
             Expect.That(child.ShellActive, "vanilla's active container is the box shown, not the row's proxy");
+            Expect.Zero(child.Changes, "vanilla's active-container changes the click fired");
+            if (child.Titled)
+                Expect.Equal(child.RowName, child.Title, "the inventory screen's title (the stored box's name)");
+            else
+                Report.Note("the inventory screen was never opened in this game: no title to read");
             await pair.Client.Run(() => Boxes.CloseBox(box), 60);
         }
 
         /// <summary>The view after a stored box's row is clicked (InGame.ClickBoxRow).</summary>
         public sealed class ChildView
         {
-            public bool Active, ShellActive;
+            public bool Active, ShellActive, Titled;
             public uint RowHandle, ViewHandle;
-            public int Rows;
+            public int Rows, Changes;
+            public string RowName = "", Title = "";
             public override string ToString() =>
-                $"{(Active ? "open" : "closed")} on {ViewHandle} (the row's {RowHandle}), {Rows} row(s), " +
-                $"{(ShellActive ? "the box shown" : "not the box shown")} active in vanilla";
+                $"{(Active ? "open" : "closed")} on {ViewHandle} (the row's {RowHandle}, \"{RowName}\"), {Rows} row(s), " +
+                $"{(ShellActive ? "the box shown" : "not the box shown")} active in vanilla, {Changes} change event(s), " +
+                $"title {(Titled ? "\"" + Title + "\"" : "unread")}";
         }
 
         /// <summary>The client's open box's view and the proxy objects in its game (InGame.ProxiesNow).</summary>
@@ -307,7 +317,8 @@ namespace Dvmp.Scenarios
             /// <summary>
             /// Client: clicks the open box's stored-box row as vanilla's inventory screen does
             /// (<c>ToggleActiveContainerOnClick</c>: the row's container made the active one), and
-            /// waits up to 10 s for the view to show it. Result: the view then.
+            /// waits up to 10 s for the view to show it. Result: the view then, with vanilla's
+            /// active-container change events meanwhile and the inventory screen's title.
             /// </summary>
             [Step]
             public static IEnumerator ClickBoxRow(Step<ChildView> step)
@@ -317,15 +328,26 @@ namespace Dvmp.Scenarios
                 var row = Resources.FindObjectsOfTypeAll<Multiplayer.Client.Items.Containers.ColdProxyContainer>()
                     .FirstOrDefault(c => c != null) ?? throw new Exception("no stored box's row in the open view");
                 uint handle = row.Handle;
-                registry.ActiveContainer = row;
-                float until = Time.realtimeSinceStartup + 10f;
-                while (Time.realtimeSinceStartup < until && !(CUI.Active && CUI.ActiveHandle == handle))
-                    yield return null;
+                int changes = 0;
+                void Changed(DV.InventorySystem.AItemContainer now, DV.InventorySystem.AItemContainer before) => changes++;
+                registry.ActiveContainerChanged += Changed;
+                try
+                {
+                    registry.ActiveContainer = row;
+                    float until = Time.realtimeSinceStartup + 10f;
+                    while (Time.realtimeSinceStartup < until && !(CUI.Active && CUI.ActiveHandle == handle))
+                        yield return null;
+                }
+                finally { registry.ActiveContainerChanged -= Changed; }
+                var ui = Resources.FindObjectsOfTypeAll<DV.UI.Inventory.InventoryUIController>()
+                    .FirstOrDefault(c => c != null && c.setupFinished && c.gameObject.scene.IsValid());
                 step.Result = new ChildView
                 {
                     Active = CUI.Active, RowHandle = handle, ViewHandle = CUI.ActiveHandle,
                     Rows = CUI.activeView?.Rows?.Length ?? 0,
-                    ShellActive = shell != null && registry.ActiveContainer == shell
+                    ShellActive = shell != null && registry.ActiveContainer == shell,
+                    Changes = changes, RowName = row.ContainerNameLocalized ?? "",
+                    Titled = ui != null, Title = ui?.titleHandler?.titleText?.text ?? ""
                 };
             }
 

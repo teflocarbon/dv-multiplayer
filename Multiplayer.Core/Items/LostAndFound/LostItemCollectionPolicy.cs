@@ -88,7 +88,7 @@ public static class LostItemCollectionPolicy
     /// <summary>
     /// The refused collection's rollback has put the item into the world already (it was off a
     /// coupler, a snap point or a magazine, and is in the world now): a caller that would put it
-    /// there too (a deleted car's items) doesn't, so it goes once.
+    /// there too (a deleted car's items, a saved item whose gadget is gone) doesn't, so it goes once.
     /// </summary>
     public static bool RolledBackIntoWorld(LivePlacement before, LivePlacement now) =>
         RollsBackIntoWorld(before) && now == LivePlacement.World;

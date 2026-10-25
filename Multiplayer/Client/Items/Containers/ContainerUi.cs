@@ -80,7 +80,7 @@ internal sealed class ColdProxyContainer : AItemContainer
     public override void Clear() { }
     protected override bool InitializeSpecific() => true;
     public override void PlayInteractionEffects(bool open) { }
-    public override void ToggleContainerAccess() => ContainerUi.OpenChild(handle);
+    public override void ToggleContainerAccess() => ContainerUi.OpenChild(handle, localizedName);
 }
 
 /// <summary>
@@ -96,6 +96,8 @@ internal static class ContainerUi
     private static ClientboundItemListPacket activeView;
     // The box the player opened: vanilla's active container while the view shows it or a box in it.
     private static AItemContainer shellContainer;
+    // A stored box's name while its list is asked for: the screen's title once the list shows.
+    private static string childTitle;
     private static ushort activeShellNetId;
     private static ushort requestedShellNetId;
     private static uint pendingRequestId;
@@ -131,6 +133,7 @@ internal static class ContainerUi
             return;
         EnsureInitialized();
         shellContainer = container;
+        childTitle = null;
         requestedShellNetId = shell.NetId;
         activeShellNetId = 0;
         activeView = null;
@@ -143,22 +146,12 @@ internal static class ContainerUi
     /// <summary>
     /// The box shown is no longer vanilla's active container (closed, or another opened): its view
     /// ends and its row proxies go with it (OI-CON-10). A late answer to its list is ignored. A
-    /// stored box's row clicked on the inventory screen isn't a close: vanilla makes the row's
-    /// <see cref="ColdProxyContainer"/> active, so the box shown is made active again and the
-    /// view moves to the stored box's list.
+    /// stored box's row clicked isn't a close: <see cref="TryOpenRow"/> keeps vanilla from seeing it.
     /// </summary>
     public static void Closed(AItemContainer nowActive)
     {
         if (activeShellNetId == 0 && requestedShellNetId == 0 && proxies.Count == 0)
             return;
-        if (nowActive is ColdProxyContainer child && activeShellNetId != 0 && shellContainer != null &&
-            proxies.Contains(child.gameObject))
-        {
-            // Back to the box shown first: its own Closed call returns at the next check.
-            DV.InventorySystem.Inventory.Instance.ItemContainerRegistry.ActiveContainer = shellContainer;
-            OpenChild(child.Handle);
-            return;
-        }
         if (nowActive != null &&
             NetworkedItem.TryGetNetworkedItem(nowActive.GetComponent<ItemBase>(), out NetworkedItem shell) &&
             shell.NetId != 0 && (shell.NetId == activeShellNetId || shell.NetId == requestedShellNetId))
@@ -170,7 +163,24 @@ internal static class ContainerUi
         activeShellNetId = 0;
         requestedShellNetId = 0;
         pendingRequestId = 0;
+        childTitle = null;
         ClearProxies();
+    }
+
+    /// <summary>
+    /// A stored box's row clicked on the inventory screen: vanilla is about to make the row's
+    /// <see cref="ColdProxyContainer"/> its active container. That isn't a close, so the view moves
+    /// to the stored box's list instead and vanilla's container stays the box shown (true: vanilla's
+    /// change is skipped). Seen by vanilla, the proxy would have no inventory model, and the box
+    /// shown, made active again, would replay its open effects.
+    /// </summary>
+    public static bool TryOpenRow(AItemContainer value)
+    {
+        if (value is not ColdProxyContainer row || activeShellNetId == 0 || shellContainer == null ||
+            !proxies.Contains(row.gameObject))
+            return false;
+        OpenChild(row.Handle, row.ContainerNameLocalized);
+        return true;
     }
 
 #if DEBUG
@@ -178,11 +188,12 @@ internal static class ContainerUi
     public static int ProxyCount => proxies.Count(proxy => proxy != null);
 #endif
 
-    /// <summary>Opens a container item's contents, by its row's handle.</summary>
-    public static void OpenChild(uint handle)
+    /// <summary>Opens a container item's contents, by its row's handle; its name titles the screen once they show.</summary>
+    public static void OpenChild(uint handle, string title)
     {
         if (handle == 0 || ItemClient.Current == null) return;
         EnsureInitialized();
+        childTitle = title;
         pendingRequestId = ItemClient.Current.RequestItemList(ItemListKind.Container, 0, handle);
     }
 
@@ -363,6 +374,8 @@ internal static class ContainerUi
             $"reason={view.Detail ?? string.Empty}, handle={view.Container}, " +
             $"revision={view.Revision}, rows={view.Rows?.Length ?? 0}");
         activeView = view;
+        string title = childTitle;
+        childTitle = null;
         if (!view.Accepted)
         {
             activeShellNetId = 0;
@@ -372,6 +385,17 @@ internal static class ContainerUi
         if (activeShellNetId == 0)
             activeShellNetId = requestedShellNetId;
         Project(view);
+        if (!string.IsNullOrEmpty(title))
+            ShowTitle(title);
+    }
+
+    // Vanilla titles the inventory screen with its active container's name: the box shown, while
+    // the view may show a box stored in it.
+    private static void ShowTitle(string title)
+    {
+        foreach (InventoryUIController ui in Resources.FindObjectsOfTypeAll<InventoryUIController>())
+            if (ui != null && ui.setupFinished && ui.gameObject.scene.IsValid() && ui.titleHandler != null)
+                ui.titleHandler.SetTitle(title);
     }
 
     private static void Project(ClientboundItemListPacket view)

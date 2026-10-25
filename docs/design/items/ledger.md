@@ -222,7 +222,8 @@ into the world. An item part way into or out of a box waits for the next check (
   put home); each other live copy is a new item, re-minted as `Register` re-mints a copy (`Remint`: a
   new id, born `Duplicate` from the first), its owner's, into their Lost and Found. A copy already in
   Lost and Found stays there, its entry and any data row re-keyed to the new id
-  (`LostAndFoundServer.RekeyItem`, `LostItemRegistry.RekeyItem`), so it is saved and found under it.
+  (`LostAndFoundServer.RekeyItem`, `LostItemRegistry.RekeyItem`), so it is saved and found under it;
+  its owner, if connected, gets their list again, so the row they see names it by its new handle.
 - `NoStray` of an ended entry: each live copy is re-minted the same way, its ended entry's owner's,
   into their Lost and Found; with no player owner, into the world. The ended entry stays ended.
 - `NoStray` of a record whose store named an owner (`StoredOwner`): registered as that owner's, born
