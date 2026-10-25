@@ -205,7 +205,8 @@ internal sealed class OfficeStockReplenishment
                 continue;
             }
             if (now - emptySince < DisturbedAreaCleanupSeconds ||
-                !owner.ResetAuthoredItemToBaseline(item, record))
+                !owner.ResetAuthoredItemToBaseline(item, record,
+                    $"disturbed, and nobody near it for {DisturbedAreaCleanupSeconds:0} s"))
                 continue;
 
             disturbedEmptySince.Remove(key);

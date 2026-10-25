@@ -3,6 +3,9 @@ using DV.CabControls;
 using DV.InventorySystem;
 using DV.Interaction;
 using DV.Items;
+using Multiplayer.Client.Items.ChangeCauses;
+using Multiplayer.Core.Diagnostics;
+using Multiplayer.Core.Items.ChangeCauses;
 using Multiplayer.Core.Items.Ledger;
 using Multiplayer.Core.Items.LiveState;
 using Multiplayer.Core.Items.Physics;
@@ -226,33 +229,47 @@ public sealed class NetworkedItemClient : INetworkedItemClientPart
     }
 
     // Host convergence re-send (ServerItemManager.Convergence): only act when this copy actually
-    // disagrees, so the periodic pass never nudges consistent items.
-    public bool IgnoresConvergence(ItemUpdate snapshot) =>
-        snapshot.TransitionReason == ItemTransitionReason.Convergence && !DisagreesWithConvergence(snapshot);
+    // disagrees, so the periodic pass never nudges consistent items. One it does act on moves the
+    // item where this game didn't: its cause is the host's correction (OI-SYNC-18).
+    public bool IgnoresConvergence(ItemUpdate snapshot)
+    {
+        if (snapshot.TransitionReason != ItemTransitionReason.Convergence)
+            return false;
+        string disagreement = ConvergenceDisagreement(snapshot);
+        if (disagreement == null)
+            return true;
+        ClientItemChangeLog.OnMove(item, new ChangeCause<ItemMoveReason>(ItemMoveReason.HostCorrection,
+                tick: NetworkLifecycle.Instance?.Tick ?? 0, detail: "convergence: " + disagreement),
+            InventoryIntegration.LocalPlayerId);
+        return false;
+    }
 
     private const float ConvergencePositionTolerance = 0.25f;
 
-    private bool DisagreesWithConvergence(ItemUpdate snapshot)
+    // How this copy disagrees with the host's, or null when it doesn't.
+    private string ConvergenceDisagreement(ItemUpdate snapshot)
     {
         if (Item == null || Item.IsGrabbed())
-            return false; // a local interaction is in flight; the host will hear about it
+            return null; // a local interaction is in flight; the host will hear about it
         if (snapshot.AuthorityRevision > item.AuthorityRevision)
-            return true; // a canonical change never reached us
+            return $"revision {item.AuthorityRevision} behind {snapshot.AuthorityRevision}"; // a canonical change never reached us
         if (item.GetItemState() is not (ItemState.Dropped or ItemState.Thrown))
-            return true; // the host has it lying in the world; we have it somewhere else
+            return "here " + item.GetItemState(); // the host has it lying in the world; we have it somewhere else
 
         float tolerance2 = ConvergencePositionTolerance * ConvergencePositionTolerance;
         if (snapshot.WorldParentKind == ItemWorldParentKind.TrainInterior)
         {
             // Compare in the car's frame so differences in train motion aren't mistaken for drift.
             if (!NetworkedTrainCar.TryGet(snapshot.WorldParentNetId, out TrainCar car) || car == null)
-                return false; // that car isn't here; nothing to compare against
+                return null; // that car isn't here; nothing to compare against
             if (TrainCar.Resolve(transform) != car)
-                return true;
+                return "not in car " + snapshot.WorldParentNetId;
             Transform frame = car.interior != null ? car.interior : car.transform;
-            return (frame.InverseTransformPoint(transform.position) - snapshot.ParentLocalPosition).sqrMagnitude > tolerance2;
+            float inCar = (frame.InverseTransformPoint(transform.position) - snapshot.ParentLocalPosition).sqrMagnitude;
+            return inCar > tolerance2 ? $"{Mathf.Sqrt(inCar):0.00} m off in car {snapshot.WorldParentNetId}" : null;
         }
-        return (transform.position - WorldMover.currentMove - snapshot.ItemPosition).sqrMagnitude > tolerance2;
+        float off = (transform.position - WorldMover.currentMove - snapshot.ItemPosition).sqrMagnitude;
+        return off > tolerance2 ? $"{Mathf.Sqrt(off):0.00} m off" : null;
     }
 
     public bool IsLocalDropAcknowledgement(ItemUpdate snapshot) =>

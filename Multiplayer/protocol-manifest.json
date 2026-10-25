@@ -1,7 +1,7 @@
 {
   "ProtocolVersion": "1.0.0.0",
-  "BuildVersion": "2026.10.25-dev.1346+7e2fa4a1ca288a5661820a503634aed37dcb0400",
-  "Fingerprint": "fd49d56fe5bc8ab14a4452ad49e00519ed79589c0c5d9efc2e113be5b25ae0c9",
+  "BuildVersion": "2026.10.25-dev.1401+f3bd70653b6af5fc054248e79edddd1acb634b3f",
+  "Fingerprint": "b8e80fae0ecd2685ce11c627392ec932f7191a7a5862a7582c26aed669188442",
   "Packets": [
     {
       "Hash": "02D108E907B73FA9",
@@ -1358,6 +1358,11 @@
       "NotHere": 8,
       "NotAllowed": 9,
       "Expired": 10
+    },
+    "Multiplayer.Core.Items.Projection.ProjectionAck": {
+      "Projected": 0,
+      "Retired": 1,
+      "Failed": 2
     },
     "Multiplayer.Core.Trains.CarRemovalReason": {
       "Unknown": 0,

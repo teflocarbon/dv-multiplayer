@@ -173,6 +173,12 @@ public class ServerPlayer : IDisposable
     // Its shops, reported and kept the same way.
     internal ShopCatalogueFingerprint ShopCatalogue { get; set; }
     public bool WorldItemCatalogueAccepted { get; internal set; }
+    // The scene keys that collide in its game or the host's: never sent (OI-SYNC-08).
+    public HashSet<string> RefusedAuthoredKeys { get; internal set; } = new(StringComparer.Ordinal);
+
+    /// <summary>Whether this player is sent the item: any but a scene item its catalogue doesn't take.</summary>
+    public bool TakesAuthored(NetworkedItem item) =>
+        !item.IsSceneAuthored || WorldItemCatalogueAccepted && !RefusedAuthoredKeys.Contains(item.AuthoredItemKey ?? string.Empty);
 
     private Vector3 _lastWorldPos = Vector3.zero;
     private Vector3 _lastAbsoluteWorldPosition = Vector3.zero;

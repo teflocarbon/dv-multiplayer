@@ -1,6 +1,9 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using Multiplayer.Client.Items.ChangeCauses;
+using Multiplayer.Core.Diagnostics;
+using Multiplayer.Core.Items.ChangeCauses;
 using Multiplayer.Debugging.Protocol;
 using Multiplayer.Shared.Items.LiveState;
 using Multiplayer.Shared.Items.Physics;
@@ -149,6 +152,11 @@ internal sealed class ClientItemSpatial
         ApplyPose(item, state, immediate: true);
         ApplyCommitMetadata(item, state);
         committedStates[state.ItemNetId] = state.Clone();
+        if (packet.MoveReason != ItemMoveReason.Unknown)
+            ClientItemChangeLog.OnMove(item, new ChangeCause<ItemMoveReason>(packet.MoveReason,
+                    packet.MovedByPlayerId, null,
+                    NetworkLifecycle.Instance.Tick, packet.MoveDetail),
+                NetworkLifecycle.Instance.LocalSession.PlayerId);
         Rigidbody body = item.Item?.ItemRigidbody;
         if (body != null)
         {

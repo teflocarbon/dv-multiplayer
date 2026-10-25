@@ -40,10 +40,10 @@ public partial class NetworkedItemManager
         }
     }
 
-    internal (int Count, int Collisions, string Digest) GetAuthoredCatalogueSummary()
+    internal (int Count, string[] Collisions, string Digest) GetAuthoredCatalogueSummary()
     {
         EnsureAuthoredCatalogue();
-        return (AuthoredCatalogue.BaselineCount, AuthoredCatalogue.BaselineCollisionCount,
+        return (AuthoredCatalogue.BaselineCount, AuthoredCatalogue.BaselineCollisionKeys,
             AuthoredCatalogue.BaselineDigest);
     }
 

@@ -1,4 +1,5 @@
 using LiteNetLib.Utils;
+using Multiplayer.Core.Items.Projection;
 using Multiplayer.Shared.Protocol.Packets.Clientbound;
 using Multiplayer.Shared.Protocol.Packets.Serverbound;
 using NUnit.Framework;
@@ -19,7 +20,8 @@ public sealed class WorldItemAuthorityPacketTests
         {
             ItemCount = 1432,
             CollisionCount = 0,
-            Digest = "0123456789abcdef0123456789abcdef"
+            Digest = "0123456789abcdef0123456789abcdef",
+            CollisionKeys = new[] { "authored-v1/c" }
         });
 
         processor.ReadAllPackets(new NetDataReader(writer.CopyData()));
@@ -29,6 +31,7 @@ public sealed class WorldItemAuthorityPacketTests
             Assert.That(received.ItemCount, Is.EqualTo(1432));
             Assert.That(received.CollisionCount, Is.Zero);
             Assert.That(received.Digest, Is.EqualTo("0123456789abcdef0123456789abcdef"));
+            Assert.That(received.CollisionKeys, Is.EqualTo(new[] { "authored-v1/c" }));
         });
     }
 
@@ -43,7 +46,7 @@ public sealed class WorldItemAuthorityPacketTests
         {
             ItemNetId = 735,
             AuthorityRevision = 12,
-            Projected = true
+            Kind = ProjectionAck.Failed
         });
 
         processor.ReadAllPackets(new NetDataReader(writer.CopyData()));
@@ -52,7 +55,7 @@ public sealed class WorldItemAuthorityPacketTests
         {
             Assert.That(received.ItemNetId, Is.EqualTo(735));
             Assert.That(received.AuthorityRevision, Is.EqualTo(12));
-            Assert.That(received.Projected, Is.True);
+            Assert.That(received.Kind, Is.EqualTo(ProjectionAck.Failed));
         });
     }
 
@@ -69,7 +72,8 @@ public sealed class WorldItemAuthorityPacketTests
             HostItemCount = 1432,
             HostCollisionCount = 1,
             HostDigest = "fedcba9876543210fedcba9876543210",
-            Reason = "catalogue-mismatch"
+            Reason = "catalogue-mismatch",
+            RefusedKeys = new[] { "authored-v1/a", "authored-v1/b" }
         });
 
         processor.ReadAllPackets(new NetDataReader(writer.CopyData()));
@@ -80,6 +84,7 @@ public sealed class WorldItemAuthorityPacketTests
             Assert.That(received.HostItemCount, Is.EqualTo(1432));
             Assert.That(received.HostCollisionCount, Is.EqualTo(1));
             Assert.That(received.Reason, Is.EqualTo("catalogue-mismatch"));
+            Assert.That(received.RefusedKeys, Is.EqualTo(new[] { "authored-v1/a", "authored-v1/b" }));
         });
     }
 }

@@ -1,7 +1,10 @@
 using DV;
 using DV.CabControls;
+using Multiplayer.Core.Diagnostics;
+using Multiplayer.Core.Items.ChangeCauses;
 using Multiplayer.Core.Items.LiveState;
 using Multiplayer.Core.Items.Physics;
+using Multiplayer.Server.Items.ChangeCauses;
 using Multiplayer.Server.Items.LiveState;
 using Multiplayer.Server.Items.Projection;
 using Multiplayer.Server.Session;
@@ -152,7 +155,7 @@ internal sealed class ServerItemSpatial
     }
 
     internal bool ResetAuthoredItemToBaseline(NetworkedItem item,
-        LiveItems.LiveItem record)
+        LiveItems.LiveItem record, string reason)
     {
         if (!NetworkLifecycle.Instance.IsHost() || item == null || record == null ||
             item.NetId == 0 || record.NetId != item.NetId ||
@@ -193,6 +196,11 @@ internal sealed class ServerItemSpatial
 
         state.AuthorityRevision = committed.Revision;
         committed.HasPersistentOverride = false;
+        // Not where anyone put it: the server put it back (OI-SYNC-18).
+        ChangeCause<ItemMoveReason> reset = ItemChangeLog.Move(ItemMoveReason.HostCorrection,
+            detail: "back in its authored place: " + (reason ?? "reset"));
+        ItemChangeLog.RecordMove(item, committed, reset);
+        committed.LastSpatialCause = reset;
         committedStates[item.NetId] = state.Clone();
         ApplyPose(item, state, immediate: true);
         ApplyCommitMetadata(item, state);

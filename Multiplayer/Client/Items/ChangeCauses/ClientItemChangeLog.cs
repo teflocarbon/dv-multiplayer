@@ -51,6 +51,24 @@ internal static class ClientItemChangeLog
             Multiplayer.LogDebug(() => line);
     }
 
+    /// <summary>
+    /// A move the host's update didn't carry as an update: a spatial commit, or a convergence
+    /// correction this game took (OI-SYNC-18). Logged and kept on the item as an update's cause is.
+    /// </summary>
+    internal static void OnMove(NetworkedItem item, ChangeCause<ItemMoveReason> cause, byte localPlayerId)
+    {
+        if (item == null)
+            return;
+        item.SetLastMoveCause(cause);
+        string line = ItemChangeLogFormat.Moved(item.name, item.NetId, cause);
+        bool mine = localPlayerId != 0 && (item.Relation == ItemRelation.Mine ||
+            item.playerBelongsToId == localPlayerId || cause.PlayerId == localPlayerId);
+        if (mine)
+            Multiplayer.Log(line);
+        else
+            Multiplayer.LogDebug(() => line);
+    }
+
     private static bool InLocalPossession(NetworkedItem item, byte self) =>
         item != null && self != 0 && item.playerBelongsToId == self;
 }

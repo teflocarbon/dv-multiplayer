@@ -70,6 +70,9 @@ public static partial class LiveItems
         public ItemTransitionReason LastReason;
         // Why its placement, holder or owner last changed (ItemChangeLog).
         public ChangeCause<ItemMoveReason> LastMove;
+        // The cause the last spatial commit carries to clients: a settlement somewhere new, the
+        // server putting it back. None when it came to rest where it was released (OI-SYNC-18).
+        public ChangeCause<ItemMoveReason>? LastSpatialCause;
         public Guid PersistentItemId;
         public string AuthoredItemKey = string.Empty;
         public ItemPlacementKind BaselinePlacement;
@@ -601,8 +604,12 @@ public static partial class LiveItems
         ChangeCause<ItemMoveReason> settled = ItemChangeLog.Move(ItemMoveReason.Settled,
             detail: ItemChangeLog.Describe(before, after));
         ServerLedger.OnSettled(record, settled);
+        record.LastSpatialCause = null;
         if (ItemMoveClassifier.Changed(before, after))
+        {
             ItemChangeLog.RecordMove(item, record, settled);
+            record.LastSpatialCause = settled;
+        }
         item.ApplyAuthorityMetadata(AuthorityMetadata(record, record.Revision, record.LastReason));
         Publish("item.spatial-pose-committed", item, record, new()
         {

@@ -1,3 +1,4 @@
+using Multiplayer.Core.Items.Projection;
 using Multiplayer.Client.Items.LiveState;
 using Multiplayer.Debugging.Protocol;
 using Multiplayer.Shared.Debugging;
@@ -62,7 +63,7 @@ internal sealed partial class ClientItemManager
                     replenishableOfficeSlot: true);
                 if (acknowledge)
                     ItemClient.Current.SendWorldItemProjectionAck(snapshot.ItemNetId,
-                        snapshot.AuthorityRevision, true);
+                        snapshot.AuthorityRevision, ProjectionAck.Projected);
                 DebugRuntime.Publish("item-world", "world-item.authored-slot-replacement-projected",
                     DebugRuntimeSide.Client, entityType: "Item",
                     entityId: snapshot.ItemNetId.ToString(), data: new()
@@ -93,7 +94,7 @@ internal sealed partial class ClientItemManager
         authored.ReceiveSnapshot(snapshot);
         if (acknowledge)
             ItemClient.Current.SendWorldItemProjectionAck(snapshot.ItemNetId,
-                snapshot.AuthorityRevision, true);
+                snapshot.AuthorityRevision, ProjectionAck.Projected);
         DebugRuntime.Publish("item-world", "world-item.authored-projection-bound", DebugRuntimeSide.Client,
             entityType: "Item", entityId: snapshot.ItemNetId.ToString(), data: new()
             {
