@@ -248,11 +248,12 @@ internal static partial class ItemSaveLoad
         return live;
     }
 
-    // An owned item's one copy: its object (Lost and Found's included), else a cold row (or a data tool's ammo row), else a container's row.
+    // An owned item's one copy: a cold row (or a data tool's ammo row, or a Lost and Found entry's), else its object, else a container's row.
     private static SavedItemRow OwnedRow(Guid id, Dictionary<Guid, (LiveItems.LiveItem Record, NetworkedItem Item)> live,
         Dictionary<Guid, StoredItemRecord> stored)
     {
-        if (ColdInventories.TryGet(id, out SavedItemRow cold) || PlayerItems.TryGetAmmoRow(id, out cold))
+        if (ColdInventories.TryGet(id, out SavedItemRow cold) || PlayerItems.TryGetAmmoRow(id, out cold) ||
+            LostAndFoundServer.TryGetDataRow(id, out cold))
             return cold;
         if (live.TryGetValue(id, out (LiveItems.LiveItem Record, NetworkedItem Item) copy))
             return RowOf(copy.Record, copy.Item);

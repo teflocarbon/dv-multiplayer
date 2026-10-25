@@ -167,7 +167,9 @@ is **live**: an object people can see and touch.
   request; the server commits it to the ledger and confirms. Only a refusal rolls the client back (a
   refused swap corrects both items).
 
-**Still open:** Lost and Found entries stay objects on the server until R6 (OI-COLD-08, user 2026-10-24).
+**Lost and Found** (R6, OI-COLD-08): an entry is data on the server too. Its object goes at the scan
+after it arrives, once its state is loaded, and Lost and Found keeps its row; a retrieval or a recall
+makes it again first ([lost-and-found.md](lost-and-found.md#kept-as-data)).
 
 **Containers (R5).** A stored item's home is `Container(id, slot)`, and the graph keeps no owner of
 its own: who owns an item, and so who keeps a box (its shell's owner, else its outer box's keeper,

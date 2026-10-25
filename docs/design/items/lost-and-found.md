@@ -9,7 +9,7 @@
 | Side | Code |
 | --- | --- |
 | Core | `LostItemCollectionPolicy`, `LostItemRegistry`, `LostItemReason` (`Multiplayer.Core/Items/LostAndFound/`) |
-| Server | `LostAndFoundServer`, `DeletedCarItems`, `CarDeleteLostAndFoundPatch` (`Multiplayer/Server/Items/LostAndFound/`); `LiveItems.TryMoveToLostAndFound`, `LiveItems.KeeperOf` (`LiveItems.LostAndFound.cs`) |
+| Server | `LostAndFoundServer`, `PlayerItems.ToLostData` and `FromLostData` (`Inventory/PlayerItems.Lost.cs`), `DeletedCarItems`, `CarDeleteLostAndFoundPatch` (`Multiplayer/Server/Items/LostAndFound/`); `LiveItems.TryMoveToLostAndFound`, `LiveItems.KeeperOf` (`LiveItems.LostAndFound.cs`) |
 
 The server keeps a Lost and Found for every player. **An owned item goes to its owner's Lost and
 Found; an unowned item never does,** except a job booklet, kept for the player it was issued to
@@ -33,6 +33,30 @@ asked before the ledger moves, LF9).
 | `SaveRecovery`, `GadgetDestinationMissing` | a saved item that can't go back where it was | `ItemSaveLoad.Load`, `ServerLedger.Repair` |
 
 `LostItemReason` is a byte on the wire: append, never reorder.
+
+## Kept as data
+
+An entry is data on the server (OI-COLD-08, D12): no object until it is retrieved or recalled. Every
+way in collects an object as before (`Collect`, or the load's `RestoreEntry`), and the scan after it
+(`ReconcileCanonicalPlacements`, every 24 ticks and before a list or a save) hands it to data
+(`PlayerItems.ToLostData`): its state is a row Lost and Found keeps, by its id, and its record and
+NetId stay, as a cold inventory row's do. It waits while its saved state is still loading
+(`ItemSaveLoad.IsRestorePending`) and while its ammo can't go with it. Its ammo goes to data with it
+(`PlayerItems.AmmoRows`).
+
+- **Out:** a retrieval, a recall (`CarryRecall`, the repair's `IntoSlot`) and anything else that names
+  it (`PlayerItems.WithObject`) has the object made again from its row under its NetId, inert in Lost
+  and Found (`LostAndFoundServer.ObjectOf`, `PlayerItems.FromLostData`), and goes on as with an
+  object. One made for a request that's then refused goes back to data at the next scan. One that
+  can't be made (its prefab gone) is refused (`lost-item-not-made`) and stays.
+- **Saved** from its row (`ItemSaveLoad.OwnedRow`), and the one-home check reads the row
+  (`ObservedSource.LostAndFoundRow`).
+- **A booklet** kept as data goes when its job ends, as its object would (the scan asks
+  `JobPaperRows.Wanted`).
+- **Its owner's silhouette** of a lost essential, their recall, is sent from its record
+  (`SendDataEssentials`): an owner who joins after the collection has no copy for the tombstone.
+- **Clients** keep what they had: a game that had the item when it was collected keeps an inert copy
+  (`EnforceLostAndFoundProjection`), as before.
 
 ## A deleted car
 

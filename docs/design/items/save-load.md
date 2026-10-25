@@ -37,7 +37,8 @@ one pass and read in one pass. Enums are written by name.
 | `players` | who has had a starter kit |
 
 **Each fact is saved once.** An item's state is one row, wherever its copy is: its object, a cold row
-(an offline player's inventory), a container's row, or Lost and Found's object. The row is read from
+(an offline player's inventory), a container's row, or Lost and Found's row (OI-COLD-08; an entry
+whose object hasn't gone yet is read from the object). The row is read from
 the ledger and live state together in `UpdateInternalData`'s postfix (`NetworkedSaveGameManager`), for
 saves, autosaves and the save sent at a join, so the save is one picture. A hand is never saved: an
 item in a hand is saved in a free slot of its holder's (its claim, else the lowest free, the belt last),

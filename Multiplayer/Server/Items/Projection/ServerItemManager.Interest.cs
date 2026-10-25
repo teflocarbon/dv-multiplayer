@@ -78,6 +78,7 @@ internal sealed partial class ServerItemManager
                     player.KnownItems[item] = NetworkLifecycle.Instance.Tick;
                 }
             }
+            LostAndFoundServer.SendDataEssentials(player);
         }
     }
 

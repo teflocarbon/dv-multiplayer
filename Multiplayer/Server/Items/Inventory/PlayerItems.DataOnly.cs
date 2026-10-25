@@ -242,7 +242,7 @@ internal static partial class PlayerItems
             NetworkServer.Instance.SendItemUpdate(destroy, player);
         }
         knownBy[record.NetId] = keeping.ToArray();
-        AmmoGoesData(item, holder, keeping);
+        AmmoGoesData(item, holder.Username + "'s inventory", keeping);
         // The holder's stand-in nested other ammo than went to data here (E3): it's given the row.
         bool nestingDiffers = NestingDiffers(record.NetId, DataAmmoOf(record.NetId).Select(ammo => ammo.NetId));
 
@@ -295,6 +295,12 @@ internal static partial class PlayerItems
     /// </summary>
     public static void WithObject(ushort netId, Action<NetworkedItem> done)
     {
+        // An entry Lost and Found keeps as data is made again there first (OI-COLD-08).
+        if (LostAndFound.LostAndFoundServer.IsData(netId))
+        {
+            done(LostAndFound.LostAndFoundServer.ObjectOf(netId));
+            return;
+        }
         // Ammo kept as data is made with its tool. Whatever the request does to it (an owner's
         // retrieval takes it out), the tool's holder is sent the tool's row as it goes back to data,
         // so their stand-in doesn't nest ammo that has gone.
