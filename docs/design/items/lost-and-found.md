@@ -22,8 +22,9 @@ item is never collected: it is going, its binner's choice ([vanilla-storage.md](
 ## Ways in
 
 Every way in goes through `LostAndFoundServer.Collect(item, reason, detail)`, which refuses an item
-with no keeper (`item-has-no-owner`) and an id that already has an entry (OI-ID-06,
-asked before the ledger moves, LF9).
+with no keeper (`item-has-no-owner`), one the server's own inventory still holds or lists
+(`item-still-in-local-inventory`: an object in the host player's slots, or in vanilla's inventory
+list), and an id that already has an entry (OI-ID-06, asked before the ledger moves, LF9).
 
 | `LostItemReason` | When | Code |
 | --- | --- | --- |
@@ -165,7 +166,9 @@ Each item then goes, by the ledger:
 - **Unowned:** into the world where it is, committed by the server (`ItemMoveReason.Detached`, "left
   beside the track") and sent to every player, and physics takes it down beside the track, as
   vanilla puts a deleted car's items back (`TrainCar.InteriorOnDestroy`). It is never destroyed (LF2,
-  OI-LF-10). An owned item Lost and Found refuses goes the same way, with a warning.
+  OI-LF-10). An owned item Lost and Found refuses goes the same way, with a warning, and once: one off
+  a coupler or a hanger is in the world already, put there by the refused collection's rollback
+  ([A refused collection](#a-refused-collection); `LostItemCollectionPolicy.RolledBackIntoWorld`).
 
 **An installed gadget** comes off with vanilla's own removal (`GadgetBase.OnTrainCarDestroyed`,
 `ForceRemove`), which the gadget code commits into the world at its pose

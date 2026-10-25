@@ -7,6 +7,7 @@ using Dvmp.Agent;
 using Dvmp.Lib;
 using Multiplayer.Core.Items.Ledger;
 using Multiplayer.Core.Items.ChangeCauses;
+using Multiplayer.Core.Items.LostAndFound;
 using Multiplayer.Core.Items.VanillaStorage;
 using Multiplayer.Server.Items.Inventory;
 using Multiplayer.Server.Items.Ledger;
@@ -42,6 +43,11 @@ namespace Dvmp.Scenarios
     /// - two mugs with one id (OneHome): the first keeps it; the second is re-minted, a Duplicate of
     ///   it, into its owner's Lost and Found;
     /// - an ended entry's mug still there (NoStray): re-minted, a Duplicate of it, into Lost and Found;
+    /// - a mug in Lost and Found, its home, and a mug in the world with its id (OneHome, two copies):
+    ///   the one in Lost and Found keeps it, the other is re-minted into Lost and Found (not made
+    ///   again, which put the copy in Lost and Found unminted);
+    /// - a mug in the world, its home, and a mug in Lost and Found with its id: the one in Lost and
+    ///   Found is re-minted, and its entry is found under the new id, none under the old;
     /// - on a player host, an unowned mug's record in the slot the host's owned mug has
     ///   (OneItemPerSlot): the owned one stays, the unowned one is dropped into the world;
     /// - a mug in the world in vanilla's Lost and Found list too (VanillaAgrees): out of that list.
@@ -166,6 +172,8 @@ namespace Dvmp.Scenarios
             await NoCopy(pair, client);
             await TwoCopies(pair, client);
             await EndedStray(pair, client);
+            await CopyOfALostItem(pair, client);
+            await ALostCopy(pair, client);
             await SlotClash(pair);
             await ListsFollow(pair, client);
         }
@@ -267,6 +275,62 @@ namespace Dvmp.Scenarios
             Expect.Equal(client, born[0].Owner, "the mug's new entry's owner");
             await Track(pair, born[0].Id);
             await Holds(pair, "a mug whose entry ended", id, born[0].Id);
+        }
+
+        // 4b. OneHome, two copies, home Lost and Found: the client's mug is in Lost and Found and a
+        // mug in the world carries its id (a collection dupe). Without the repair's copy count, the
+        // check's repair home (Lost and Found) sent it to the no-copy repair, which found the stray
+        // and put it in Lost and Found under the same id: nothing was born, and it came back at
+        // every save.
+        private static async Task CopyOfALostItem(Pair pair, string client)
+        {
+            ushort a = await pair.Host.Run<ushort>(s => Items.SpawnPersonal(s, "Mug", "client"));
+            ushort b = await pair.Host.Run<ushort>(s => Items.SpawnPersonal(s, "Mug", "client"));
+            await Task.Delay(2000);
+            Copy copy = await pair.Host.Run(() => InGame.CopyOfLost(a, b, "client"));
+            Report.Note($"mug {copy.First} ({copy.Id}) is in the client's Lost and Found; mug {copy.Second} in the world carries its id");
+            await RepairSeen(pair, "OneHome", "entry", "", -1, "a mug in Lost and Found and a copy", copy.Id);
+            Expect.Equal(client, await pair.Host.Run(() => InGame.LostOwner(copy.Id)), "the item keeps its Lost and Found entry");
+            Expect.Equal("LostAndFound", (await pair.Host.Run(() => Owned.Entry(copy.Id))).Place, "the id's ledger home");
+            LedgerEntry[] born = await Until.Value(() => pair.Host.Run(() => InGame.BornFrom(copy.Id)),
+                e => e.Length > 0 && e.All(x => x.Place == "LostAndFound"), 20, "the copy re-minted, in the client's Lost and Found");
+            Expect.Equal(1, born.Length, "entries born from the id");
+            Expect.Equal("Duplicate", born[0].Born, "the copy's birth");
+            Expect.Equal(born[0].Id, await pair.Host.Run(() => Owned.IdOf(copy.Second)), "the copy's record has the new id");
+            Expect.Equal(client, await pair.Host.Run(() => InGame.LostOwner(born[0].Id)), "the copy's Lost and Found entry, under the new id");
+            await Track(pair, copy.Id);
+            await Track(pair, born[0].Id);
+            await Holds(pair, "a mug in Lost and Found and a copy", copy.Id, born[0].Id);
+        }
+
+        // 4c. OneHome, two copies, the copy in Lost and Found: the client's mug lies in the world, its
+        // home, and a mug in Lost and Found carries its id. Without the re-key the copy's Lost and
+        // Found entry kept the old id: no entry was saved under the new one, and the old id's
+        // lookups found the copy. Without the re-key's resend the client's list (not asked for
+        // here) still names the copy as it was, and its first click would be refused.
+        private static async Task ALostCopy(Pair pair, string client)
+        {
+            ushort a = await pair.Host.Run<ushort>(s => Items.SpawnPersonal(s, "Mug", "client"));
+            ushort b = await pair.Host.Run<ushort>(s => Items.SpawnPersonal(s, "Mug", "client"));
+            await Task.Delay(2000);
+            Copy copy = await pair.Host.Run(() => InGame.LostCopyOf(a, b, "client"));
+            Report.Note($"mug {copy.First} ({copy.Id}) lies in the world; mug {copy.Second} in the client's Lost and Found carries its id");
+            await RepairSeen(pair, "OneHome", "entry", "", -1, "a mug and a copy in Lost and Found", copy.Id);
+            Expect.Equal(copy.Id, await pair.Host.Run(() => Owned.IdOf(copy.First)), "the mug in the world keeps the id");
+            Expect.Equal("World", (await pair.Host.Run(() => Items.Record(copy.First))).Placement, "the mug stays where it is");
+            LedgerEntry[] born = await Until.Value(() => pair.Host.Run(() => InGame.BornFrom(copy.Id)),
+                e => e.Length > 0 && e.All(x => x.Place == "LostAndFound"), 20, "the copy re-minted, still in Lost and Found");
+            Expect.Equal(1, born.Length, "entries born from the id");
+            Expect.Equal(client, await pair.Host.Run(() => InGame.LostOwner(born[0].Id)), "the copy's Lost and Found entry, under the new id");
+            Expect.Equal("", await pair.Host.Run(() => InGame.LostOwner(copy.Id)), "no Lost and Found entry under the old id");
+            string fresh = await pair.Host.Run(() => InGame.HandleOf(born[0].Id));
+            string listed = await Until.Value(() => pair.Client.Run(() => InGame.ListedHandles()),
+                h => h.Split(',').Contains(fresh), 20, $"the client's Lost and Found list names the copy by its new handle {fresh}");
+            string old = await pair.Host.Run(() => InGame.HandleOf(copy.Id));
+            Expect.That(!listed.Split(',').Contains(old), "the client's list no longer names the copy by its old handle", listed);
+            await Track(pair, copy.Id);
+            await Track(pair, born[0].Id);
+            await Holds(pair, "a mug and a copy in Lost and Found", copy.Id, born[0].Id);
         }
 
         // 5. OneItemPerSlot: the host's own player holds its mug in a slot, and an unowned mug's record
@@ -455,7 +519,7 @@ namespace Dvmp.Scenarios
                 step.Note("the check sees: " + Describe(seen));
                 // Each item is repaired once a check (ServerLedger.repaired); this call is a check of its own.
                 ServerLedger.repaired.Clear();
-                ServerLedger.Repair(new InvariantViolation(rule, seen.Id, seen.Detail, repair));
+                ServerLedger.Repair(seen);
                 float t0 = UnityEngine.Time.realtimeSinceStartup;
                 while (UnityEngine.Time.realtimeSinceStartup - t0 < 15f && Breaches().Any(v => Same(v, rule, id, repair) || Mentions(v, mentions)))
                     yield return null;
@@ -530,6 +594,15 @@ namespace Dvmp.Scenarios
                     ServerLedger.Ledger.End(item, ItemRemovalReason.DestroyedByGame, detail: StraysDetail);
             }
 
+            /// <summary>Host: the handle the item's id goes by in players' lists.</summary>
+            [Step]
+            public static string HandleOf(string id) => Multiplayer.Server.Items.Projection.ItemHandles.Of(Guid.Parse(id)).ToString();
+
+            /// <summary>Client: the handles in this player's Lost and Found list as the server last sent it (not asked for).</summary>
+            [Step]
+            public static string ListedHandles() =>
+                string.Join(",", Multiplayer.Client.Items.LostAndFound.LostAndFoundList.Items.Select(row => row.Handle.ToString()));
+
             /// <summary>Host: the owner Lost and Found's entry of this id names, or "" for no entry.</summary>
             [Step]
             public static string LostOwner(string id) =>
@@ -557,6 +630,55 @@ namespace Dvmp.Scenarios
                 identity.Value = original.PersistentItemId;
                 copy.PersistentItemId = original.PersistentItemId;
                 return new Copy { First = first, Second = second, Id = original.PersistentItemId.ToString("D") };
+            }
+
+            /// <summary>
+            /// Host: mug <paramref name="a"/> is made the owner's and sent to their Lost and Found;
+            /// mug <paramref name="b"/>, lying in the world, is given its id (its identity and record).
+            /// </summary>
+            [Step]
+            public static Copy CopyOfLost(ushort a, ushort b, string owner)
+            {
+                Guid id = Lose(a, owner);
+                GiveId(b, id);
+                return new Copy { First = a, Second = b, Id = id.ToString("D") };
+            }
+
+            /// <summary>
+            /// Host: mug <paramref name="a"/> is made the owner's where it lies; mug <paramref name="b"/>
+            /// goes to their Lost and Found, takes <paramref name="a"/>'s id (its identity, record and
+            /// Lost and Found entry), and its own entry ends, as a dupe bug would leave it.
+            /// </summary>
+            [Step]
+            public static Copy LostCopyOf(ushort a, ushort b, string owner)
+            {
+                Ownership.Give(a, owner);
+                if (!LiveItems.TryGet(a, out LiveItems.LiveItem original)) throw new Exception("no record for " + a);
+                Guid own = Lose(b, owner);
+                GiveId(b, original.PersistentItemId);
+                if (!LostAndFoundServer.RekeyItem(b, original.PersistentItemId)) throw new Exception("Lost and Found has no entry for " + b);
+                if (!ServerLedger.Ledger.End(own, ItemRemovalReason.DestroyedByGame, detail: StraysDetail + ": the copy's own entry"))
+                    throw new Exception("the ledger didn't end " + own);
+                return new Copy { First = a, Second = b, Id = original.PersistentItemId.ToString("D") };
+            }
+
+            private static Guid Lose(ushort netId, string owner)
+            {
+                Ownership.Give(netId, owner);
+                if (!LiveItems.TryGet(netId, out LiveItems.LiveItem record)) throw new Exception("no record for " + netId);
+                if (!ServerLedger.SendToLostAndFound(record.PersistentItemId, LostItemReason.SaveRecovery, StraysDetail, out string refused))
+                    throw new Exception($"{netId} wasn't collected: {refused}");
+                return record.PersistentItemId;
+            }
+
+            private static void GiveId(ushort netId, Guid id)
+            {
+                if (!NetworkedItem.TryGet(netId, out NetworkedItem item) || item == null) throw new Exception("no object for " + netId);
+                if (!LiveItems.TryGet(netId, out LiveItems.LiveItem record)) throw new Exception("no record for " + netId);
+                var identity = item.GetComponent<Multiplayer.Server.Items.SaveLoad.ItemIdentity>() ??
+                               item.gameObject.AddComponent<Multiplayer.Server.Items.SaveLoad.ItemIdentity>();
+                identity.Value = id;
+                record.PersistentItemId = id;
             }
 
             /// <summary>Host: the ledger ends the item's entry, its object left where it is.</summary>

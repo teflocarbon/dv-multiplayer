@@ -54,6 +54,7 @@ borrowed-disconnect-absent-crash
 inventory-persist
 host-player-persist @player
 save-reload
+save-reload-3
 remote-held-item
 owned-items
 item-release-regrab
@@ -72,6 +73,7 @@ lost-essential-rejoin
 gadget-save
 gadget-join
 shop
+shop-host @player
 shop-restock
 booklet-summon
 booklet-summon-host @player
@@ -82,12 +84,15 @@ recall-lease
 car-delete-unowned
 car-delete-unowned-track
 essential-slot-rejoin
+essential-slot-rejoin-restart
+essential-slot-rejoin-host @player
 container-save-refused
 
 # 2. The hotbar-cycle sweep (D14): every vanilla item a client stands in, out and back.
 hotbar-cycle
 hotbar-cycle-host @player
 hotbar-cycle-quick
+hotbar-cycle-quick-all
 
 # 3. Every run added since R4C (#349 on), each a row's "built (end pass)" proof.
 lease-ends-collect
@@ -108,12 +113,16 @@ stash-state-host @player
 join-rows
 join-rows-host @player
 join-row-object
+join-row-object-loaded
 save-invariant
 lost-and-found-moved
 car-delete-attached
 car-delete-attached-slow
 attached-offline
 snapped-restart
+hanger-interest
+snap-gadget-gone
+snap-gadget-gone-owned
 booklet-not-owned
 retrieve-busy-box
 retrieve-busy-box-deposit
@@ -175,5 +184,29 @@ stashed-items
 stashed-items-host @player
 stashed-cassette
 stashed-cassette-host @player
+stashed-cassette-radio
 overview-rejoin
 expired-report-slot
+
+# 4. The checkpoint's runs (OI-REF-02): every other gate run a checklist row names as its proof, by
+#    name or as a scenario with variables. Ticked on a player host after R4; their dedicated run is here.
+old-save
+unloadable-item
+cold-homes
+inventory-slots
+inventory-slots-restart
+inventory-slots-host @player
+inventory-slots-host-restart @player
+booklet-restart
+item-request-repeat
+ledger-repair
+ledger-rows
+red
+rekey
+rekey-merge
+save-homes
+leave-full-inventory
+lost-and-found-duplicate-id
+owned-list-shelf @player
+client-shelf
+shelf-unseen @player

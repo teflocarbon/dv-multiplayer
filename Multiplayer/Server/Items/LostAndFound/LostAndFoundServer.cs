@@ -824,6 +824,31 @@ public static class LostAndFoundServer
         return changed;
     }
 
+    /// <summary>
+    /// An entry's item took a new id (a copy re-minted by the one-home repair, D7): its entry and its
+    /// data row follow, so it is saved and found under the new id. False when it has no entry.
+    /// </summary>
+    internal static bool RekeyItem(ushort itemNetId, Guid fresh)
+    {
+        if (!registry.TryGet(itemNetId, out LostItemRecord lost))
+            return false;
+        Guid from = lost.PersistentItemId;
+        bool heldFrom = registry.TryGetByPersistentId(from, out LostItemRecord holder) && holder.NetId == itemNetId;
+        if (!registry.RekeyItem(itemNetId, fresh))
+            return false;
+        if (heldFrom && rows.TryGetValue(from, out SavedItemRow row))
+        {
+            rows.Remove(from);
+            row.PersistentItemId = fresh;
+            rows[fresh] = row;
+        }
+        generation++;
+        // Its owner's open list names it as it was: sent again, so their first click isn't refused.
+        if (PlayerNumbers.TryGetSession(OwnerOf(lost), out ServerPlayer owner))
+            NetworkServer.Instance.SendLostAndFoundList(owner);
+        return true;
+    }
+
     private static Guid OwnerOf(LostItemRecord record) =>
         Guid.TryParse(record.OwnerIdentity, out Guid owner) ? owner : Guid.Empty;
 

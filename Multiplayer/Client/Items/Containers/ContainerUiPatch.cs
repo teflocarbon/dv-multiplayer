@@ -100,6 +100,12 @@ public static class ContainerUiPatch
             ContainerUi.Open(__instance);
     }
 
+    // A stored box's row clicked on the inventory screen: the view moves to its list before
+    // vanilla makes the row's proxy its active container, and vanilla's change is skipped.
+    [HarmonyPatch(typeof(ItemContainerRegistry), nameof(ItemContainerRegistry.ActiveContainer), MethodType.Setter)]
+    [HarmonyPrefix]
+    private static bool ActiveContainerSetting(AItemContainer value) => !ContainerUi.TryOpenRow(value);
+
     // Vanilla closes a box (or opens another) by changing the active container; the shown box's
     // view and row proxies go then, not at the next open (OI-CON-10).
     [HarmonyPatch(typeof(ItemContainerRegistry), nameof(ItemContainerRegistry.ActiveContainer), MethodType.Setter)]

@@ -169,8 +169,8 @@ the object and its stand-in swap places, so vanilla adds the stand-in and its ev
 the stand-in is in its slot the server is asked for the stash with the item's state for its row
 (`CommitPutAway`, OI-COLD-13), and the object goes through the retirement path (no drop is reported).
 On a player host the stash is committed there as the host's own change, and sent at once to every
-game that was shown the item (its object goes to data in that frame, before a tick would send
-it). An expired or missing-licence report has no recipe to be made from, so it stays an object
+game that was shown the item; the server's own object goes to data at its next item update, as
+any stored item's does ([Data only on the server](#data-only-on-the-server)). An expired or missing-licence report has no recipe to be made from, so it stays an object
 in its slot. If vanilla didn't add it the
 swap is undone; a refusal comes back as the item's update and makes it again
 ([The optimistic client](#the-optimistic-client)).
@@ -272,8 +272,9 @@ An item in a player's inventory is data on the server, not an object (OI-COLD-06
 
 - **Going to data.** When the server commits an item into a player's inventory (a stash, a slot
   move, a recall, a Lost and Found retrieval: `PlayerItems.Stored`, from each commit), it queues it,
-  and `PlayerItems.Update` puts it to data that frame, or as soon as the holder's game is ready for
-  items and the item isn't being made, moved or restored: its row is kept in `ColdInventories` (its
+  and `PlayerItems.Update` (every frame, from `ServerItemManager`) puts it to data at its next run:
+  a second later for one a request made an object of for its own use (`WithObject`), and not before
+  the holder's game is ready for items and the item isn't being made, moved or restored: its row is kept in `ColdInventories` (its
   state, slot, owner, claim), its `LiveItem` stays, and the server's object is destroyed
   (`GoData`). The holder draws its stand-in, and so does an owner whose silhouette stands for it;
   anyone else who was shown it gets a `Destroy` (`WentCold`). The NetId stays the item's
@@ -328,7 +329,9 @@ anything else of theirs is sent:
    its saved state. Their game keeps the rows (`InventoryRows`) and draws each as its stand-in in its
    slot ([Stand-ins](#stand-ins)). A row that stays an object there (an enabled VR belt slot's, say)
    is made from its row with its saved state (`ClientItemManager.MadeFromRow`, `MakeFromRow`) and
-   placed by the row's update (OI-COLD-13); only a row with no state takes the ordinary path
+   placed by the row's update (OI-COLD-13); a tool's ammo rows, kept under their own key in that
+   state, are made apart and loaded into it (`StandInAmmo.Without`, `MakeAmmo`), as a take-out makes
+   them; only a row with no state takes the ordinary path
    (`ProcessReceivedAsClient`).
 4. An essential of theirs that another connected player holds as data has no object for interest to
    find, so they are sent its `Create` too and kept up to date with it (OI-ESS-17).

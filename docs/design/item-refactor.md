@@ -480,7 +480,8 @@ decompile of `Assembly-CSharp` and `DV.Inventory` (2026-10-23). The rule for eac
 (vanilla's path doesn't run in multiplayer), or **routed** (it becomes a request or a server step
 that commits a ledger change, so the home moves with it). "Managed" below means the item has a
 ledger entry, not `BelongsToPlayer`: vanilla flips that flag in the dumpster, shop, gadget and
-withdrawal paths, so nothing decides on it after R3.
+withdrawal paths, so nothing decides on it after R3. **Today** is `beta` at `04bfe277`, before the
+refactor; what was built is the target, as the PR column says.
 
 | Path | Vanilla | Today | Target | PR |
 | --- | --- | --- | --- | --- |
@@ -499,7 +500,7 @@ withdrawal paths, so nothing decides on it after R3.
 | Dev console | `Dev.SpawnItem`, `Dev.SpawnMoney`, `Debug.DestroyAllItems`, `Debug.DestroyBuggedObjects`, `Debug.DeleteCarsAndJobsSaveData` | not patched; a client's spawn vanishes (no adoption); a host's spawn is unowned; destroys on the host go out as "destroyed by game" | Routed: a spawn is a server step (unowned, as an admin `/give` without a target); a destroy ends the entry with the cause `DevConsole`; on a client both are refused with a message | R6 |
 | Money | `WalletAccelerationReaction` → `Coin.MakeCoin` and `TrySpend`; `AddItemToInventory` destroys `ShouldDestroyOnUse` money | a note is deposited with the server first (`MoneyPatch.cs:44-53`), which ends the entry `MoneyDeposited`; a client's coin flick is local and the coin vanishes | The deposit is a request (`DepositMoney`); the coin flick is paused with shops (OI-SHOP-09) | R2, R6 |
 | Shops | purchases staged in Lost and Found, then put on the counter; receipts; restock on destroy | the server puts purchases on the counter, owned by the buyer, unowned if they left (`ShopDelivery.cs:20-51`) | Paused (D4): the seam is that a purchase is born owned through the ledger, as today | paused |
-| Snapping | `ItemSnapPointBase`; the item stays in the world list; coupling or chain moves unsnap it; a coupler snap saves the car's GUID | coupler snaps go out as `Attached`; `SnappedAttachment` is never assigned; neither is saved by the mod | `Attached(car, front)` and `Snapped(parent)` homes, saved; an unsnap is a ledger change to `World`; a missing car at load → the owner's Lost and Found | R3, R4, R6 |
+| Snapping | `ItemSnapPointBase`; the item stays in the world list; coupling or chain moves unsnap it; a coupler snap saves the car's GUID | coupler snaps go out as `Attached`; `SnappedAttachment` is never assigned (until R8: a gadget snap is it now, OI-SYNC-03); neither is saved by the mod | `Attached(car, front)` and `Snapped(parent)` homes, saved; an unsnap is a ledger change to `World`; a missing car at load → the owner's Lost and Found | R3, R4, R6 |
 | Fall rescue, tunnelling, the grabber | vanilla has no rescue | the terrain guard catches tunnelling; fall rescue covers `World` items only and commits no revision; `GrabberRecoveryPatch` moves no item | Fall rescue is a committed change for every place (OI-PHY-11, D6) | R7 |
 | Licence papers, grants | `BookletCreator.CreateLicense` | no papers in multiplayer (`PhysicalLicensePaperPatch.cs`); a grant adds to the inventory | Kept; a grant is born `Granted` in a slot or, with none free, the owner's Lost and Found (the issuer's rule) | R6 |
 | World streaming | `ItemDisabler` deactivates, never destroys | client projections retired client-side; unowned office stock forks destroyed after 30 s | Kept (inactive is not gone); office stock in a cab paused (OI-SYNC-12) | — |
@@ -766,7 +767,8 @@ workstreams lean on: `gadget-save`, `gadget-join`, `shop`, `shop-restock`, `book
 `item-bug-recall-lease`, `item-bug-car-delete-unowned`, `item-bug-essential-slot-rejoin`, and
 `item-bug-container-save-refused` (F18, from item review's stood-down branch, below). The end pass
 runs it from [`end-pass.runs`](../../DevTools/Scenarios/end-pass.runs), with the hotbar-cycle sweep
-and every run added since R4C (OI-REF-01).
+every run added since R4C, and every other gate run a checklist row names as its proof
+(OI-REF-02's, so each row ticked "(p; d: end pass)" gets its dedicated run) (OI-REF-01).
 
 **Item review's F18 branch.** `items/container-save-refused` (ea596377, no PR) keeps a cold-container
 save the server can't import and writes it back unchanged, refuses every container operation with

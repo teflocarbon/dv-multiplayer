@@ -205,7 +205,7 @@ Works:
   Interim reports (validated while still in progress) and several reports per job work, because
   reports no longer depend on a job state change. Protocol tests cover the round trip.
 - **Payment** banknotes are ordinary networked items with a host-authoritative amount
-  (`MoneyPatch`); banking them deposits into the host's shared wallet, which is broadcast.
+  (`MoneyAmountPatch`); banking them deposits into the host's shared wallet, which is broadcast.
 - **Save**: overviews and booklets are left out of the mod's world-item persistence
   (`WorldItemPersistenceSave.IsJobSystemDocument`) because DV's own job save recreates them;
   persisting both stacked duplicate overviews on the boards. The `save-reload` scenario checks the

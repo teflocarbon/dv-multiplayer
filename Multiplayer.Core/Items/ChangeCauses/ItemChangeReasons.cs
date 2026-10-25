@@ -22,7 +22,10 @@ public enum ItemRemovalReason : byte
     CollectedToLostAndFound,
     /// <summary>Put into a container's cold storage (a toolbox): it lives on as a cold record.</summary>
     DepositedInContainer,
-    /// <summary>Lying in a train car that was deleted, and not a player's (theirs go to Lost and Found).</summary>
+    /// <summary>
+    /// Lying in a train car that was deleted, and not a player's. Unused since R6: a deleted car's
+    /// unowned items go into the world (<c>DeletedCarItems</c>); kept, since the values are on the wire.
+    /// </summary>
     DestroyedWithCar,
     /// <summary>A banknote or coin paid into the shared wallet.</summary>
     MoneyDeposited,

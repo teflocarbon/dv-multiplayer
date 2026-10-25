@@ -56,12 +56,13 @@ public enum InvariantRule : byte
 
 public readonly struct InvariantViolation
 {
-    public InvariantViolation(InvariantRule rule, Guid id, string detail, Home? repair = null)
+    public InvariantViolation(InvariantRule rule, Guid id, string detail, Home? repair = null, int copies = -1)
     {
         Rule = rule;
         Id = id;
         Detail = detail ?? string.Empty;
         Repair = repair;
+        Copies = copies;
     }
 
     public InvariantRule Rule { get; }
@@ -69,6 +70,12 @@ public readonly struct InvariantViolation
     public string Detail { get; }
     /// <summary>Where a Release build puts the item (D7): its ledger home, or its owner's Lost and Found.</summary>
     public Home? Repair { get; }
+    /// <summary>
+    /// For <see cref="InvariantRule.OneHome"/>, how many copies were found: 0 (none: made again in Lost
+    /// and Found) or two and more (the extras re-minted). -1 for the other rules. It, not the repair
+    /// home, says which: an item whose home is Lost and Found can have two copies.
+    /// </summary>
+    public int Copies { get; }
 
     public override string ToString() => $"rule {(int)Rule} {Rule}: {Detail}";
 }
@@ -107,10 +114,10 @@ public static class HomeInvariant
             ObservedItem[] found = copies[entry.Id].ToArray();
             if (found.Length == 0)
                 violations.Add(new InvariantViolation(InvariantRule.OneHome, entry.Id,
-                    $"{entry}: no object or row carries it", Home.LostAndFound));
+                    $"{entry}: no object or row carries it", Home.LostAndFound, copies: 0));
             else if (found.Length > 1)
                 violations.Add(new InvariantViolation(InvariantRule.OneHome, entry.Id,
-                    $"{entry}: {found.Length} copies ({string.Join(", ", found.Select(Describe))})", entry.Home));
+                    $"{entry}: {found.Length} copies ({string.Join(", ", found.Select(Describe))})", entry.Home, found.Length));
             else if (!Agrees(entry.Home, found[0].Home))
                 violations.Add(new InvariantViolation(InvariantRule.LiveAgrees, entry.Id,
                     $"{entry}: found {Describe(found[0])}", entry.Home));

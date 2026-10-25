@@ -34,11 +34,10 @@ public static partial class LiveItems
     /// <summary>
     /// Registers an item materialized from host-owned detached storage without allowing
     /// the current holder to accidentally replace its persistent owner. <paramref name="cause"/> is
-    /// how it came: a withdrawal when null, or the server making it (a player's starting items).
+    /// how it came: a cold inventory row going live, or the server making it (a player's starting items).
     /// </summary>
     public static LiveItem RegisterMaterializedColdItem(NetworkedItem item, ServerPlayer holder,
-        Guid owner, ItemUpdate snapshot, Guid persistentItemId,
-        ChangeCause<ItemMoveReason>? cause = null)
+        Guid owner, ItemUpdate snapshot, Guid persistentItemId, ChangeCause<ItemMoveReason> cause)
     {
         if (item == null || holder == null || snapshot == null || item.NetId == 0)
             return null;
@@ -78,15 +77,10 @@ public static partial class LiveItems
             snapshot.InventorySlot = -1;
             Multiplayer.LogWarning($"Inventory: no free slot for {holder.Username}'s {record.PrefabName} (netId {item.NetId}); it is at their feet");
         }
-        ChangeCause<ItemMoveReason> withdrawn = cause ?? ItemChangeLog.Move(ItemMoveReason.WithdrawnFromContainer, holder,
-            ItemChangeCauses.Detail(ItemChangeLog.Describe(
-                    new ItemWhereabouts(LivePlacement.Container, Guid.Empty, owner),
-                    ItemChangeLog.Whereabouts(record)),
-                "slot " + record.Slot));
-        ServerLedger.Settle(record, owner, snapshot.InventoryClaimSlot, withdrawn);
+        ServerLedger.Settle(record, owner, snapshot.InventoryClaimSlot, cause);
         WriteToSnapshot(record, snapshot, record.LastReason);
-        snapshot.MoveCause = withdrawn;
-        ItemChangeLog.RecordMove(item, record, withdrawn);
+        snapshot.MoveCause = cause;
+        ItemChangeLog.RecordMove(item, record, cause);
         item.ApplyAuthorityMetadata(snapshot);
         Publish("item.cold-materialization-registered", item, record, new()
         {

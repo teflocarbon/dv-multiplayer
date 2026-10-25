@@ -42,7 +42,7 @@ public static partial class ServerLedger
             case InvariantRule.LiveAgrees when record != null:
                 PutHome(record);
                 break;
-            case InvariantRule.OneHome when violation.Repair is { Kind: HomeKind.LostAndFound }:
+            case InvariantRule.OneHome when violation.Copies == 0:
                 RemakeLost(id);
                 break;
             case InvariantRule.OneHome:

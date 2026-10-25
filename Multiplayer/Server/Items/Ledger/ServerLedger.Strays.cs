@@ -4,6 +4,7 @@ using Multiplayer.Core.Items.VanillaStorage;
 using Multiplayer.Server.Items.ChangeCauses;
 using Multiplayer.Server.Items.Inventory;
 using Multiplayer.Server.Items.LiveState;
+using Multiplayer.Server.Items.LostAndFound;
 using Multiplayer.Server.Items.OwnedList;
 using Multiplayer.Server.Items.SaveLoad;
 using Multiplayer.Server.Session;
@@ -53,6 +54,12 @@ public static partial class ServerLedger
     {
         if (!ledger.TryGet(id, out LedgerEntry entry) || !entry.IsLive)
             return;
+        if (Copies(id).Count > 0 || LostAndFoundServer.TryGetEntry(id, out _) || LostAndFoundServer.TryGetDataRow(id, out _))
+        {
+            Multiplayer.LogWarning($"Invariant repair: {entry.Prefab} ({id:D}) was seen with no copy, but one is there now; " +
+                                   "it isn't made again");
+            return;
+        }
         if (entry.Owner.Kind != OwnerKind.Player || !ItemSaveLoad.PrefabKnown(entry.Prefab))
         {
             Multiplayer.LogWarning($"Invariant repair: {entry.Prefab} ({id:D}) has no copy and can't be made again " +
@@ -98,6 +105,8 @@ public static partial class ServerLedger
             netIdByPersistentId[fresh] = item.NetId;
             if (netIdByPersistentId.TryGetValue(from, out ushort held) && held == item.NetId)
                 netIdByPersistentId.Remove(from);
+            // A copy in Lost and Found keeps its entry, under the new id (else it is saved under none).
+            bool inLost = LostAndFoundServer.RekeyItem(item.NetId, fresh);
             Multiplayer.LogError($"item.duplicate-persistent-id: {now.PrefabName} (netId {now.NetId}) was a copy of " +
                                  $"{from:D} ({why}); it is now {fresh:D}");
             // Out of a player's hands first: born where it then lies, it takes no slot the item has.
@@ -105,7 +114,7 @@ public static partial class ServerLedger
             if (owner == Guid.Empty)
                 return;
             string refused = Own(now, owner, BirthReason.Duplicate, Guid.Empty, RepairDetail);
-            if (refused.Length == 0)
+            if (refused.Length == 0 && !inLost)
                 ToLostAndFound(item, now, out refused);
             if (refused.Length > 0)
                 Multiplayer.LogWarning($"Invariant repair: the copy {fresh:D} couldn't go to its owner's Lost and Found ({refused})");

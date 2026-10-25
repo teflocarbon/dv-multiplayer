@@ -67,9 +67,12 @@ internal sealed partial class ClientItemManager
     {
         if (string.IsNullOrEmpty(state) || !row.UpdateType.HasFlag(ItemUpdate.ItemUpdateType.Create))
             return false;
-        NetworkedItem made = MakeFromRow(row, state);
+        // A tool's ammo rows are kept under their own key, never in its own state: made apart, as a
+        // take-out makes them.
+        NetworkedItem made = MakeFromRow(row, StandInAmmo.Without(state));
         if (made == null)
             return false;
+        MakeAmmo(made, state);
         made.ReceiveSnapshot(row);
         ItemClient.Current?.SendWorldItemProjectionAck(row.ItemNetId, row.AuthorityRevision, ProjectionAck.Projected);
         return true;

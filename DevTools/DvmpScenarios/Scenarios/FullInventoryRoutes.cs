@@ -227,7 +227,8 @@ namespace Dvmp.Scenarios
                 snapshot.InventorySlot = 0;
                 snapshot.InventoryClaimSlot = -1;
                 Guid id = Guid.Parse(Owned.IdOf(netId));
-                var record = Multiplayer.Server.Items.LiveState.LiveItems.RegisterMaterializedColdItem(item, holder, holder.Guid, snapshot, id);
+                var record = Multiplayer.Server.Items.LiveState.LiveItems.RegisterMaterializedColdItem(item, holder, holder.Guid, snapshot, id,
+                    Multiplayer.Server.Items.ChangeCauses.ItemChangeLog.Move(Multiplayer.Core.Items.ChangeCauses.ItemMoveReason.WentLive, holder, "slot 0"));
                 if (record == null)
                     throw new Exception("the registration failed");
                 return record.Placement.ToString();
