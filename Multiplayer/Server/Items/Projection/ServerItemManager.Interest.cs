@@ -337,11 +337,17 @@ internal sealed partial class ServerItemManager
     /// none): the rest is the holder's, and the server's copy drifting (a flashlight draining in
     /// their hand with no sun on its panel) overwrote what their game had.
     /// </summary>
-    private static bool TryKeepRemotePossession(NetworkedItem item, ItemUpdate snapshot, ServerPlayer hostPlayer)
+    private static bool TryKeepRemotePossession(NetworkedItem item, ItemUpdate snapshot, ServerPlayer hostPlayer,
+        LiveItems.LiveItem record)
     {
-        if (snapshot.UpdateType.HasFlag(ItemUpdate.ItemUpdateType.Create) ||
-            snapshot.ItemState is not (ItemState.InHand or ItemState.InInventory) ||
-            snapshot.PlayerId == 0 || snapshot.PlayerId == hostPlayer?.PlayerId)
+        if (snapshot.UpdateType.HasFlag(ItemUpdate.ItemUpdateType.Create))
+            return true;
+        // The record says so too: an object made for an item kept as data in their inventory lies
+        // inactive at the safety position, and its own reading (Dropped, in the world) was taken as
+        // the server's move, out of their slot and into the world (stand-in-object-state).
+        if ((snapshot.ItemState is not (ItemState.InHand or ItemState.InInventory) ||
+             snapshot.PlayerId == 0 || snapshot.PlayerId == hostPlayer?.PlayerId) &&
+            !HeldByAnotherPlayer(record, hostPlayer))
             return true;
         snapshot.UpdateType &= ItemUpdate.ItemUpdateType.ObjectState;
         if (snapshot.UpdateType == ItemUpdate.ItemUpdateType.None)
@@ -349,6 +355,10 @@ internal sealed partial class ServerItemManager
         item.KeepHostReportsForRemoteHolder(snapshot);
         return snapshot.States is { Count: > 0 };
     }
+
+    private static bool HeldByAnotherPlayer(LiveItems.LiveItem record, ServerPlayer hostPlayer) =>
+        record != null && record.Placement is ItemPlacementKind.PlayerHand or ItemPlacementKind.PlayerInventory &&
+        record.Holder != Guid.Empty && record.Holder != hostPlayer?.Guid;
 
     private void ProcessChanged(uint tick)
     {
@@ -371,9 +381,12 @@ internal sealed partial class ServerItemManager
             if (LiveItems.TryGet(item.NetId, out LiveItems.LiveItem existingRecord) &&
                 existingRecord.Placement is ItemPlacementKind.Destroyed or ItemPlacementKind.Installed)
                 continue;
+            // What another player holds is theirs: its copy here runs too, and drifts from them.
+            if (hostActs && HeldByAnotherPlayer(existingRecord, hostPlayer))
+                item.RevertRemoteHolderDrift();
             uint dirtyBefore = item.LastDirtyTick;
             ItemUpdate snapshot = item.GetSnapshot();
-            if (snapshot != null && hostActs && !TryKeepRemotePossession(item, snapshot, hostPlayer))
+            if (snapshot != null && hostActs && !TryKeepRemotePossession(item, snapshot, hostPlayer, existingRecord))
             {
                 // Nothing of it is the server's to send, so it isn't a change: as one, each player
                 // who knew the item was sent the server's copy whole instead (a FullSync), its
