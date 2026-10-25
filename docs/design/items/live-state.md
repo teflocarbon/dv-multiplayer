@@ -212,7 +212,16 @@ Each game adds its part:
   values (`TrackedStateComposer.HostReportsForRemoteHolder`); a change of its copy with none of those
   isn't a change at all (`ProcessChanged` keeps its `LastDirtyTick`), or the players who knew it were
   sent the copy whole (a FullSync) and its drift overwrote the holder's (a lantern's wick swinging in
-  their projected hand, after a take-out made the copy afresh).
+  their projected hand, after a take-out made the copy afresh). The copy's drift is put back too,
+  each pass, to the last value the holder sent (`NetworkedItem.RevertRemoteHolderDrift`, before
+  `GetSnapshot`): a drop carries no object state, so once they let go the server's copy is the
+  item's, and its drifted wick (the knob turned back to full) was sent to everyone (`retrieved-state`).
+  "Holds or carries" is the record's word as well as the snapshot's (`HeldByAnotherPlayer`): an object
+  made for an item kept as data in their inventory lies inactive at the safety position and reads
+  itself as dropped there, and that was taken as the server moving it out of their slot into the
+  world (`stand-in-object-state`). A row's state that only loads after the object's first frame
+  (`ItemStateText.LoadNowOrSoon`) marks the values clean again once it lands, so it isn't taken for
+  that drift.
 
 ## Data-only records
 

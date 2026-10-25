@@ -138,6 +138,29 @@ public partial class NetworkedItem
         snapshot.States = TrackedStateComposer.HostReportsForRemoteHolder(GetTrackedStateEntries(), snapshot.States);
     }
 
+    /// <summary>
+    /// Puts back the values another player holding this item reports themselves, where the
+    /// server's copy has drifted from the last they sent: once they let it go, the drift was what
+    /// the server sent everyone (a lantern's wick, its knob turning back to full in their
+    /// projected hand).
+    /// </summary>
+    internal void RevertRemoteHolderDrift()
+    {
+        foreach (var trackedValue in trackedValues)
+        {
+            if (!((dynamic)trackedValue).IsDirty || ((dynamic)trackedValue).ServerAuthoritative)
+                continue;
+            try
+            {
+                ((dynamic)trackedValue).Revert();
+            }
+            catch (Exception ex)
+            {
+                Multiplayer.LogError($"NetworkedItem.RevertRemoteHolderDrift() itemNetId: {NetId}, item name: {name}. Error reverting {((dynamic)trackedValue).Key}: {ex.Message}");
+            }
+        }
+    }
+
     internal void MarkValuesClean()
     {
         foreach (var trackedValue in trackedValues)

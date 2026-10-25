@@ -43,6 +43,12 @@ public class TrackedValue<T>
         lastSentValue = CurrentValue;
     }
 
+    /// <summary>Puts the value back to the one last sent or received.</summary>
+    public void Revert()
+    {
+        CurrentValue = lastSentValue;
+    }
+
     public object GetValueAsObject() => CurrentValue;
 
     public void SetValueFromObject(object value)
