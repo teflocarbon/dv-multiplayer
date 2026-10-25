@@ -36,12 +36,13 @@ host-authority model works end to end, then points at the rest.
 | [design/items/change-causes.md](design/items/change-causes.md) | Why an item moved or went away (R3): the causes, how the server names them, and what goes on the wire |
 | [design/items/save-load.md](design/items/save-load.md) | Saving and loading (R4): one key, `Multiplayer.Items`, each fact saved once and each row standing alone; the load before any request and its plan; rows that won't load (`Unloadable`, `SaveRecovery`); old saves start items fresh; vanilla's lists as a write-only mirror |
 | [design/items/containers.md](design/items/containers.md) | Containers (R5): a stored item's home is its container's slot and a container's id its shell's item id; who keeps a box, from the ledger; deposit, withdrawal and moves as ledger changes that roll back |
-| [design/items/lost-and-found.md](design/items/lost-and-found.md) | Lost and Found (R6, being written): owned by the ledger, every way in, a deleted car's items (owned ones to Lost and Found, unowned ones beside the track) |
-| [design/items/vanilla-storage.md](design/items/vanilla-storage.md) | Vanilla's storage, respawn and bins (R6, being written): vanilla's Lost and Found list refused, respawn only for unowned scene items and bins, binning your own or nobody's (`Discarded`), the load's duplicate pass off |
+| [design/items/lost-and-found.md](design/items/lost-and-found.md) | Lost and Found (R6): owned by the ledger, every way in, a deleted car's items (owned ones to Lost and Found, unowned ones beside the track) |
+| [design/items/vanilla-storage.md](design/items/vanilla-storage.md) | Vanilla's storage, respawn and bins (R6): vanilla's Lost and Found list refused, respawn only for unowned scene items and bins, binning your own or nobody's (`Discarded`), the load's duplicate pass off |
 | [design/items/projection.md](design/items/projection.md) | Projection (R7): interest cells and what each player is sent, deferred projections, retirement and its cause, acknowledgements (Projected, Retired, Failed) and retries |
 | [design/items/world-items.md](design/items/world-items.md) | World items (R7): scene-authored items and the authored catalogue (collisions refused per key), shelves, office stock |
 | [design/items/physics.md](design/items/physics.md) | Physics (R7): leases and who simulates, samples and settlement, loose items on trains, the fall rescue, the terrain guard, pickup reach |
 | [design/items/train-wake.md](design/items/train-wake.md) | Train wake (R7): settled train items glued to their car, impact witnesses, car motion in the car's frame |
+| [design/items/behaviours.md](design/items/behaviours.md) | Item behaviours (R8): the values each item type syncs (flashlight, lantern, lighter, shovel, page book, money) and who sends them, working an item you don't hold, magazines, the grabber's recovery |
 | [design/shops.md](design/shops.md) | Shops as a server transaction: shared registers and shelves, the cash rules and the scanner are built; prediction, delivery to the owner, receipts, station fixtures and per-player stock are planned |
 
 ## Legacy

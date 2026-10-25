@@ -1,40 +1,18 @@
-using System.Globalization;
 using HarmonyLib;
 using Multiplayer.Shared.Items.LiveState;
 using Multiplayer.Shared.Protocol.Data.Items;
 using Multiplayer.Shared.Session;
-using Multiplayer.Shared.Utils;
-using UnityEngine;
 using Multiplayer.Client.Session;
 
 namespace Multiplayer.Client.Items.Behaviours;
 
 /// <summary>
-/// Banknotes and coins. Their value lives on the item, which the item sync never carried, so a
-/// client's copy of a $1,234 job payout was worth vanilla's default $10. Replicate it as a
-/// host-authoritative tracked value (a string, so large amounts survive exactly).
+/// A client spending a banknote or coin. Its amount is synced by
+/// <c>Shared/Items/Behaviours/MoneyAmountPatch</c>.
 /// </summary>
 [HarmonyPatch(typeof(Money))]
 public static class MoneyPatch
 {
-    [HarmonyPatch(nameof(Money.Awake))]
-    [HarmonyPostfix]
-    private static void Awake(Money __instance)
-    {
-        NetworkedItem netItem = __instance.GetOrAddComponent<NetworkedItem>();
-        Money money = __instance;
-        netItem.RegisterTrackedValue(
-            "amount",
-            () => money.Amount.ToString("R", CultureInfo.InvariantCulture),
-            value =>
-            {
-                if (double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out double amount))
-                    money.Amount = amount;
-            },
-            serverAuthoritative: true);
-        netItem.FinaliseTrackedValues();
-    }
-
     /// <summary>
     /// Every way a client uses up a note or coin (inventory pickup, stashing it on the wallet,
     /// paying a cash register) spends it here. The wallet is shared and owned by the host, which

@@ -30,12 +30,13 @@ and a changed value goes out in the item's `States` (bool, int, uint, float or s
 | Lantern | wick, flame | `LanternPatch` |
 | Lighter | lid, flame | `LighterPatch` |
 | Flashlight | switch, battery, intensity, beam colour | `FlashlightItemPatch` |
-| Banknote | amount (host-authoritative) | `MoneyPatch` |
+| Shovel | coal capacity, coal loaded | `ShovelPatch` |
+| Banknote | amount (host-authoritative) | `MoneyAmountPatch` |
 | Page book (job booklet, manuals) | page | `NetworkedPageBookState` |
 | Everything else | nothing | |
 
 Who may send is already generic and stays as it is (see
-[Leaving the hand](../legacy/items/item-spatial-physics.md#leaving-the-hand)): only the holder sends an item's state,
+[Throws and release](items/physics.md#throws-and-release)): only the holder sends an item's state,
 or a player working a set-down item's controls inside the 1.5 s interaction window, within 6 m
 (`ItemObjectStateAuthority`, `ItemInteractionWindow`, `ItemInteractionPatch`). The host ignores the
 rest without a correction.
@@ -225,7 +226,7 @@ patch on `RadioPlayerController` or skipping `PlaylistPlayer` on a dedicated hos
 - **`LanternPatch`, `LighterPatch`, `FlashlightItemPatch`:** become families (and the lantern's knob
   becomes a mirrored control). Their keys change, which is a protocol change; the protocol
   fingerprint already refuses mixed builds.
-- **`MoneyPatch`:** stays. The amount is host-authoritative and money is spent through the host, not
+- **`MoneyAmountPatch`:** stays. The amount is host-authoritative and money is spent through the host, not
   set by a holder.
 - **`NetworkedPageBookState`:** stays. Pages are sent by non-holders by design.
 - **Installed gadgets:** [`gadgets.md`](gadgets.md). An installed gadget's controls are on its
