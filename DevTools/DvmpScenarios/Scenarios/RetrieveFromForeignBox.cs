@@ -10,21 +10,21 @@ namespace Dvmp.Scenarios
 {
     /// <summary>
     /// Retrieval out of someone else's box inside the owner's own (owned-list.md, "Retrieval"; R5
-    /// stack review F4). The client puts its mug in a box of its own and that box in its toolbox,
+    /// stack review F4). The client puts its mug in a box of its own and that box in its crate,
     /// which it keeps in hand (a deposit takes only the depositor's own items, so this is the only way
     /// in). The host then makes the inner box a player's who isn't here (offline B), as a test can and
     /// no game path does: the ledger never changes an owner. The client retrieves the mug from its
     /// owned-items list. The mug comes out alone into the client's Lost and Found: B's box stays
-    /// in the toolbox, still B's, and the toolbox stays in the client's hand. Before F4 this was refused as nothing to do, because the outermost box was
+    /// in the crate, still B's, and the crate stays in the client's hand. Before F4 this was refused as nothing to do, because the outermost box was
     /// with its owner, though the client can't open B's box.
     /// </summary>
-    [Scenario("retrieve-from-foreign-box", "F4: the owner's mug in offline B's box, inside the owner's toolbox in hand, is retrieved alone; B's box stays")]
+    [Scenario("retrieve-from-foreign-box", "F4: the owner's mug in offline B's box, inside the owner's outer box in hand, is retrieved alone; B's box stays")]
     [Budget(600)]
     public sealed class RetrieveFromForeignBox : Scenario<RetrieveFromForeignBox.Options>
     {
         public sealed class Options
         {
-            /// <summary>The boxes' prefab: one that takes a box of its own kind is found from it.</summary>
+            /// <summary>B's (inner) box's prefab, tried first; the client's outer box is one that takes it.</summary>
             public string Container = "ItemContainerToolbox";
             public string Prefab = "Mug";
         }
@@ -35,10 +35,10 @@ namespace Dvmp.Scenarios
             LostAndFound.Policy old = await pair.Host.Run(() => LostAndFound.InGame.SetPolicy(new LostAndFound.Policy { Owner = 5000, Nearby = 5000, Grace = 900 }));
             pair.Cleanup(() => pair.Host.Run(() => LostAndFound.InGame.SetPolicy(old)));
             string client = await pair.Host.Run(() => Owned.ClientIdentity());
-            string prefab = await pair.Host.Run<string>(s => Boxes.SelfNesting(s, o.Container), 120);
-            if (prefab.Length == 0) throw new HarnessException("no container prefab takes a box of its own kind");
-            ushort toolbox = await pair.Host.Run<ushort>(s => Items.SpawnPersonal(s, prefab, "client"));
-            ushort foreign = await pair.Host.Run<ushort>(s => Items.SpawnPersonal(s, prefab, "client"));
+            string[] nest = (await pair.Host.Run<string>(s => Boxes.Nesting(s, o.Container, o.Prefab), 120)).Split(' ');
+            if (nest.Length != 2) throw new HarnessException("no container the game has takes another that takes the item");
+            ushort toolbox = await pair.Host.Run<ushort>(s => Items.SpawnPersonal(s, nest[0], "client"));
+            ushort foreign = await pair.Host.Run<ushort>(s => Items.SpawnPersonal(s, nest[1], "client"));
             ushort mug = await pair.Host.Run<ushort>(s => Items.SpawnPersonal(s, o.Prefab, "client"));
             string toolboxId = await pair.Host.Run(() => Owned.IdOf(toolbox));
             string foreignId = await pair.Host.Run(() => Owned.IdOf(foreign));
@@ -49,15 +49,15 @@ namespace Dvmp.Scenarios
                 ushort[] left = await pair.Host.Run(() => MagazineTools.InGame.NetIdsOf(ids));
                 await pair.Host.Run<ushort[]>(s => Items.Destroy(s, left), 120);
             });
-            Report.Note($"boxes {prefab}: the client's {toolbox} ({toolboxId}), B's {foreign} ({foreignId}); {o.Prefab} {mug} ({mugId})");
+            Report.Note($"boxes {nest[0]} and {nest[1]}: the client's {toolbox} ({toolboxId}), B's {foreign} ({foreignId}); {o.Prefab} {mug} ({mugId})");
 
-            // The mug in the client's own box, that box in its toolbox, held.
+            // The mug in the client's own box, that box in its crate, held.
             Require.Equal(Boxes.Accepted, await pair.Client.Run<string>(s => Boxes.Deposit(s, foreign, mug), 120), "the mug into the client's box");
             await pair.Client.Run(() => Items.Drop(), 10);
-            Require.Equal(Boxes.Accepted, await pair.Client.Run<string>(s => Boxes.Deposit(s, toolbox, foreign), 120), "the box into the client's toolbox");
+            Require.Equal(Boxes.Accepted, await pair.Client.Run<string>(s => Boxes.Deposit(s, toolbox, foreign), 120), "the box into the client's outer box");
             Require.Equal(toolboxId, await pair.Host.Run(() => Boxes.StoredIn(foreignId)), "the box the inner box is in");
             Require.Equal(foreignId, await pair.Host.Run(() => Boxes.StoredIn(mugId)), "the box the mug is in");
-            Require.Equal(toolbox, await pair.Client.Run(() => Items.Held()), "the client's toolbox in its hand");
+            Require.Equal(toolbox, await pair.Client.Run(() => Items.Held()), "the client's outer box in its hand");
 
             // The inner box becomes offline B's.
             string b = await pair.Host.Run(() => InGame.ReownToAbsent(foreignId));
@@ -72,13 +72,13 @@ namespace Dvmp.Scenarios
             Report.Note($"the mug after the retrieval: {mugNow}");
             Expect.That(mugNow.Lost && mugNow.Owner == client, "the mug is in the client's Lost and Found", mugNow.ToString());
             Expect.Equal("", await pair.Host.Run(() => Boxes.StoredIn(mugId)), "the box the mug is in after the retrieval (none)");
-            Expect.Equal(toolboxId, await pair.Host.Run(() => Boxes.StoredIn(foreignId)), "B's box stays in the client's toolbox");
+            Expect.Equal(toolboxId, await pair.Host.Run(() => Boxes.StoredIn(foreignId)), "B's box stays in the client's outer box");
             LedgerEntry foreignNow = await pair.Host.Run(() => Owned.Entry(foreignId));
             Expect.Equal(b, foreignNow.Owner, "B's box is still B's");
-            Expect.Equal("Container", foreignNow.Place, "B's box's ledger home (the toolbox)");
+            Expect.Equal("Container", foreignNow.Place, "B's box's ledger home (the crate)");
             OwnerInfo toolboxNow = await pair.Host.Run(() => Ownership.ById(toolboxId));
-            Expect.That(!toolboxNow.Lost, "the client's toolbox didn't go to Lost and Found", toolboxNow.ToString());
-            Expect.Equal(toolbox, await pair.Client.Run(() => Items.Held()), "the client's toolbox still in its hand");
+            Expect.That(!toolboxNow.Lost, "the client's outer box didn't go to Lost and Found", toolboxNow.ToString());
+            Expect.Equal(toolbox, await pair.Client.Run(() => Items.Held()), "the client's outer box still in its hand");
             Expect.Empty(await pair.Host.Run<string[]>(s => Owned.AuditFor(s, ids)), "the ledger's audit of this run's items");
             await pair.Client.Run(() => Items.Drop(), 10);
         }

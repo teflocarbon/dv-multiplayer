@@ -79,7 +79,8 @@ booklet-summon
 booklet-summon-host @player
 booklet-summon-far @player
 overview-pickup
-jobs
+jobs @player
+jobs-client
 recall-lease
 car-delete-unowned
 car-delete-unowned-track

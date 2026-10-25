@@ -116,11 +116,16 @@ namespace Dvmp.Scenarios
             public static int Booklets(string jobId) =>
                 Resources.FindObjectsOfTypeAll<JobBooklet>().Count(b => b != null && b.gameObject.scene.IsValid() && b.job?.ID == jobId);
 
-            /// <summary>The job of this game's booklet object, "" for none.</summary>
+            /// <summary>
+            /// The job of this game's booklet: its object's, or in a slot its stand-in's row's (D14: an
+            /// inventory item has no object, and is made for its job from the row when taken out); "" for none.
+            /// </summary>
             [Step]
             public static string JobOf(ushort netId) =>
                 Multiplayer.Shared.Items.LiveState.NetworkedItem.TryGet(netId, out var item) && item != null
-                    ? item.GetComponent<JobBooklet>()?.job?.ID ?? "" : "";
+                    ? item.GetComponent<JobBooklet>()?.job?.ID ?? ""
+                    : Multiplayer.Shared.Items.Inventory.InventoryStandIn.TryGet(netId, out var standIn)
+                        ? Multiplayer.Shared.Jobs.JobPapers.JobIdOf(standIn.State) ?? "" : "";
         }
     }
 }

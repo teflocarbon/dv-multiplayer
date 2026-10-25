@@ -19,7 +19,8 @@ namespace Dvmp.Scenarios
     /// the server has it in the magazine (E1). The tool goes into a box and out (MagazineServer's
     /// Stow and LoadFromRows), to Lost and Found and back, and is destroyed (Release): the ammo
     /// goes with it as a row of the tool and is loaded again on both games as it comes back, and
-    /// comes out loose when the tool is gone. The client then loads its ammo into a tool that isn't
+    /// comes out when the tool is gone, into the client's Lost and Found (owned, as a destroyed box's
+    /// contents go), and the client takes it back. The client then loads its ammo into a tool that isn't
     /// its own (the host player's, stashed by the host, on a player host; nobody's lying in the
     /// world on a dedicated one) and retrieves it from its owned-items list: it's in its Lost and
     /// Found, and no copy of the tool still holds it (E2). On a player host the roles swap too: the
@@ -118,8 +119,18 @@ namespace Dvmp.Scenarios
                 Expect.That(!await pair.Client.Run(() => InGame.InMagazine(ammo)), "the client's ammo isn't in a magazine");
             }
 
-            // Loaded into a tool that isn't the client's, and retrieved (E2).
+            // Owned, it went to the client's Lost and Found as a destroyed box's contents go: taken back.
             if (ammo == 0) return;
+            Expect.Equal("LostAndFound", released.Place, "the ammo's ledger home once its tool is destroyed (its owner's Lost and Found)");
+            if (released.Place == "LostAndFound")
+            {
+                uint ammoHandle = await pair.Host.Run(() => Owned.HandleOf(ammo));
+                await pair.Client.Run<int>(s => LostAndFound.InGame.Retrieve(s, ammoHandle), 60);
+                ammo = await pair.Host.Run(() => Owned.NetIdOf(ammoId));
+                await pair.Client.Run(() => InGame.ToGround(ammo), 60);
+            }
+
+            // Loaded into a tool that isn't the client's, and retrieved (E2).
             (ushort other, string otherId) = pair.Dedicated ? await Spawn(o.Tool, "client", personal: false) : await Spawn(o.Tool, "host");
             string inOther = await pair.Client.Run<string>(s => InGame.Load(s, other, ammo), 60);
             Require.That(inOther.Length > 0, "the client loaded its ammo into the other tool");

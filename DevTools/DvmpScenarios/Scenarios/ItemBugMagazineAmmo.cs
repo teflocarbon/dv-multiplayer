@@ -79,6 +79,7 @@ namespace Dvmp.Scenarios
             }
 
             /// <summary>What this game's copy of a tool's magazine holds, "" for none or no tool.</summary>
+            [Step]
             public static string HoldsOf(ushort toolId)
             {
                 if (!NetworkedItem.TryGet(toolId, out NetworkedItem tool) || tool == null) return "";

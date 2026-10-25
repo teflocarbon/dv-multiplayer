@@ -44,6 +44,7 @@ namespace Dvmp.Scenarios
             bool host = o.Who == "host";
             if (host && pair.Dedicated) throw new HarnessException("WHO=host needs a player host");
             Peer who = host ? pair.Host : pair.Client;
+            if (!host) await Recall.EssentialToInventory(pair);
             ushort first = await pair.Host.Run<ushort>(s => Items.SpawnPersonal(s, "Lantern", o.Who));
             ushort second = await pair.Host.Run<ushort>(s => Items.SpawnPersonal(s, "Lantern", o.Who));
             int firstSlot = await who.Run<int>(s => Items.Stash(s, first, false), 60);

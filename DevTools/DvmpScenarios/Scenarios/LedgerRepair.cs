@@ -671,13 +671,16 @@ namespace Dvmp.Scenarios
                 return record.PersistentItemId;
             }
 
+            // An item in Lost and Found is data (no object): only its record carries the id.
             private static void GiveId(ushort netId, Guid id)
             {
-                if (!NetworkedItem.TryGet(netId, out NetworkedItem item) || item == null) throw new Exception("no object for " + netId);
                 if (!LiveItems.TryGet(netId, out LiveItems.LiveItem record)) throw new Exception("no record for " + netId);
-                var identity = item.GetComponent<Multiplayer.Server.Items.SaveLoad.ItemIdentity>() ??
-                               item.gameObject.AddComponent<Multiplayer.Server.Items.SaveLoad.ItemIdentity>();
-                identity.Value = id;
+                if (NetworkedItem.TryGet(netId, out NetworkedItem item) && item != null)
+                {
+                    var identity = item.GetComponent<Multiplayer.Server.Items.SaveLoad.ItemIdentity>() ??
+                                   item.gameObject.AddComponent<Multiplayer.Server.Items.SaveLoad.ItemIdentity>();
+                    identity.Value = id;
+                }
                 record.PersistentItemId = id;
             }
 

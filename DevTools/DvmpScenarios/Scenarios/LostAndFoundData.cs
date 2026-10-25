@@ -138,9 +138,19 @@ namespace Dvmp.Scenarios
                 return ServerLedger.ClaimPersistentId(item, Guid.Parse(id)).ToString("D");
             }
 
-            /// <summary>Host: drops the item's Lost and Found entry, as an item remade fresh does.</summary>
+            /// <summary>
+            /// Host: drops the item's Lost and Found entry, as an item remade fresh does, and ends its
+            /// ledger entry: no remade object carries its id here, and the one-home check would say so.
+            /// </summary>
             [Step]
-            public static void Forget(ushort netId) => LostAndFoundServer.Forget(netId, "lost-and-found-data scenario");
+            public static void Forget(ushort netId)
+            {
+                Guid id = Multiplayer.Server.Items.LiveState.LiveItems.TryGet(netId, out var record) ? record.PersistentItemId : Guid.Empty;
+                LostAndFoundServer.Forget(netId, "lost-and-found-data scenario");
+                if (id != Guid.Empty)
+                    ServerLedger.Ledger.End(id, Multiplayer.Core.Items.ChangeCauses.ItemRemovalReason.DestroyedByGame,
+                        detail: "lost-and-found-data scenario: its Lost and Found entry dropped");
+            }
 
             private const string HarmonyId = "dvmp.scenarios.lost-and-found-data";
 

@@ -81,19 +81,23 @@ namespace Dvmp.Scenarios
         public static ushort[] Existing(ushort[] ids) =>
             Dev.All<NetworkedItem>().Where(i => i != null && ids.Contains(i.NetId)).Select(i => i.NetId)
                 .Concat(Multiplayer.Shared.Items.Inventory.InventoryStandIn.All.Where(s => ids.Contains(s.NetId)).Select(s => s.NetId))
-                .Concat(ids.Where(PlayerItems.IsDataOnly))
+                .Concat(ids.Where(KeptAsData))
                 .Distinct().ToArray();
+
+        // The server keeps it as data: in a client's inventory, or in Lost and Found.
+        private static bool KeptAsData(ushort id) =>
+            PlayerItems.IsDataOnly(id) || Multiplayer.Server.Items.LostAndFound.LostAndFoundServer.IsData(id);
 
         /// <summary>Host: destroys the items. Result: those still there 30 frames later.</summary>
         [Step]
         public static IEnumerator Destroy(Step<ushort[]> step, ushort[] ids)
         {
-            // One the server keeps as data (in a client's inventory) is made again first, so its
-            // destroy reaches the client. One whose object is going to data this frame (it has
-            // just settled in a slot) is data by the next, and is made again like the rest.
+            // One the server keeps as data (in a client's inventory, in Lost and Found) is made again
+            // first, so its destroy reaches the client. One whose object is going to data this frame
+            // (it has just settled in a slot) is data by the next, and is made again like the rest.
             yield return null;
             int making = 0;
-            foreach (ushort id in ids.Where(PlayerItems.IsDataOnly))
+            foreach (ushort id in ids.Where(KeptAsData))
             {
                 making++;
                 PlayerItems.WithObject(id, _ => making--);

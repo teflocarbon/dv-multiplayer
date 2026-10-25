@@ -13,7 +13,9 @@ namespace Dvmp.Scenarios
     /// forgets its NetId (JobPaperRows.Forget), so no job's overview or booklets still name it. Its
     /// job kept it by the freed NetId, so at the rejoin the row wasn't wanted (its job had an
     /// overview, of no object) and went. After the rejoin the overview is back in its slot as a
-    /// stand-in, and the job's overview is its new NetId. The client drops it afterwards.
+    /// stand-in, and the job's overview is its new NetId. The client drops it afterwards. On a dedicated
+    /// host nobody stays near the station, so DV expires its jobs when the client leaves, and the
+    /// overview goes at the rejoin instead.
     /// </summary>
     [Scenario("overview-rejoin", "A stashed overview's NetId is forgotten by every job when its holder leaves, and the overview is back in its slot, its job's, after the rejoin")]
     [Needs(Need.RestartsGames)]
@@ -44,6 +46,15 @@ namespace Dvmp.Scenarios
             Paper back = await pair.Client.Run(() => InGame.OverviewIn(job));
             pair.Cleanup(() => back.NetId != 0 ? pair.Client.Run(() => Owned.DropFromInventory(back.NetId), 60) : Task.CompletedTask);
             Report.Note($"after the rejoin: {back}");
+            if (pair.Dedicated)
+            {
+                // Nobody stayed near the station, so DV expired its offered jobs when the client left,
+                // and an overview of an expired job goes at its holder's join (inventory.md, "Job papers").
+                Expect.That(!await pair.Host.Run(() => InGame.Offered(o.Station, job)), $"{job} expired with nobody near {o.Station}");
+                Expect.Equal(-1, back.Slot, $"the slot of {job}'s overview in the client's inventory after the rejoin, its job expired");
+                Expect.Equal("", await pair.Client.Run(() => OverviewExpireStashed.InGame.InSlot(slot)), $"what's in the client's slot {slot} after the rejoin, its overview's job expired");
+                return;
+            }
             Expect.Equal(slot, back.Slot, $"the slot of {job}'s overview in the client's inventory after the rejoin");
             Expect.That(back.StandIn, "the overview is a stand-in after the rejoin");
             Expect.Equal(back.NetId, await pair.Host.Run(() => OverviewExpireStashed.InGame.OverviewOf(job)), "the job's overview NetId: the rejoined overview's");
@@ -72,6 +83,12 @@ namespace Dvmp.Scenarios
                 }
                 return naming.ToArray();
             }
+
+            /// <summary>Host: whether the station still offers the job.</summary>
+            [Step]
+            public static bool Offered(string station, string jobId) =>
+                StationController.allStations.First(s => s.stationInfo.YardID == station)
+                    .logicStation.availableJobs.Any(j => j.ID == jobId);
 
             /// <summary>This player: the job's overview in the inventory (a stand-in or an object), with its slot.</summary>
             [Step]
