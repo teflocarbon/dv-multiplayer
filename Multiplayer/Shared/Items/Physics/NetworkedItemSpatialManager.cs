@@ -42,6 +42,8 @@ internal sealed class NetworkedItemSpatialManager
     internal const float MaximumAngularSpeed = 100f;
     internal const float MaximumSampleDisplacementPerSecond = 180f;
     internal const float MaximumSimulatorDistance = 192f;
+    /// <summary>A lease renewed because its flight changed parent: a new epoch at a new revision, same simulator (OI-PHY-05).</summary>
+    internal const string ParentChangeLeaseReason = "parent-change";
     private const float ObserverSnapDistance = 6f;
     private const float ObserverInterpolationRate = 10f;
     private const float ObserverPredictionLimit = 0.15f;
@@ -64,6 +66,9 @@ internal sealed class NetworkedItemSpatialManager
         public bool HasStableTrainPose;
         public bool SettlementSent;
         public bool UnresolvedMotionWarningEmitted;
+        // The parent its samples show and since when, for committing a change of parent mid-flight (OI-PHY-05).
+        public string SampledParent;
+        public float SampledParentSince;
         public ItemSpatialStateData LastAccepted;
         public ItemSpatialStateData Target;
     }
@@ -102,6 +107,39 @@ internal sealed class NetworkedItemSpatialManager
             return false;
         state = lease.LastAccepted.Clone();
         return true;
+    }
+
+    /// <summary>
+    /// A train item this game got already settled (in a Create, or a convergence correction) stays
+    /// kinematic with its car, as on every game that saw it settle, and its settled state is this
+    /// game's committed one, so its simulator can report an impact on it (OI-PHY-06, -12, F34).
+    /// One with a lease open is left to the lease.
+    /// </summary>
+    internal void HoldSettledTrainItem(NetworkedItem item, ItemUpdate snapshot)
+    {
+        if (item == null || snapshot == null || leases.ContainsKey(item.NetId))
+            return;
+        Rigidbody body = item.Item?.ItemRigidbody;
+        if (body != null)
+        {
+            body.velocity = Vector3.zero;
+            body.angularVelocity = Vector3.zero;
+            body.Sleep();
+            body.isKinematic = true;
+        }
+        committedStates[item.NetId] = new ItemSpatialStateData
+        {
+            ItemNetId = item.NetId,
+            AuthorityRevision = snapshot.AuthorityRevision,
+            WorldParentKind = ItemWorldParentKind.TrainInterior,
+            WorldParentNetId = snapshot.WorldParentNetId,
+            AbsolutePosition = snapshot.ItemPosition,
+            Rotation = snapshot.ItemRotation,
+            ParentLocalPosition = snapshot.ParentLocalPosition,
+            ParentLocalRotation = snapshot.ParentLocalRotation,
+            Phase = ItemSpatialPhase.Settled,
+            Sleeping = true
+        };
     }
 
     internal bool TryGetCommitted(ushort itemNetId, out ItemSpatialStateData state)

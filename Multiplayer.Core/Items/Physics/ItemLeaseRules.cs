@@ -43,4 +43,18 @@ public static class ItemLeaseRules
         !appliesPlacement ? LeaseAfterChange.Keeps
         : released && IsSimulatable(placement) ? LeaseAfterChange.Begins
         : LeaseAfterChange.Ends;
+
+    /// <summary>How long a flight's new parent must hold before it is committed, s: a mug skimming a car's edge isn't a new revision a frame.</summary>
+    public const float ParentChangeDwell = 0.25f;
+
+    /// <summary>
+    /// Whether a flight's samples have moved it to a new parent (into a car, out of one, onto a
+    /// shelf) for long enough to commit it as a change of its own (OI-PHY-05, F33): its record's
+    /// parent is <paramref name="committed"/>, its samples' <paramref name="sampled"/>, unchanged for
+    /// <paramref name="sampledFor"/> seconds. Before, only the settlement fixed the parent: a save, a
+    /// Create and interest had the old one for the rest of the flight.
+    /// </summary>
+    public static bool CommitsParentChange(string committed, string sampled, float sampledFor) =>
+        !string.Equals(committed ?? string.Empty, sampled ?? string.Empty, System.StringComparison.Ordinal) &&
+        sampledFor >= ParentChangeDwell;
 }

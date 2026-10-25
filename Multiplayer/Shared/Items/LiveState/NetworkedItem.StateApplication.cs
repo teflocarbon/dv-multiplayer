@@ -154,6 +154,12 @@ public partial class NetworkedItem
             Item.ItemRigidbody.velocity = Vector3.zero;
             Item.ItemRigidbody.angularVelocity = Vector3.zero;
         }
+        // Settled in a car when this game gets it: it stays kinematic with the car (OI-PHY-06). A
+        // live body here was thrown about by the car's motion, and differed from every other game.
+        if (snapshot.ItemState == ItemState.Dropped && snapshot.WorldParentKind == ItemWorldParentKind.TrainInterior &&
+            (snapshot.UpdateType.HasFlag(ItemUpdate.ItemUpdateType.Create) ||
+             snapshot.TransitionReason == ItemTransitionReason.Convergence))
+            NetworkedItemManager.Instance?.Spatial?.HoldSettledTrainItem(this, snapshot);
 
         //handle throwing of the item
         if (snapshot.ItemState == ItemState.Thrown)

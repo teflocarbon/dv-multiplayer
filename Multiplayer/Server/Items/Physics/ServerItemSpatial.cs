@@ -105,6 +105,7 @@ internal sealed class ServerItemSpatial
             NetworkServer.Instance.SendItemSpatialSample(item,
                 new ClientboundItemSpatialSamplePacket { State = state.Clone() }, lease.SimulatorPlayerId);
             Publish("item.spatial-sample-relayed", item.NetId, SpatialDebug(state), highFrequency: true);
+            CommitParentChangeIfDue(item, lease, state);
         }
         else
             Reject(state, actor, rejection ?? "host-sample-rejected");
@@ -324,6 +325,7 @@ internal sealed class ServerItemSpatial
         NetworkServer.Instance.SendItemSpatialSample(item,
             new ClientboundItemSpatialSamplePacket { State = state.Clone() }, sender.PlayerId);
         Publish("item.spatial-sample-relayed", item.NetId, SpatialDebug(state), highFrequency: true);
+        CommitParentChangeIfDue(item, lease, state);
     }
 
     internal void ReceiveClientSettlement(ItemSpatialStateData state, ServerPlayer sender)
@@ -750,6 +752,77 @@ internal sealed class ServerItemSpatial
             SetProxyKinematic(item, true);
         manager.RefreshHostSpatialPosition(item, state.AbsolutePosition, state.WorldParentKind);
         Publish("item.spatial-sample-accepted", item.NetId, SpatialDebug(state), highFrequency: true);
+    }
+
+    // Its parent, as one string: the world, a car by net ID, or a shelf by key.
+    private static string ParentOf(ItemWorldParentKind kind, ushort netId, string key) => kind switch
+    {
+        ItemWorldParentKind.TrainInterior => "car:" + netId,
+        ItemWorldParentKind.StaticParent => "shelf:" + key,
+        _ => "world"
+    };
+
+    /// <summary>
+    /// A flight whose samples show a new parent (it landed in a car, left one, came onto a shelf)
+    /// for <see cref="ItemLeaseRules.ParentChangeDwell"/>: the change is committed as one, and the
+    /// flight goes on under a new epoch at the new revision, with the same simulator
+    /// (OI-PHY-05, F33). Before, only the settlement fixed the parent.
+    /// </summary>
+    private void CommitParentChangeIfDue(NetworkedItem item, Lease lease, ItemSpatialStateData state)
+    {
+        if (!LiveItems.TryGet(item.NetId, out LiveItems.LiveItem record))
+            return;
+        float now = Time.realtimeSinceStartup;
+        string sampled = ParentOf(state.WorldParentKind, state.WorldParentNetId, state.WorldParentKey);
+        if (!string.Equals(sampled, lease.SampledParent, StringComparison.Ordinal))
+        {
+            lease.SampledParent = sampled;
+            lease.SampledParentSince = now;
+        }
+        string committed = ParentOf(record.WorldParentKind, record.WorldParentNetId, record.WorldParentKey);
+        if (!ItemLeaseRules.CommitsParentChange(committed, sampled, now - lease.SampledParentSince))
+            return;
+        if (!LiveItems.TryCommitSpatialPose(item, lease.AuthorityRevision, state, out record, out string rejection,
+                PlayerNumbers.Identity(lease.SimulatorPlayerId)))
+        {
+            Reject(state, null, rejection);
+            EndLease(item.NetId, $"parent-change-refused:{rejection}");
+            return;
+        }
+        uint epoch = epochs.TryGetValue(item.NetId, out uint last) ? last + 1 : lease.Epoch + 1;
+        epochs[item.NetId] = epoch;
+        ItemSpatialStateData baseline = state.Clone();
+        baseline.AuthorityRevision = record.Revision;
+        baseline.SimulationEpoch = epoch;
+        baseline.SampleSequence = 0;
+        baseline.SourceTick = NetworkLifecycle.Instance.Tick;
+        leases[item.NetId] = new Lease
+        {
+            ItemNetId = item.NetId,
+            AuthorityRevision = record.Revision,
+            Epoch = epoch,
+            SimulatorPlayerId = lease.SimulatorPlayerId,
+            StartedAt = lease.StartedAt,
+            LastAcceptedAt = now,
+            LastAccepted = baseline.Clone(),
+            Target = baseline.Clone(),
+            SampledParent = sampled,
+            SampledParentSince = lease.SampledParentSince
+        };
+        ApplyCommitMetadata(item, baseline);
+        manager.RefreshHostSpatialPosition(item, baseline.AbsolutePosition, baseline.WorldParentKind);
+        NetworkServer.Instance.SendItemSpatialLease(item, new ClientboundItemSpatialLeasePacket
+        {
+            Active = true,
+            Reason = ParentChangeLeaseReason,
+            State = baseline.Clone()
+        });
+        Publish("item.spatial-parent-committed", item.NetId, new(SpatialDebug(baseline))
+        {
+            ["from"] = committed,
+            ["to"] = sampled,
+            ["previousSimulationEpoch"] = lease.Epoch
+        });
     }
 
     private void CommitHostSettlement(NetworkedItem item, Lease lease, ItemSpatialStateData state, string reason)
