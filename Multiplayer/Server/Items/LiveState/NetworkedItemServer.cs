@@ -189,12 +189,14 @@ public static class NetworkedItemServer
             !ItemUpdate.IncludesItemState(snapshot.UpdateType) &&
             snapshot.UpdateType.HasAnyFlag(ItemUpdate.ItemUpdateType.ObjectState))
             return Refused(item, "sender-not-current-possessor");
-        if (!senderPossesses && ItemUpdate.IncludesItemState(snapshot.UpdateType) &&
+        bool loadFromWorld = !senderPossesses && item.IsLoadFromWorld(snapshot, authority, senderPlayer);
+        if (!senderPossesses && !loadFromWorld && ItemUpdate.IncludesItemState(snapshot.UpdateType) &&
             snapshot.ItemState is not (ItemState.InHand or ItemState.InInventory))
             return Refused(item, "world-transition-requires-possession");
-        // A pickup is from where the server has the item, within reach of the player (OI-PHY-08).
+        // A pickup is from where the server has the item, within reach of the player (OI-PHY-08),
+        // and so is a load from the world.
         if (!senderPossesses && authority != null && ItemUpdate.IncludesItemState(snapshot.UpdateType) &&
-            snapshot.ItemState is ItemState.InHand or ItemState.InInventory &&
+            (snapshot.ItemState is ItemState.InHand or ItemState.InInventory || loadFromWorld) &&
             !PickupReach.Within((Core.Items.LiveState.LivePlacement)(byte)authority.Placement,
                 (item.transform.position - WorldMover.currentMove - senderPlayer.AbsoluteWorldPosition).sqrMagnitude))
             return Refused(item, "pickup-out-of-reach");
@@ -243,6 +245,18 @@ public static class NetworkedItemServer
         DebugTrace.Validation("item", "Item", item.NetId.ToString(), false, reason, DebugRuntimeSide.Server);
         return reason;
     }
+
+    // Ammo lying where anyone may take it, loaded into a tool the sender holds or has stashed: vanilla's
+    // load by use (a sprayer aimed at a can on the ground; PaintSprayer.IsUseCompatible). It's a take
+    // from the world, as a pickup is, so it's held to the pickup's reach; the magazine's own checks
+    // follow (LiveItems.MagazineRefusal). Before the end pass it was refused for want of possession
+    // (use-up).
+    private static bool IsLoadFromWorld(this NetworkedItem item, ItemUpdate snapshot, LiveItems.LiveItem authority,
+        ServerPlayer senderPlayer) =>
+        ItemUpdate.IncludesItemState(snapshot.UpdateType) && snapshot.ItemState == ItemState.InMagazine &&
+        authority != null && authority.Placement is ItemPlacementKind.World or ItemPlacementKind.TrainInterior or ItemPlacementKind.StaticParent &&
+        LiveItems.TryGet(snapshot.MagazineNetId, out LiveItems.LiveItem tool) && tool.NetId != item.NetId &&
+        tool.Holder == senderPlayer.Guid && tool.Placement is ItemPlacementKind.PlayerHand or ItemPlacementKind.PlayerInventory;
 
     private static bool SenderPossesses(this NetworkedItem item, ServerPlayer senderPlayer) =>
         senderPlayer != null &&

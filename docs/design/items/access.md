@@ -91,7 +91,7 @@ of an essential is allowed as usual.
 
 | Call site | Action | When |
 | --- | --- | --- |
-| `LiveItems.TryApplyTransition` (`Multiplayer/Server/Items/LiveState/LiveItems.cs`) | `TakeFromWorld` or `TakeFromPlayer` (`LiveItems.TakeAction`) | a transition with an actor that places the item in a player's hand or inventory, from the world, a car, a shelf, a car's end, a snap point or a tool's magazine (`TakeFromWorld`), or from another holder's hand or inventory, or a tool another player holds or has stashed (`TakeFromPlayer`); asked before the state machine |
+| `LiveItems.TryApplyTransition` (`Multiplayer/Server/Items/LiveState/LiveItems.cs`) | `TakeFromWorld` or `TakeFromPlayer` (`LiveItems.TakeAction`) | a transition with an actor that places the item in a player's hand or inventory (or in the magazine of a tool the actor holds, from the world, a car or a shelf: vanilla's load by use), from the world, a car, a shelf, a car's end, a snap point or a tool's magazine (`TakeFromWorld`), or from another holder's hand or inventory, or a tool another player holds or has stashed (`TakeFromPlayer`); asked before the state machine |
 | `LiveItems.TryApplyTransition` | `Stash` | after the state machine, when the item enters a player's inventory from anywhere else, whoever commits it: the actor, or with no actor the holder's session (a dedicated host's own copy of a client's item reports the client's stash with no actor) |
 | `ContainerServer.Deposit` (`Multiplayer/Server/Items/Containers/ContainerServer.cs`) | `Deposit` | once the depositor is known to have the item |
 | `ContainerServer.Withdraw` | `Withdraw` (`AllowsRow`) | after the graph prepares the withdrawal, on the stored row's facts |

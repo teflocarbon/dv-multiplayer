@@ -284,9 +284,12 @@ public static partial class LiveItems
             };
         // Into a player's hands from the world, or from another player (OI-ACC-07). Asked before the
         // state machine, so the refusal of a take from another player is ItemAccess's; a placement
-        // with a player is always the actor's (ItemStateMachine).
+        // with a player is always the actor's (ItemStateMachine). A load from the world into the
+        // actor's tool is a take from the world too (vanilla's load by use).
         if (actor != null && appliesPlacement &&
-            requestedPlacement is ItemPlacementKind.PlayerHand or ItemPlacementKind.PlayerInventory &&
+            (requestedPlacement is ItemPlacementKind.PlayerHand or ItemPlacementKind.PlayerInventory ||
+             requestedPlacement == ItemPlacementKind.Magazine &&
+             record.Placement is ItemPlacementKind.World or ItemPlacementKind.TrainInterior or ItemPlacementKind.StaticParent) &&
             TakeAction(record, actor.Guid) is { } take &&
             !ItemAccessServer.Allows(actor, take, item, record, out rejectionReason))
         {
