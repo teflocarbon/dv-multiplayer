@@ -22,7 +22,7 @@ namespace Multiplayer.Client.Items.Projection;
 internal sealed partial class ClientItemManager
 {
     // Dynamic projection creation and unbound local items. A client never makes an item of its own:
-    // the server makes every one (owned-items.md, PR 5), so an unbound item is an authored scene
+    // the server makes every one (live-state.md, "NetworkedItem on each game"), so an unbound item is an authored scene
     // projection, kept dormant, or destroyed.
     // Dynamic client projections are fresh instances owned by one host-authoritative logical
     // lifetime.

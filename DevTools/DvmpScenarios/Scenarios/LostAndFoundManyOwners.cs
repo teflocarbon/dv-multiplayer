@@ -5,7 +5,7 @@ using System.Threading.Tasks;
 namespace Dvmp.Scenarios
 {
     /// <summary>
-    /// Lost and Found keeps several owners apart (owned-items.md, PRs 1b, 2a and 3). Mugs are given
+    /// Lost and Found keeps several owners apart (lost-and-found.md, "Kept as data"). Mugs are given
     /// to the client (two), the host's own player (one, on a player host), and two players who
     /// aren't here (two and one), and all are collected. Each owner's Lost and Found must grow by
     /// exactly their mugs. Then the games save and restart. Every mug must come back once, under its

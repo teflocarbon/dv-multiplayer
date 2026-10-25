@@ -13,7 +13,7 @@ using UnityEngine;
 namespace Dvmp.Scenarios
 {
     /// <summary>
-    /// Lineage (owned-items.md, PR 7). A server step stands in for a swap vanilla makes as an item is
+    /// Lineage (ledger.md, "Births and ends"). A server step stands in for a swap vanilla makes as an item is
     /// used up (gadget PRs 4, 5 and 9 make those server-side): the client's mug is replaced by a
     /// lantern made where it was. The lantern is the client's, born Replaced, from the mug, and the
     /// mug's entry has ended with replacedBy the lantern. The client's owned-items list has the

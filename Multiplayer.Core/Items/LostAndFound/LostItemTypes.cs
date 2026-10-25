@@ -10,9 +10,9 @@ public enum LostItemReason : byte
     GadgetDestinationMissing,
     PurchasedDeliveryFallback,
     SaveRecovery,
-    /// <summary>A player left carrying someone else's item: it goes to its owner (owned-items.md, "Leaving").</summary>
+    /// <summary>A player left carrying someone else's item: it goes to its owner (lost-and-found.md, "Leaving").</summary>
     BorrowerLeft,
-    /// <summary>Its owner retrieved it from their owned-items list (owned-items.md, "Retrieval").</summary>
+    /// <summary>Its owner retrieved it from their owned-items list (owned-list.md, "Retrieval").</summary>
     RetrievedByOwner
 }
 

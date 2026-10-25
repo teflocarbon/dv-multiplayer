@@ -6,7 +6,7 @@ using Multiplayer.Shared.Items.LiveState;
 namespace Dvmp.Scenarios
 {
     /// <summary>
-    /// A real owner goes offline (owned-items.md, PRs 2a and 3). The client claims a mug and leaves
+    /// A real owner goes offline (ledger.md, "Owners"; lost-and-found.md, "The collection"). The client claims a mug and leaves
     /// it on the ground (or in a loco's cab, WHERE=cab, or on a shed's shelf, WHERE=shelf: OI-LF-02), and stashes a second one. Then it quits (or
     /// its game is killed, LEAVE=crash). Its left mug must keep its owner identity, now one with no
     /// session (item-refactor.md, "Identity only"), not become nobody's. On a player host, once nobody is near, it goes to the client's Lost and Found under
@@ -79,7 +79,7 @@ namespace Dvmp.Scenarios
                 if (pair.Dedicated)
                 {
                     // With nobody connected nothing is collected: no player's position is known
-                    // (owned-items.md, PR 3). The mug waits where it is, still the client's.
+                    // (lost-and-found.md, "The collection"). The mug waits where it is, still the client's.
                     await Task.Delay(8000);
                     OwnerInfo waiting = await pair.Host.Run(() => Ownership.Read(left));
                     Expect.That(!waiting.Lost, "with nobody connected the mug isn't collected", waiting.ToString());

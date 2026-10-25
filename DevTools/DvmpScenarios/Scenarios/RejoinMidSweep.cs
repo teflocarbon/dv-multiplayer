@@ -4,8 +4,8 @@ using Dvmp.Lib;
 namespace Dvmp.Scenarios
 {
     /// <summary>
-    /// A client comes back while Lost and Found sweeps up the mugs it left (owned-items.md, PRs 2a
-    /// and 3). The client owns mugs on the ground and leaves (quits, or LEAVE=crash), with nobody
+    /// A client comes back while Lost and Found sweeps up the mugs it left (lost-and-found.md, "The
+    /// collection"). The client owns mugs on the ground and leaves (quits, or LEAVE=crash), with nobody
     /// near and a one-second grace, then rejoins at once. The sweep runs during the rejoin. Each mug
     /// must end up exactly once, still the client's with its new number, either in the world or in
     /// its Lost and Found under its own id. The ledger agrees, with no audit problems. The client

@@ -110,7 +110,7 @@ public enum ItemMoveReason : byte
     RemovedAsGadget,
     /// <summary>
     /// Made by the server for its owner, into their inventory: one of Derail Valley's essentials
-    /// they had none of (owned-items.md, PR 4).
+    /// they had none of (essentials.md, "Starter kit and issued essentials").
     /// </summary>
     Issued,
     /// <summary>Made by the server for its owner, into their inventory: their starter kit, at their first join.</summary>

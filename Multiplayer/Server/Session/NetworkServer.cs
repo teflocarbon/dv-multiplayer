@@ -1236,7 +1236,7 @@ public partial class NetworkServer : NetworkManager
         ITransportPeer peer = player.Peer;
         player.CompletedLoadingAt = Time.realtimeSinceStartup;
         Log($"Player {player.Username} has completed loading");
-        // The server makes what they're missing of their starting items (owned-items.md, PR 4).
+        // The server makes what they're missing of their starting items (essentials.md, "The issuer").
         StartingItemsIssuer.OnPlayerLoaded(player);
 
         // Send the new player to all other players

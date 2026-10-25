@@ -5,7 +5,7 @@ using NUnit.Framework;
 namespace Multiplayer.Core.Tests.Items.LostAndFound;
 
 /// <summary>
-/// An owner who isn't connected counts as far away (owned-items.md, PR 3; decided by the user
+/// An owner who isn't connected counts as far away (lost-and-found.md, "The collection"; decided by the user
 /// 2026-10-21): their items are collected under the usual nearby-player and grace rules, from train
 /// interiors, shelves, couplers and snap points as well as the world. An online owner's still come from
 /// the world only.

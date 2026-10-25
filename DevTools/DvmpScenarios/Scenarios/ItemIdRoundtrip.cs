@@ -4,7 +4,7 @@ using Dvmp.Lib;
 namespace Dvmp.Scenarios
 {
     /// <summary>
-    /// One id for an item's whole life (owned-items.md, PR 1b). The client owns a mug, puts it in its
+    /// One id for an item's whole life (ledger.md, "The entry"). The client owns a mug, puts it in its
     /// toolbox and takes it out again; the games save and restart; it leaves the mug behind and walks
     /// away, the host collects it into the client's Lost and Found; save and restart again; the client
     /// retrieves it. The mug must have the id it started with at every step, the Lost and Found entry

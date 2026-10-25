@@ -11,9 +11,9 @@ using UnityEngine;
 namespace Multiplayer.Client.Career;
 
 /// <summary>
-/// The career manager's Owned Items page (owned-items.md, "The owned-items list", PR 6a): every
+/// The career manager's Owned Items page (owned-list.md, "The page"): every
 /// item the player owns, wherever it is, as the server words it. Confirm retrieves the selected
-/// item into Lost and Found when it can go (PR 6b), and the server sends a fresh list.
+/// item into Lost and Found when it can go, and the server sends a fresh list.
 /// </summary>
 internal sealed class OwnedItemsCareerManagerScreen : MultiplayerCareerManagerScreen
 {

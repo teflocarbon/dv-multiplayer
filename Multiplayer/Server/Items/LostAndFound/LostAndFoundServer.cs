@@ -55,7 +55,7 @@ public static class LostAndFoundServer
 
     public static uint Generation => generation;
     public static bool Contains(ushort itemNetId) => registry.TryGet(itemNetId, out _);
-    /// <summary>The id of an item's entry: its own persistent id (owned-items.md), or empty for none.</summary>
+    /// <summary>The id of an item's entry: its own persistent id (ledger.md, "The entry"), or empty for none.</summary>
     public static Guid EntryId(ushort itemNetId) =>
         registry.TryGet(itemNetId, out LostItemRecord record) ? record.PersistentItemId : Guid.Empty;
     public static int Count => registry.Count;
@@ -456,7 +456,7 @@ public static class LostAndFoundServer
             return false;
         }
         // Distance collection takes only loose world items, except for an owner who isn't here, whose
-        // items in trains and on shelves go too (owned-items.md, PR 3).
+        // items in trains and on shelves go too (lost-and-found.md, "The collection").
         bool ownerAway = !PlayerNumbers.IsConnected(keeper);
         if (!LiveItems.TryMoveToLostAndFound(item,
                 out LiveItems.LiveItem authority, out string rejectionReason,
@@ -468,7 +468,7 @@ public static class LostAndFoundServer
         }
         LostItemRecord record = new()
         {
-            // The item's own id, not one of the record's: one id for life (owned-items.md).
+            // The item's own id, not one of the record's: one id for life (ledger.md, "The entry").
             PersistentItemId = authority.PersistentItemId != Guid.Empty ? authority.PersistentItemId : Guid.NewGuid(),
             NetId = item.NetId,
             Revision = authority.Revision,

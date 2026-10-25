@@ -2,7 +2,7 @@ using System;
 
 namespace Multiplayer.Core.Items.Inventory;
 
-/// <summary>What a joining player is sent of items kept as data only (docs/design/items/inventory.md, "Joining").</summary>
+/// <summary>What a joining player is sent of items kept as data only (docs/design/items/inventory.md, "Cold inventories").</summary>
 public static class JoinRows
 {
     /// <summary>

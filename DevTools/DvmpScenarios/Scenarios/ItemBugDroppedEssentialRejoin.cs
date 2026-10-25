@@ -14,7 +14,7 @@ namespace Dvmp.Scenarios
     /// <summary>
     /// The client drops an essential (the comms radio) in the world, leaving its red silhouette in
     /// its slot, stashes MUGS ordinary items and leaves. When it rejoins, the silhouette must be back
-    /// in the essential's claim slot (item-lifecycle.md, "Retrieval claim slots"), wherever the
+    /// in the essential's claim slot (essentials.md, "Claim slots"), wherever the
     /// essential is.
     /// - Default (LOST=1), bug E10 (docs/research/item-bug-review.md), fixed: the client walks 300 m
     ///   off with nobody near the radio, and the server collects it into the client's Lost and

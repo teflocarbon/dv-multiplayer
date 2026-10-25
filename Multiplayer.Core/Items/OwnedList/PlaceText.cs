@@ -26,8 +26,8 @@ public readonly struct PlaceFacts
 }
 
 /// <summary>
-/// Where an owned item is, as its owner's owned-items list shows it (owned-items.md, "The
-/// owned-items list"): your inventory, your hand, with another player, on the ground, in a car,
+/// Where an owned item is, as its owner's owned-items list shows it (owned-list.md, "Where
+/// it is"): your inventory, your hand, with another player, on the ground, in a car,
 /// on a shelf, in a container, in Lost and Found, installed on a car. The server works it out, so
 /// every player's list reads the same.
 /// </summary>
@@ -71,7 +71,7 @@ public static class PlaceText
     }
 }
 
-/// <summary>What retrieving an owned item from its place means (owned-items.md, "Retrieval").</summary>
+/// <summary>What retrieving an owned item from its place means (owned-list.md, "Retrieval").</summary>
 public enum RetrievalKind : byte
 {
     /// <summary>With its owner, in Lost and Found, or unloadable: no button.</summary>

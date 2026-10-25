@@ -13,7 +13,7 @@ using Multiplayer.Shared.Protocol.Data.Items;
 namespace Dvmp.Scenarios
 {
     /// <summary>
-    /// The owned-items list (owned-items.md, PR 6a). The client owns mugs in its inventory, on the
+    /// The owned-items list (owned-list.md, "The rows"). The client owns mugs in its inventory, on the
     /// ground, in a loco's cab, in its Lost and Found and inside its toolbox, and one it owned has
     /// been destroyed. The server's list for the client has each live mug once, worded by where it
     /// is (your inventory, on the ground, in the loco, in Lost and Found, in the toolbox), and not

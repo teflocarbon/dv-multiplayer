@@ -42,7 +42,7 @@ public static partial class LiveItems
     {
         if (item == null || holder == null || snapshot == null || item.NetId == 0)
             return null;
-        // The item keeps its id through the container (owned-items.md, "Known bugs"): without it the
+        // The item keeps its id through the container (ledger.md, "The entry"): without it the
         // record wasn't saved.
         persistentItemId = ServerLedger.ClaimPersistentId(item, persistentItemId);
 

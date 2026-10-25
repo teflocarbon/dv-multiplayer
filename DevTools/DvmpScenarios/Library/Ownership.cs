@@ -1,4 +1,4 @@
-// Ownership steps for the owned-items scenarios (owned-items.md, PRs 2a and 3): give an item to the
+// Ownership steps for the owned-items scenarios (ledger.md, "Owners"): give an item to the
 // client, the host's own player or a player who isn't here, read whose it is and where by its
 // lifelong id (net IDs change at a restart), collect it into Lost and Found, and count each owner's
 // Lost and Found. Each [Step] runs inside a game: call it through pair.Host / pair.Client.

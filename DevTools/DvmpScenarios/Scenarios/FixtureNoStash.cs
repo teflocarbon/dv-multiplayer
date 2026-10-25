@@ -3,7 +3,7 @@ using System.Threading.Tasks;
 namespace Dvmp.Scenarios
 {
     /// <summary>
-    /// A station fixture can't go into a player's inventory (owned-items.md, "Fixtures"; the hook
+    /// A station fixture can't go into a player's inventory (access.md, "Fixtures"; the hook
     /// shops PR 2c fills, PR 1c). The host marks the mug as a fixture for the run (in memory) and the
     /// client tries to stash one: the server must refuse it, and the client mustn't keep it in its
     /// inventory. Then, with the mark taken off, the same client stashes another mug as before.

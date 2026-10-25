@@ -31,7 +31,7 @@ namespace Multiplayer.Server.Items.Essentials;
 
 /// <summary>
 /// The server makes each player's starting items, owned by them and into their inventory
-/// (owned-items.md, "Joining and rejoining", PR 4). No game makes its own any more: DV's safeguards
+/// (essentials.md, "Starter kit and issued essentials"). No game makes its own any more: DV's safeguards
 /// are off in every game (Shared/Career/StartingItemsControllerPatch).
 /// - The starter kit, once per player per career: the ledger's saved starter-kit marker.
 /// - Each of DV's essentials for this career (comms radio, maps, compass, wallet, catalogue, ...)

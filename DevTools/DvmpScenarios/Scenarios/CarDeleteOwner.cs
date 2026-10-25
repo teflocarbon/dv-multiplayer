@@ -4,7 +4,7 @@ using Dvmp.Lib;
 namespace Dvmp.Scenarios
 {
     /// <summary>
-    /// A loco is deleted with a player's mug in its cab (item-review L1; owned-items.md, PR 2a). The
+    /// A loco is deleted with a player's mug in its cab (item-review L1; lost-and-found.md, "A deleted car"). The
     /// mug must go to its owner's Lost and Found, not be destroyed. Before, an offline owner's number
     /// was 0, so Lost and Found refused the mug ("item-has-no-persistent-owner") and the car delete
     /// destroyed it. The mug's owner is the client, still connected (OWNER=online, the control), or

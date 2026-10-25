@@ -195,7 +195,7 @@ public sealed class AllowAllContainerCompatibility : IContainerCompatibilityPoli
 
 /// <summary>
 /// Who owns an item and who holds a shell: the ledger's and the live items', never the graph's
-/// (docs/design/items/containers.md, "Owners"). Identities are strings, empty for nobody.
+/// (docs/design/items/containers.md, "Who keeps a box"). Identities are strings, empty for nobody.
 /// </summary>
 public interface IContainerOwners
 {
@@ -708,7 +708,7 @@ public sealed class ContainerGraph
     };
 
     /// <summary>
-    /// Loads rows from a save, each on its own (docs/design/items/save-load.md, "Rows stand alone";
+    /// Loads rows from a save, each on its own (docs/design/items/save-load.md, "Rows that won't load";
     /// C1): the containers, then the stored items. A row that breaks a rule (a slot out of range or
     /// taken, a container it isn't in, a container inside itself, nesting deeper than the limit)
     /// is refused and returned, and every other row loads. Owners are the ledger's, so a row has

@@ -23,7 +23,7 @@ namespace Multiplayer.Server.Items.OwnedList;
 
 /// <summary>
 /// An owner takes one of their items back from wherever it is, into their Lost and Found
-/// (owned-items.md, "Retrieval", PR 6b). The owner asked, so the Lost and Found's nearby-player
+/// (owned-list.md, "Retrieval"). The owner asked, so the Lost and Found's nearby-player
 /// protection and grace period don't apply.
 /// - Lying somewhere (the ground, a train's cab, a shelf): collected now.
 /// - In a container: the outermost of their own boxes goes, with everything in it; out of a box

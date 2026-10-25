@@ -8,7 +8,7 @@ using UnityEngine;
 namespace Dvmp.Scenarios
 {
     /// <summary>
-    /// A save lands while Lost and Found sweeps up an offline owner's items (owned-items.md, PR 3).
+    /// A save lands while Lost and Found sweeps up an offline owner's items (lost-and-found.md, "The collection").
     /// Mugs for a player who isn't here lie on the ground. Everyone walks away, and the host saves
     /// every quarter second until the sweep has started (the last save is mid-sweep when the sweep
     /// spans frames). The games restart on that save. Every mug must come back exactly once, still

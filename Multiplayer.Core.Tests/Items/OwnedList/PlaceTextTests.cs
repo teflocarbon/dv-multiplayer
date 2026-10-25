@@ -5,7 +5,7 @@ using NUnit.Framework;
 
 namespace Multiplayer.Core.Tests.Items.OwnedList;
 
-/// <summary>Where an owned item is, as its owner's list reads (owned-items.md, PR 6a).</summary>
+/// <summary>Where an owned item is, as its owner's list reads (owned-list.md, "Where it is").</summary>
 [TestFixture]
 public sealed class PlaceTextTests
 {
@@ -55,7 +55,7 @@ public sealed class PlaceTextTests
     }
 }
 
-/// <summary>What retrieving from each place means (owned-items.md, "Retrieval", PR 6b).</summary>
+/// <summary>What retrieving from each place means (owned-list.md, "What each home's retrieval does").</summary>
 [TestFixture]
 public sealed class RetrievalRuleTests
 {

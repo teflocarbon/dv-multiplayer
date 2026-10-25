@@ -187,7 +187,7 @@ public sealed class NetworkedItemClient : INetworkedItemClientPart
 
         if (NetId == 0)
         {
-            // Not the server's: a client never makes its own items (owned-items.md, PR 5).
+            // Not the server's: a client never makes its own items (live-state.md, "NetworkedItem on each game").
             item.StateDirty = false;
             item.PublishLocalState("item.snapshot-suppressed", currentState, previousObservedState, reason,
                 "unbound-local-item");
