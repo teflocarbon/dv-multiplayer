@@ -243,7 +243,8 @@ A move has no live object to ask, so the game's own compatibility is read from t
 allowed types and the type the item's spec gives it (`HostRuntimeCompatibility`). Vanilla's `ValidItem`
 reads the type from an item that has woken, which a prefab hasn't, so before the end pass a move
 between boxes was refused unless a live deposit of the same kinds had been seen first
-(`container-nested-move`).
+(`container-nested-move`). A magazine keeps vanilla's own `ValidItem`, which checks the ammo type, and a prefab
+has that (its `allowedItemTypes` is never used).
 
 A withdrawal's item goes by interest too: a row is sent to the withdrawer alone (`PlayerItems.Issue`),
 and one made loose at their feet reaches others through the world index, as any item does.

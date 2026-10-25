@@ -890,9 +890,11 @@ public static class ContainerServer
         // Vanilla's ValidItem reads the item's type from its ItemBase, set up as the item wakes: a
         // prefab's never is, so every item read as no type, and a cold move between boxes was refused
         // unless a live deposit of the same kinds had been seen first (container-nested-move). A box
-        // reads the type from the prefab's spec instead, as ValidItem would from a woken item's.
+        // reads the type from the prefab's spec instead, as ValidItem would from a woken item's. A
+        // magazine is vanilla's own: its ValidItem checks the ammo type, which a prefab has, and its
+        // allowedItemTypes is never used.
         private static bool ValidOnPrefab(AItemContainer container, GameObject item) =>
-            container is DV.Items.ItemContainer box
+            container is DV.Items.ItemContainer box and not DV.Items.ItemMagazine
                 ? item.GetComponent<DV.CabControls.Spec.Item>() is { } spec && (box.allowedItemTypes & spec.itemType) != 0
                 : container.ValidItem(item);
 
