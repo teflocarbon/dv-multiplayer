@@ -46,9 +46,16 @@ internal static partial class PlayerItems
     /// <summary>Host: a player is leaving. Their hand item is stashed, borrowed items go home, and their inventory goes cold.</summary>
     public static void Leave(ServerPlayer player)
     {
-        if (player == null || player.Guid == Guid.Empty || NetworkLifecycle.Instance?.IsHost() != true)
+        if (player == null)
             return;
+        if (player.Guid != Guid.Empty && NetworkLifecycle.Instance?.IsHost() == true)
+            LeaveItems(player);
+        // Their id goes to the next player to join: no item is known to that game.
+        ForgetKnower(player.PlayerId);
+    }
 
+    private static void LeaveItems(ServerPlayer player)
+    {
         foreach (LiveItems.LiveItem record in LiveItems.Records.Where(r => r.Holder == player.Guid).ToArray())
         {
             bool inHand = record.Placement == ItemPlacementKind.PlayerHand;
@@ -246,7 +253,10 @@ internal static partial class PlayerItems
     /// </summary>
     public static void Join(ServerPlayer player)
     {
-        if (player == null || player.Guid == Guid.Empty || NetworkLifecycle.Instance?.IsHost() != true ||
+        // A game that has just joined knows nothing, whoever had its id before.
+        if (player != null)
+            ForgetKnower(player.PlayerId);
+        if (player == null ||player.Guid == Guid.Empty || NetworkLifecycle.Instance?.IsHost() != true ||
             player != NetworkServer.Instance.LocalPlayer || !ServerLedger.Loaded)
             return;
         CoroutineManager.Instance.StartCoroutine(JoinHost(player));
