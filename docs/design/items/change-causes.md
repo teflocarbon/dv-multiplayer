@@ -34,14 +34,19 @@ Both enums are in `Multiplayer.Core/Items/ChangeCauses/ItemChangeReasons.cs`, a 
   `Detached`, `Moved`, `Settled`, `Recalled`, `RetrievedFromLostAndFound`, `WithdrawnFromContainer`,
   `Purchased`, `Granted`, `RestoredFromSave`, `DroppedOnDisconnect`, `JobBookletSummoned`,
   `ClaimSlotMoved`, `RescuedFromBelowMap`, `HostCorrection`, `ThrownOutOfBin`, `InstalledAsGadget`,
-  `RemovedAsGadget`, `Issued`, `StarterKit`, `CollectedToLostAndFound`, `DepositedInContainer`, and
-  from R3 `SlotMoved` (between two slots of one inventory) and `WentLive` (a cold item made again in
-  its slot at join).
+  `RemovedAsGadget`, `Issued`, `StarterKit`, `CollectedToLostAndFound`, `DepositedInContainer`,
+  `SlotMoved` (between two slots of one inventory), `WentLive` (a cold item made again in its slot at
+  join), `LoadedIntoMagazine` and `UnloadedFromMagazine` (into or out of a tool's magazine), and
+  `BinRefused` (put in a bin by someone it isn't theirs to bin, and put down beside it, D10).
 - **`ItemRemovalReason`**, why an item stopped being a live object: `DestroyedByGame` (nothing said
   why), `CollectedToLostAndFound`, `DepositedInContainer`, `DestroyedWithCar`, `MoneyDeposited`,
   `JobDocumentDestroyed`, `AbandonedStockForkCleared`, `AuthoredSlotReplaced`, `DestroyedFromInventory`,
-  `LeftInterest` (a client's own: the item left its interest and still exists), and from R3 `WentCold`
-  (an inventory item kept as data, its home unchanged).
+  `LeftInterest` (a client's own: the item left its interest and still exists), `WentCold` (an
+  inventory item kept as data, its home unchanged), `RemadeFresh` (its saved state wouldn't load: made
+  again fresh, same id, in its owner's Lost and Found, D9), `Discarded` (binned, D10), `UsedUp` (a key
+  in its padlock, a spray can's paint) and `DevConsole` (a dev console command on the server).
+  `DestroyedWithCar` is never produced: a deleted car's items go to Lost and Found or into the world,
+  never destroyed (`DeletedCarItems`).
 
 `ItemWhereabouts` (placement, holder identity, owner identity) is what a move compares. A pose alone
 isn't a move. `ItemTransitionReason`, also on every update, is how live state changed (a client's state,
@@ -74,13 +79,15 @@ The server's own operations name theirs: `Recalled`, `RetrievedFromLostAndFound`
 (`HostCorrection`), `SlotMoved` for a swap ("slot 4 <-> 9"), `CollectedToLostAndFound`,
 `WithdrawnFromContainer` (or the caller's: `Issued`, `StarterKit`, `WentLive`), `ClaimSlotMoved`
 (`LiveItems.SendClaim`), `Settled` (only when a settlement lands the item somewhere else, so `LastMove`
-still says who threw it) and `RescuedFromBelowMap` (`ServerItemManager.FallRescue`).
+still says who threw it) and `RescuedFromBelowMap` (`FallRescueServer`).
 
 **Naming a removal.** Code that destroys an item says why first, `NetworkedItem.NoteRemovalCause`; then
 `NetworkedItemServer.OnDestroyed` records that note and sends it with the Destroy. Notes are made for
-money deposits, deleted cars, cold deposits, going cold, abandoned stock forks, replaced authored slots,
-job papers (`ItemChangeLog.NoteJobDocumentRemoval`, from the job patches, whose callers are still on the
-stack) and `Inventory.DestroyItem`. A note older than two seconds is stale. With no fresh note the
+money deposits, cold deposits (ammo stowed with its tool too, `MagazineServer`), going cold, abandoned
+stock forks, replaced authored slots, job papers (`ItemChangeLog.NoteJobDocumentRemoval`, from the job
+patches, whose callers are still on the stack), `Inventory.DestroyItem`, binning (`Discarded`,
+`Binning`), using up (`UsedUp`, `UseUp`), the dev console (`DevConsole`, `DevConsolePatch`) and a
+state that won't load (`RemadeFresh`, `ItemSaveLoad.Make`). A note older than two seconds is stale. With no fresh note the
 removal is `DestroyedByGame`, and its detail says what is known: where it was, its parent, an unloaded
 scene, its last move, the last host trigger, a stale note, the callers. A Lost and Found collection
 isn't a destroy: `LostAndFoundServer.Collect` records `CollectedToLostAndFound` with the
@@ -102,7 +109,7 @@ named, only when something moved. Each recipient's copy (`ItemUpdate.For`) keeps
 Corrections carry one too: a refused change (`HostCorrection`, "your change was refused: <reason>",
 `SendCanonicalRejectionCorrection`), a claim slot moved (`ClaimSlotMoved`, to the owner), a fall rescue
 (on the convergence update). A Destroy that ends an item never carries a Lost and Found collection's, a
-deposit's or going cold's transition reason (`OnDestroyed` clears it), so a client doesn't take an
+deposit's, an interest retirement's or going cold's transition reason (`OnDestroyed` clears it), so a client doesn't take an
 item's final Destroy for another collection. A Destroy for a recipient the item merely left the
 interest of carries no cause.
 
@@ -110,6 +117,10 @@ interest of carries no cause.
 
 `ClientItemManager.ProcessReceivedAsClient` hands every Destroy and every update with a `MoveCause`
 to `ClientItemChangeLog.OnSnapshot` before the item applies it, while the item still says whose it was.
+An update the local inventory takes as a stand-in (`ReceiveAsStandIn`) returns before that, and isn't
+logged. A move that comes with no update, a spatial commit's cause or a convergence correction the
+client acts on (`NetworkedItemClient.IgnoresConvergence`), goes to `ClientItemChangeLog.OnMove`, which
+keeps and logs it the same way.
 It keeps the cause on the item (`NetworkedItem.LastMoveCause`, `LastRemovalCause`, in the entity debug
 state) and logs it in the server's one-line format. A Destroy without a cause is `LeftInterest` when its
 transition reason is an interest retirement, else `Unknown`. Changes to the local player's items (its
@@ -118,24 +129,26 @@ interest, go to the debug log.
 
 A client acts on one reason: `HostCorrection`. A correction is never taken for an echo of the
 player's own hold (`NetworkedItem.Snapshots`), and a refused stash's "in your hand" drops the item out
-of the inventory DV already put it in (`NetworkedItem.StateApplication`). Everything else is for
-reading.
+of the inventory DV already put it in (`NetworkedItem.StateApplication`). For a stand-in
+(`ClientItemManager.StandIns`), a correction puts a held take-out back in its slot, sets the stand-in's
+revision back, and isn't dropped as a stale echo of the player's own request. Everything else is for reading.
 
 ## The ledger's cause
 
 A ledger commit carries the cause as a `LedgerCause` (`Multiplayer.Core/Items/Ledger/ItemLedger.cs`):
 the `ItemMoveReason`, `By` (the identity of the cause's player, `PlayerNumbers.Identity(cause.PlayerId)`;
 the ledger never holds a session number) and the detail. `ServerLedger.CommitTransition`, `Commit`,
-`Swap` and `Settle` build it from the move's `ChangeCause`; `Repair` from the invariant check or a
-removal names its own (`CollectedToLostAndFound`, `DepositedInContainer`).
+`Swap`, `Settle` and `CommitStored` build it from the move's `ChangeCause`. A removal that moves the
+entry names its own: a Lost and Found collection repairs it to `LostAndFound` with
+`CollectedToLostAndFound` (`ServerLedger.OnRemoved`); a deposit committed first, with its own cause.
+The invariant repair's moves are `HostCorrection` ("invariant repair").
 
 - Each change raises `ItemLedger.Changed` with its `LedgerChange` (kind, entry, the home it left, the
   cause). The entry doesn't keep the cause; the record's `LastMove` does. Today the server listens only
   for `ClaimSlot` changes.
 - A **birth** takes its reason from the move: `ServerLedger.BirthFrom` maps `Purchased`, `Granted`,
-  `Issued` and `StarterKit` to the same birth; `RestoredFromSave`, `WithdrawnFromContainer` and
-  `RetrievedFromLostAndFound` to `Migrated`; anything else to `Claimed`. `Birth.By` is the cause's
-  player's identity, `Birth.Detail` its detail.
+  `Issued` and `StarterKit` to the same birth, and anything else to `Claimed`. `Birth.By` is the
+  cause's player's identity, `Birth.Detail` its detail.
 - An **end** takes the removal's reason and detail (`End.Reason` is an `ItemRemovalReason`), except
   for the removals that aren't ends ([ledger.md](ledger.md#the-ledger-decides-live-state-follows)).
 - A drift the ledger follows (`item.ledger-stale-home`, `item.ledger-not-first`) is logged with the cause.
@@ -144,7 +157,9 @@ removal names its own (`CollectedToLostAndFound`, `DepositedInContainer`).
 
 - A destroy by Derail Valley code other than the patched job and inventory methods: `DestroyedByGame`,
   with the context above but rarely a caller (Unity runs `OnDestroy` at the end of the frame).
-- A settlement's pose travels in the spatial commit packet, which carries no cause.
+- A settlement that comes to rest where it was released: its spatial commit carries `Unknown`. One
+  that lands somewhere new, or that the server put back, carries its cause (`MoveReason`,
+  `MovedByPlayerId`, `MoveDetail`, from `LiveItem.LastSpatialCause`; OI-SYNC-18).
 - A re-key (`InstallGuidRekey`) changes owners and holders without moving anything: it logs a count,
   and each item the ledger sent to Lost and Found, but no cause per item.
 - A move between cold containers has no NetId: it is logged as `Cold item moved: <cause>`.

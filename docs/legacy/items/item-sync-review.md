@@ -1,4 +1,4 @@
-> Legacy: describes the item system before the refactor (names as on `beta` 04bfe277). Historical, with no replacement; the item docs start at [items/README.md](../../design/items/README.md).
+> Legacy: describes the item system before the refactor (names as on `beta` 04bfe277). History, with no replacement: it is not how the code works now; the item docs start at [items/README.md](../../design/items/README.md).
 
 # Item Synchronisation: Current Design, Behaviour, and Gaps
 

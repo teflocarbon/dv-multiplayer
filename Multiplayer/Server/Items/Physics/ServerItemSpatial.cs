@@ -536,8 +536,9 @@ internal sealed class ServerItemSpatial
         return false;
     }
 
-    // How long a pending wake keeps its item in a would-be simulator's interest: as long as the wake
-    // waits (TrainItemWakeServer.PendingWakeSeconds).
+    // How long a pending wake keeps its item in a would-be simulator's interest, from each attempt to
+    // grant it (TrainItemWakeServer.PendingWakeSeconds): every retry pins it again, so a pin can
+    // outlast a wake that expired by up to this long.
     private const float WakeInterestSeconds = 10f;
 
     /// <summary>

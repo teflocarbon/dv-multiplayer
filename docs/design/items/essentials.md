@@ -1,6 +1,8 @@
 # Essentials and starting items
 
-> Status: built in R3 of the [item refactor](../item-refactor.md), 2026-10-24. This page says what the code does.
+> Status: built in R3 of the [item refactor](../item-refactor.md), 2026-10-24, and changed in R4 (issued
+> items are rows), R6 (full-inventory routes, #383) and R7 (a recall ends its lease, #389), all merged.
+> This page says what the code does.
 > It covers DV's essentials, the starter kit, the server's issuer, claim slots and recall. Where
 > every item's slot is kept is [inventory.md](inventory.md); the entry, homes and births are
 > [ledger.md](ledger.md); the recall request on the wire is [wire.md](wire.md#recall).
@@ -70,18 +72,22 @@ nothing. A pass:
    missing essential then takes `InventorySlots.ChooseClaim(-1, taken)`, the lowest free slot off the
    belt, the same function the ledger uses for a claim (OI-ESS-02). Kit items take `FreeSlot(taken,
    14)`: from slot 14 up to 32, then from 0, never onto the belt.
-4. **Makes each item** (`Make`), as a cold-container withdrawal does: instantiated at DV's safety
-   position with `BelongsToPlayer` set, its state loaded a frame later, registered through
-   `LiveItems.RegisterMaterializedColdItem` with the cause `Issued` or `StarterKit` (the birth
-   reason follows from it, `ServerLedger.BirthFrom`), and sent to everyone. An essential asks for its
-   claim with `InventoryClaimSlot` and the `Reserved` flag; the ledger gives it at birth. A failed
-   item is destroyed and logged; the others still go.
+4. **Makes each item as a row** (`IssueRow`), as a cold-container withdrawal into a slot does: no
+   object is made on the server (D14, OI-COLD-11). `PlayerItems.Issue` adds the row in its slot,
+   registers it as data under a reserved NetId (`LiveItems.RegisterDataOnly`, which settles it in
+   the ledger), with the cause `Issued` or `StarterKit` (the birth reason follows from it,
+   `ServerLedger.BirthFrom`), and sends the row to the player, whose game draws its stand-in (the host's
+   own player's is drawn by `HostInventory.Draw`). An essential's row asks for its slot as its claim,
+   with the `Reserved` flag; the ledger gives it at birth. A failed item is logged; the others still
+   go. An item with no slot is made at the player's feet instead (`MakeAtFeet`, below).
 5. **Marks the kit** given, even if one kit item failed: a kit is given once.
 
 ### No free slot
 
 The server knows every slot, so with none free a made item never lands in no slot (OI-START-09). An
-item whose slot came back -1 is made at the player's feet, dropped, and collected straight into their
+item whose slot came back -1 is made as an object at the player's feet (`MakeAtFeet`: instantiated at
+DV's safety position, its state loaded a frame later, registered through
+`LiveItems.RegisterMaterializedColdItem`, sent to everyone), dropped, and collected straight into their
 Lost and Found with reason `InventoryOverflow` ("made with the inventory full"). If Lost and Found
 refuses it, it stays at their feet and a warning is logged.
 
@@ -90,8 +96,10 @@ never takes the belt. An overflowed essential asks for no claim; the ledger give
 if a slot off the belt has come free meanwhile, so it usually has none, and gets one the first time
 its owner puts it in a slot off the belt (below).
 
-Every other route into a full inventory (a Lost and Found retrieval, a container withdrawal, a recall)
-is OI-START-10, R6.
+Every other route into a full inventory is OI-START-10, built in R6 (#383): a Lost and Found
+retrieval into a full inventory is refused `inventory-full`, a container withdrawal with no slot free
+is made at the withdrawer's feet and an owned one goes on to its owner's Lost and Found
+(`InventoryOverflow`), and a recall goes into its claim, which its silhouette keeps.
 
 ## Claim slots
 
@@ -107,6 +115,10 @@ and `ClaimSlotPolicy` are gone. `LiveItem.InventoryClaimSlot` reads the ledger
   the owner puts their essential in a slot of their own inventory off the belt, that slot becomes its
   claim. If another of their essentials claimed that slot, the other takes this one's old claim, or
   the lowest free one. An essential put on the belt (slots 33-35) keeps the claim it had (OI-ESS-03).
+  At its owner's next join, a row on an enabled VR belt slot that snaps to the belt is made as an
+  object, not a stand-in, and that object is made fresh from its prefab without the row's saved
+  state (`ClientItemManager.FillFromRows` falls back to `ProcessReceivedAsClient`, which is given no
+  state), while the server keeps the item as data.
 - **Unique per owner.** Two claims of one owner never share a slot: every assignment picks from the
   slots `ClaimedSlots` leaves free, and the one-home check's rule 4 (`OneItemPerSlot`) reports two
   claims on one slot as a breach.
@@ -118,11 +130,15 @@ and `ClaimSlotPolicy` are gone. `LiveItem.InventoryClaimSlot` reads the ledger
 - **The owner's game is told.** A claim the ledger moved for another essential raises a `ClaimSlot`
   ledger change, and `ServerLedger.OnLedgerChanged` sends the owner the item's new claim
   (`LiveItems.SendClaim`). On the wire the claim goes only to its owner ([wire.md](wire.md#naming-a-player)).
+  For an item with no object on the server (data only, OI-COLD-06) nothing is sent:
+  `PushClaimSlotCorrection` returns when there is no object, after updating a Lost and Found
+  entry's claim (`LostAndFoundServer.SetInventoryClaimSlot`).
 - **Re-keys merge claims.** When an install GUID is re-keyed to a Steam id that already has data
   (`ItemLedger.Rekey`, OI-ID-19), a claim on a slot the new identity already claims moves to a free
   one, or none.
-- **Old saves.** At load, `ServerLedger.GiveSlots` gives inventory items saved without a slot one,
-  essentials first, each taking its saved claim if it can.
+- **At load** (`ItemLedger.Restore`): two live entries saved in one slot keep the first there and
+  send the others to Lost and Found, and a claim on a slot another of its owner's claims already has
+  moves to the lowest free one off the belt (`InventorySlots.ChooseClaim`), or none.
 
 The claim's flags (`Reserved`, `Locked`, `Dropped`, `Stolen`) are live state's, not the ledger's
 (`LiveItems.ApplyCore`). A non-owner who takes a claimed essential marks it `Stolen`; a recall clears
@@ -131,8 +147,9 @@ The claim's flags (`Reserved`, `Locked`, `Dropped`, `Stolen`) are live state's, 
 ## The silhouette
 
 While an essential is away from its claim slot, its owner's inventory shows it there as a red
-silhouette with vanilla's Return button, which recalls it. The silhouette is the item's own object,
-kept in the owner's game:
+silhouette with vanilla's Get button, which recalls it. The silhouette is the item's stand-in in its
+claim slot, dropped and reserved, not its object (`InventorySilhouettes`; how it works is
+[inventory.md](inventory.md#silhouettes)). The owner's game still needs a copy of the item for it:
 
 - **In the world or another player's hands.** The owner's interest keeps the item whatever its
   distance (`ServerItemManager.IsNonSpatialRelevantTo`, `ownerHasRecallClaim`), so the silhouette and
@@ -154,8 +171,8 @@ kept in the owner's game:
 A recall is one step and only the owner's ([wire.md](wire.md#recall)). The owner clicks the
 silhouette; their game sends `ItemAction.Recall` with the silhouette's slot
 (`NetworkedItemManager.RequestItemRecall`); the server commits it and sends everyone the update
-(`NetworkServer.CarryRecall`). If the essential is data only on the server (in a remote player's
-inventory), it is made again first (`PlayerItems.WithObject`).
+(`NetworkServer.CarryRecall`). If the essential is data only on the server (in a player's
+inventory, the host's own player's included), it is made again first (`PlayerItems.WithObject`).
 
 From anywhere but Lost and Found, `LiveItems.TryRecall`:
 
@@ -172,9 +189,12 @@ From anywhere but Lost and Found, `LiveItems.TryRecall`:
 
 From Lost and Found it is a collection: `LostAndFoundServer.TryRetrieveForRecall` collects the entry
 into the silhouette's slot (`recall-claim-slot-missing` without one). Lost and Found checks the owner
-itself (`LostItemRetrievalPlanner`, `requester-not-persistent-owner`); it doesn't ask `ItemAccess`.
+(`LostItemRetrievalPlanner`, `requester-not-persistent-owner`), then asks
+`ItemAccessServer.Allows(..., Recall, ...)` as a recall of a live item does (`LostAndFoundServer.TryRetrieve`).
 
-Not done: a recall out of a moving cab doesn't end the item's physics lease (OI-ESS-11, R7).
+A recall out of a moving cab ends the item's physics lease (`EndLease(record, "recalled")` in
+`LiveItems.TryRecall`; OI-ESS-11, built in R7, #389), so nothing, the save included, takes the lease's
+place for it.
 
 ## Kept out of containers
 

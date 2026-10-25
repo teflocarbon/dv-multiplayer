@@ -1,4 +1,4 @@
-> Legacy: describes the item system before the refactor (names as on `beta` 04bfe277). Read it only as evidence of how the code behaves today, not as design. Replaced by [items/ledger.md](../../design/items/ledger.md), [inventory.md](../../design/items/inventory.md), [essentials.md](../../design/items/essentials.md), [owned-list.md](../../design/items/owned-list.md) and [access.md](../../design/items/access.md) (R3). The item docs start at [items/README.md](../../design/items/README.md).
+> Legacy: describes the item system before the refactor (names as on `beta` 04bfe277). The refactor replaced that code, so this is history: it is not how the code works now and not design. Replaced by [items/ledger.md](../../design/items/ledger.md), [inventory.md](../../design/items/inventory.md), [essentials.md](../../design/items/essentials.md), [owned-list.md](../../design/items/owned-list.md), [access.md](../../design/items/access.md) (R3) and [lost-and-found.md](../../design/items/lost-and-found.md) (R6). The item docs start at [items/README.md](../../design/items/README.md).
 
 # Owned items
 

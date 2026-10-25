@@ -1,8 +1,9 @@
 # Train wake
 
-> Status: built in R7 of the [item refactor](../item-refactor.md) (#390, #391, drafts, 2026-10-25), not
-> yet proved in a game: that is the end pass (OI-REF-01). Thresholds are untuned, and no scenario
-> drives a wake yet (OI-PHY-13, paused). It covers loose items resting in a car: why they stay
+> Status: built in R7 of the [item refactor](../item-refactor.md) (#390, #391; fixes in #397, #398) and
+> merged into `items/refactor`, not yet proved in a game: that is the end pass (OI-REF-01). Thresholds
+> are untuned, and no scenario drives a wake yet (OI-PHY-13, paused).
+> It covers loose items resting in a car: why they stay
 > still, what wakes them and who simulates them then. The lease, samples and settlement it builds on
 > are [physics.md](physics.md). It replaces the legacy [train-item-wake.md](../../legacy/items/train-item-wake.md).
 
@@ -19,9 +20,11 @@
 A loose item resting in a car is **settled**: its settlement committed it `TrainInterior`, parented
 to the car's interior and kinematic, so the car carries it and nobody simulates it. Something can
 disturb it: the item under it is taken, a thrown item hits it, the train brakes hard or derails. The
-server then **wakes** it: it opens a lease again, with a small starting velocity, and the item
-settles again through the ordinary lease flow. The server decides every wake from its own records
-and its own cars, so it works with no player near the train.
+server then **wakes** it: it opens a lease again, with a small starting velocity or none, and the
+item settles again through the ordinary lease flow. The server decides every wake from its own
+records and its own cars, so it sees one with no player near the train. A wake still needs a
+simulator in range ([The grant](#the-grant)): on a player host with nobody within 192 m it waits and
+expires, and only a dedicated host simulates it itself, where its world is solid.
 
 ## Settled train items
 
@@ -30,8 +33,10 @@ A settled car item is **kinematic on every game**, with no velocity:
 - on the server, at its commit (`ServerItemSpatial.CommitHostSettlement`) and when it registers;
 - on every game that got the commit (`ClientItemSpatial.ReceiveSpatialCommit`);
 - since R7, on a game that gets it already settled, in a Create or a convergence correction
-  (`HoldSettledTrainItem`, from `NetworkedItem.StateApplication`; OI-PHY-06, F34). Before, that game
-  made it a live body the car's motion threw about. One with a lease open is left to the lease.
+  (`NetworkedItemSpatialManager.HoldSettledTrainItem`, from `NetworkedItem.StateApplication`;
+  OI-PHY-06, F34). That game also takes its settled state as committed, so it can report an impact
+  on it ([Impact witnesses](#impact-witnesses)). Before, that game made it a live body the car's
+  motion threw about. One with a lease open is left to the lease.
 
 The server keeps a **settled record** for each (`TrainItemWakeServer.RegisterSettlement`): its
 revision, car, car-local pose and bounds, and epoch. One is made:
@@ -49,8 +54,9 @@ car that no longer exists drops its records the next time it is sampled.
 ## What wakes an item
 
 - **Support removed.** A settled item leaves `TrainInterior` by an accepted change
-  (`OnAuthoritativeTransition`), or is destroyed (`OnItemRemoved`): the items resting on it wake.
-  The preferred simulator is whoever took it.
+  (`OnAuthoritativeTransition`), or is destroyed (`OnItemRemoved`): the items resting on it wake,
+  with no starting velocity. For a change the preferred simulator is the item's new holder (whoever
+  took it); a destroy names none.
 - **Item impact.** An item flying in the car hits a settled one ([below](#impact-witnesses)).
 - **Car motion.** The car brakes, jolts, turns violently or derails ([below](#car-motion)).
 
@@ -130,10 +136,12 @@ applies the velocity. The settled record is removed, and the item runs the ordin
 it settles and registers again. A timeout or a disconnect transfers each woken item's lease on its
 own.
 
-**Nobody to simulate it.** With no candidate, the players in range who don't have the item yet are
-sent it: it is pinned in their interest for 10 s (`ItemSimulatorChoice.Lacking`, riders first, then
-nearest; `ServerItemManager.PinInterest`; OI-PHY-12). The wake waits (`wake-pending`) and is retried
-every 0.5 s, so it finds one of them once their game has the item. A pending wake older than 10 s
+**Nobody to simulate it.** With no candidate who has the item, it is pinned only in the interest of
+the players in range who lack it, so they are sent it (`ItemSimulatorChoice.Lacking`, riders first,
+then nearest; `ServerItemManager.PinInterest`; OI-PHY-12). The wake waits (`wake-pending`) and is
+retried every 0.5 s, and a simulator is picked once one of them has the item. Each attempt pins it
+again for 10 s (`ServerItemSpatial.TrySelectTrainWakeSimulator`), so a pin lasts until 10 s after the
+last attempt. With nobody in range, nobody is pinned, and the wake only waits. A pending wake older than 10 s
 (`PendingWakeSeconds`) is dropped (`wake-expired`) and the item stays settled. The 10 s count from
 the first attempt of the trigger that is waiting: a retry keeps it, and a fresh trigger for an item
 already waiting (a derailment after a braking) starts its own. Before #397 a retry restarted the
@@ -146,12 +154,11 @@ the wake without an event and keeps the record.
 
 ## Late joiners
 
-A player who arrives after an item settled gets it in a Create, already settled. Their game holds it
-kinematic in its car and takes its settled state as committed (`HoldSettledTrainItem`), as a game
-that saw it settle does. So when they simulate a thrown item that hits it, they can witness the
+A player who arrives after an item settled gets it in a Create, already settled, and holds it as
+[above](#settled-train-items). So when they simulate a thrown item that hits it, they can witness the
 impact (OI-PHY-12; before R7 a client had a committed state only for items it saw settle). A lease
 open when they arrive reaches them with the Create ([physics.md](physics.md#samples-and-validation)),
-and a wake nobody can simulate pins its item in their interest if they are in range.
+and a wake nobody can simulate pins its item in their interest if they are in range and lack it.
 
 ## Events
 

@@ -18,8 +18,8 @@ one pass and read in one pass. Enums are written by name.
   "ledger":       [ { "id": "…", "owner": "…", "prefab": "…", "where": { "kind": "Slot", "holder": "…", "slot": 3 },
                       "claimSlot": 3, "born": { "reason": "Issued", "utc": 0 }, "ended": { … } } ],
   "states":       { "<id>": { "prefab": "…", "position": […], "state": { …the item's ItemSaveData… } } },
-  "unowned":      [ { "id": "…", "prefab": "…", "placement": "World", "state": { … } } ],
-  "authored":     [ { "authoredKey": "…", … }, { "authoredKey": "…", "placement": "Destroyed" } ],
+  "unowned":      [ { "id": "…", "prefab": "…", "place": "World", "state": { … } } ],
+  "authored":     [ { "authoredKey": "…", … }, { "authoredKey": "…", "place": "Destroyed" } ],
   "containers":   [ { "id": "<the shell's item id>", "prefab": "…", "capacity": 12 } ],
   "lostAndFound": [ { "id": "…", "reason": "OwnerDistance", "utc": 0, "display": "…" } ],
   "players":      { "<identity>": { "starterKit": true } }
@@ -45,8 +45,10 @@ item in a hand is saved in a free slot of its holder's (its claim, else the lowe
 or in its owner's Lost and Found (`InventoryOverflow`) when the inventory is full.
 
 **Rows stand alone.** A ledger row, a state, a container or a Lost and Found row that can't be read
-(no id, an unknown home, junk) is kept as it was and written back unchanged at the next save
-(`ItemsSave.Unreadable*`); one bad row never empties the rest. A newer format than the build knows is
+(no id, an unknown home, junk) is kept as it was and written back unchanged at the next save; one bad
+row never empties the rest. The codec keeps unreadable ledger, state and Lost and Found rows
+(`ItemsSave.UnreadableLedger`, `UnreadableStates`, `UnreadableLostAndFound`); a container, unowned or
+scene row the load can't read or load is kept in `ItemSaveLoad`'s own `kept` lists (`ItemSaveLoad.Load.cs`). A newer format than the build knows is
 left in the save as it is, nothing is loaded from it, and an error is logged.
 
 **The item's id** rides in its own vanilla state as `dvmpPersistentWorldItemId` (`ItemIdentityPatch`),
@@ -61,8 +63,11 @@ anyone logs in. Until it has run, no item request is served: container operation
 check waits (`ServerLedger.Loaded`).
 
 1. The ledger's rows go into the ledger (`ServerLedger.LoadEntries`); unreadable rows are kept. Job
-   paperwork's rows are dropped (the job system prints its own), and an entry whose prefab is gone
-   goes in as `Unloadable`, holding no slot, so an item that took its slot since keeps it.
+   paperwork's rows are dropped (the job system prints its own), except a paper in a slot, a hand or
+   a container: one a player carries or a box holds is theirs and loads like any item
+   (`IsUnsavedJobPaper`, OI-COLD-15). An entry whose prefab is gone goes in as `Unloadable`, holding
+   no slot, so an item that took its slot since keeps it. An installed gadget's doesn't: vanilla's
+   installed storage has it (`LeaveInstalled`, or `Recover` when its car is gone).
 2. `ItemLoadPlanner.Plan` (Core) gives each live entry one step, from its home and whether it has a row:
 
    | Step | When | What |
@@ -81,17 +86,23 @@ check waits (`ServerLedger.Loaded`).
    an item in a car that is gone, a slot saved under someone other than its owner, or no saved row
    (`SaveRecovery`). Cars load before items, so a train-interior item finds its car if it exists.
 3. Unowned rows: an inventory or hand item becomes its holder's cold row, a stored one its container's
-   row (still nobody's: whoever keeps the container sees it), anything else is made live.
+   row (still nobody's: whoever keeps the container sees it), ammo in a magazine waits for step 6,
+   anything else is made live.
 4. Containers and their items go into the container graph (`ContainerServer.LoadRows`), one row at a
    time, and a row the graph refuses stands alone (OI-CON-04, F18): an owned item refused (a slot past
    the end, a taken slot) goes to its owner's Lost and Found (`SaveRecovery`), logged as a warning ("its
    container refused it"); a refused container or unowned item keeps its row as it was. The container's
    other rows load.
 5. Scene items' overrides and tombstones are applied.
-6. `ServerLedger.FinishLoad` marks the ledger loaded and runs the one-home check.
+6. Ammo saved in a magazine, owned or not, goes into its tool (`LoadIntoMagazine`): into the tool's
+   magazine if the tool is an object, else a row of the tool's container. With its tool gone, an owned
+   one goes to its owner's Lost and Found and an unowned one's row is kept.
+7. `ServerLedger.FinishLoad` marks the ledger loaded and runs the one-home check.
 
-An item made from a row goes through live state's ordinary birth (`LiveItems.Ensure`), with its saved
-record applied before its object is made, so the projection sends it to clients as it was saved.
+An item made from a row goes through live state's ordinary birth: its object is made first
+(`FindOrCreate`), then its record (`LiveItems.Ensure`), and its saved record is applied
+(`ApplySavedRecord`) before its canonical snapshot is written, so the projection sends it to clients
+as it was saved.
 Its state is applied after its object exists, with up to five tries across frames.
 
 There is nothing to reconcile: no `Revive`, `Migrated` or `Missing`. An ended entry stays ended and its
@@ -100,7 +111,7 @@ state row is made fresh in its owner's Lost and Found (`SaveRecovery`).
 
 ## Rows that won't load
 
-D9, OI-LED-16. Two things can stop an item loading:
+D9, OI-LED-16. Three things can stop an item loading:
 
 - **Its prefab is gone** (an item mod removed). Its entry's home becomes `Unloadable`, and its ledger
   and state rows (and Lost and Found row) are kept exactly as saved and written back at every save, so
@@ -111,6 +122,9 @@ D9, OI-LED-16. Two things can stop an item loading:
   join). The item is destroyed and made fresh from its prefab, with the same id and owner, in its owner's
   Lost and Found (`SaveRecovery`), and an error with the id is logged. Its own state (a lighter's fuel) is
   lost, the item isn't. The destroy is `ItemRemovalReason.RemadeFresh`, which the ledger ignores.
+- **Its load step throws.** The error is logged; an owned item's rows are kept as they were and its
+  home becomes `Unloadable`, as for a gone prefab (`KeepUnloadable`), and an unowned row is kept as
+  it was.
 
 `Missing` (an entry no store held) is gone: with one key there are no stores to disagree.
 
@@ -131,10 +145,12 @@ the same rows as `Items`, so the career still opens in single player with the ho
 goes into `Storage_World` or `Storage_LostAndFound`. A dedicated host has no player, so its mirror is
 empty. `Storage_InstalledGadgets` stays vanilla's: it is how installed gadgets are made.
 
-Because vanilla's inventory starts empty, a job booklet DV reprints at load (it saves none of its own
-in multiplayer: `Multiplayer.Items` skips job paperwork, claimed or not) would take the first slot vanilla has free, one the host's own saved item still holds
-as a row. On a player host the reprint waits until the host's items are back in their slots
-(`JobBookletRecoveryPatch`, at most 20 s); a dedicated host prints none.
+Because vanilla's inventory starts empty, a job booklet DV reprints at load (vanilla saves none in
+multiplayer, and `Multiplayer.Items` saves only one a player carries or a box holds) would take the
+first slot vanilla has free, one the host's own saved item still holds as a row. On a player host the
+reprint waits until the host's items are back in their slots (`JobBookletRecoveryPatch`, at most
+20 s), and there is none when a player carries the job's booklet or a box holds it
+(`JobPaperRows.HasBookletRow`); a dedicated host prints none.
 
 ## Re-keying a player
 
@@ -150,4 +166,5 @@ the rows the load kept verbatim (`ItemSaveLoad.RekeyKept`).
 home as such. The load logs one line ("Items: loaded …"): items made, kept cold, put in containers, unloadable, and rows
 kept as they were.
 Scenarios edit a save with `SaveEdits.SaveWith` (`DevTools/DvmpScenarios/Library/SaveEdits.cs`):
-`ledger-save`, `item-id-roundtrip`, `item-bug-container-save-refused`, `old-save`, `unloadable-item`.
+`item-bug-container-save-refused`, `old-save`, `unloadable-item`, `old-report-row`; `save-homes` uses
+`SaveEdits.SaveWithoutCars`. `ledger-save` and `item-id-roundtrip` save and restart without editing.

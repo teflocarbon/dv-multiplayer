@@ -4,7 +4,7 @@
 > It covers the career manager's Owned Items page, how the server builds its rows and words where
 > each item is, and an owner's retrieval of an item into their Lost and Found. The list and request
 > packets are [wire.md](wire.md); the ledger it reads is [ledger.md](ledger.md); who may retrieve is
-> [access.md](access.md). Lost and Found itself is R6's `lost-and-found.md`.
+> [access.md](access.md). Lost and Found itself is [lost-and-found.md](lost-and-found.md).
 
 | Side | Code |
 | --- | --- |
@@ -19,8 +19,9 @@ server words it. Opening it asks for the list (`ServerboundItemListRequestPacket
 the answer (`ClientboundItemListPacket`) replaces `OwnedItemsList.Rows`. A row the server marks
 `Retrievable` shows "CONFIRM: RETRIEVE"; Confirm sends `ItemAction.Retrieve` with the row's handle.
 
-The list also comes unasked, with request 0, after every retrieval's answer, accepted or refused, so
-the page shows where each item really is (OI-LIST-22). It isn't pushed on other changes: the page
+The list also comes unasked, with request 0, with every retrieval's answer, accepted or refused, sent
+just before it (`CarryRetrieve`), so the page shows where each item really is (OI-LIST-22). A request
+refused before it is carried out (`items-loading`, `item-data-unavailable`) gets no list. It isn't pushed on other changes: the page
 asks again when it opens. The labels are English only (OI-LIST-07, paused: list wording).
 
 ## The rows
@@ -31,7 +32,8 @@ asks again when it opens. The labels are English only (OI-LIST-07, paused: list 
   up, destroyed, binned) isn't listed (OI-LIST-02);
 - nothing until the ledger has loaded (`ServerLedger.Loaded`): an empty list;
 - items in every home: hand, inventory and belt, an offline player's cold rows (their entry's home
-  stays `Slot(holder, slot)`), the world, a car, a shelf, a container, Lost and Found, installed.
+  stays `Slot(holder, slot)`), the world, a car, a shelf, a container, a tool's magazine, Lost and
+  Found, installed, and unloadable.
 
 Each row carries:
 
@@ -55,7 +57,8 @@ when it moves to the Lost and Found list. The row's GUID (`OwnedItemRow.Id`) nev
 player's list reads the same. `PlaceFacts` adds the names the ledger doesn't have, which
 `OwnedItemRows` finds: the viewer, the holder's name (a connected player with that identity), the
 car's id (from the live record's attached car or world parent, `TrainCar.ID`, e.g. L-042), and the
-container's name (its record's prefab, localised).
+container's name (its record's prefab, localised; for ammo, its tool's container record, when the
+container graph has one).
 
 | Home | Text |
 | --- | --- |
@@ -66,17 +69,20 @@ container's name (its record's prefab, localised).
 | `TrainInterior` | "in L-042", or "in a car" when the car isn't found |
 | `Shelf` | "on a shelf" |
 | `Container` | "in Toolbox" (the container holding it, not the nesting), or "in a container" |
+| `Magazine` | "loaded in Boombox" (its tool), or "loaded in a tool" |
 | `LostAndFound` | "in Lost and Found" |
 | `Installed` on a car | "installed on L-042", or "installed on a car" |
 | `Installed` on the world (`Home.WorldAnchor`) | "installed in the world" |
 | `Attached` | "on the end of car L-042", or "on the end of a car" when the car isn't found |
 | `Snapped` | "fitted in place" |
+| `Unloadable` | "can't be loaded (its item mod is missing)" |
 
 "your" is the viewer's own hands and inventory. Another player is named only while connected; an
 offline holder reads "another player's". A ground item doesn't say where ("near Harbor, 1.2 km",
 OI-LIST-04) and a container doesn't name its nesting ("in your Toolbox, in your inventory",
-OI-LIST-05): both are paused (list wording). "on the end of car L-042" is listed by `attached-offline` (OI-LIST-06, R6). There is no `Missing` home since R4 (D9): a
-home the list can't word reads "lost track of it".
+OI-LIST-05): both are paused (list wording). "on the end of car L-042" is listed by `attached-offline` (OI-LIST-06, R6). There is no `Missing` home since R4 (D9):
+an item whose prefab is gone is `Unloadable`. Every `HomeKind` has its text; "lost track of it" is
+left only for a kind `Describe` doesn't know.
 
 ## Retrieval
 
@@ -94,11 +100,12 @@ asked, so Lost and Found's nearby-player protection and grace period don't apply
 | `World`, `TrainInterior`, `Shelf` | `Collect` | into Lost and Found now |
 | `Attached`, `Snapped` | `Collect` | off its coupler or snap point, then into Lost and Found (OI-LIST-14) |
 | `Container` | `OutermostContainer` | the outermost of the owner's own boxes around it goes, whole; out of a box that isn't theirs, it comes out alone |
+| `Magazine` | `Collect` | with its tool in the owner's own hand or inventory, refused `nothing-to-retrieve` (`CanRetrieve`); anywhere else it comes out of the tool alone into Lost and Found, and a player holding the tool is whispered "NAME took back their ITEM" |
 | `LostAndFound`, `Unloadable` | `NothingToDo` | refused, `nothing-to-retrieve` |
 | `Installed` | `NotYet` | refused, `not-retrievable-yet` |
 
 The detaching is Lost and Found's own ([lost-and-found.md](lost-and-found.md#attached-and-snapped-items)).
-Retrieving an installed gadget is OI-LIST-15 (paused: gadgets). A shelf retrieval is built but unproved (OI-LIST-09, R7).
+Retrieving an installed gadget is OI-LIST-15 (paused: gadgets). A shelf retrieval is built in R7 (#392); `shelf-item` retrieves a shelved mug (OI-LIST-09), and proof in a game is the end pass (OI-REF-01).
 
 ### The outermost container
 
@@ -156,11 +163,14 @@ on the object; `item-data-unavailable` if it couldn't be made.
 
 1. the handle and the ledger entry exist, else `unknown-item`;
 2. `CanRetrieve`: the entry is live, else `unknown-item`; the requester owns it, else
-   `not-your-item` (OI-LIST-20); the rule above allows it, else `nothing-to-retrieve` or
+   `not-your-item` (OI-LIST-20); ammo whose tool is in the owner's own hand or inventory is
+   `nothing-to-retrieve`; the rule above allows it, else `nothing-to-retrieve` or
    `not-retrievable-yet`; for an item in a box, the walk finds what goes;
 3. out of a box that isn't the owner's, the row is asked about and taken out ("Out of a box"), and
-   goes on at step 6; otherwise the subject (the item, or the outermost shell) is settled, else
-   `container-busy`, and has a live record and object, else `unknown-item`;
+   goes on at step 6; for an item in a box, the outermost shell is settled
+   (`ContainerGraph.IsSettled`), else `container-busy`. An item whose home isn't `Container` is not
+   asked whether it is settled, so a box retrieved from the world, a car or a player's hand goes
+   without that check. The subject has a live record and object, else `unknown-item`;
 4. `ItemAccessServer.Allows(owner, Retrieve, subject)`: the subject is the owner's, else
    `requester-not-persistent-owner` ([access.md](access.md));
 5. from another player's hand or inventory, `TakeFromHolder`; its transition's refusal if it fails;
@@ -169,11 +179,12 @@ on the object; `item-data-unavailable` if it couldn't be made.
 
 The answer is one `ClientboundItemResultPacket` (`ItemRefusals.Classify` gives the code:
 `not-your-item` is `NotYours`, `nothing-to-retrieve` and `unknown-item` `UnknownItem`, `container-busy` `Busy`,
-`not-retrievable-yet` `NotAllowed`), followed by a fresh list.
+`not-retrievable-yet` `NotAllowed`), just after a fresh list.
 
 A recall is one step ([wire.md](wire.md#recall)), so a retrieval never meets one half done
-(OI-LIST-17), and a box with a deposit or withdrawal part way inside it is refused `container-busy`
-(OI-LIST-18), as is a row part way out of or into a box.
+(OI-LIST-17). An outermost box reached by the walk with a deposit or withdrawal part way inside it is
+refused `container-busy` (OI-LIST-18), as is a row part way out of or into a box; a box retrieved
+from anywhere but another box isn't checked (step 3).
 
 ## Tests
 
@@ -181,7 +192,7 @@ Core (`Multiplayer.Core.Tests/Items/OwnedList/PlaceTextTests.cs`):
 
 - `PlaceTextTests`: the owner's own hands, inventory and belt read "your"; another player's name;
   ground, car and shelf; container, Lost and Found, on the end of a car (named and not), installed on a car and
-  in the world, fitted in place.
+  in the world, fitted in place, loaded in a tool, and unloadable.
 - `RetrievalRuleTests.EachPlace_HasItsRetrieval`: the kind for each home.
 
 Scenarios (`DevTools/DvmpScenarios/Scenarios/`):
@@ -193,6 +204,13 @@ Scenarios (`DevTools/DvmpScenarios/Scenarios/`):
   and on a player host the client's lantern taken back out of the host's hand.
 - `retrieve-from-box`: the client's mug in a toolbox nobody owns comes out alone into its Lost and
   Found, and the box stays (OI-LIST-23).
+- `retrieve-from-foreign-box`: the owner's mug in an offline player's box, inside the owner's own
+  toolbox in their hand, comes out alone; the other player's box stays.
+- `owned-list-shelf`: an owned item put on a shed's shelf is homed `Shelf` and listed "on a shelf".
+- `shelf-item`: among its checks, the client retrieves its shelved mug into its Lost and Found
+  (OI-LIST-09).
+- `magazine-tools`: among its checks, ammo loaded in a tool that isn't the client's is retrieved and
+  leaves no copy in the tool.
 - `ledger-rows`: the host's retrieval of the client's mug is refused (`not-your-item`); the owner's
   list names another player's inventory and its own hand (OI-LIST-21); the client retrieves its mug
   from the host's inventory, and Lost and Found records `RetrievedByOwner` (OI-LIST-12, OI-LF-20).

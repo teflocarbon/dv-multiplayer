@@ -1,4 +1,4 @@
-> Legacy: describes the item system before the refactor (names as on `beta` 04bfe277). Read it only as evidence of how the code behaves today, not as design. Replaced by [items/train-wake.md](../../design/items/train-wake.md) (R7). The item docs start at [items/README.md](../../design/items/README.md).
+> Legacy: describes the item system before the refactor (names as on `beta` 04bfe277). The refactor replaced that code, so this is history: it is not how the code works now and not design. Replaced by [items/train-wake.md](../../design/items/train-wake.md) (R7). The item docs start at [items/README.md](../../design/items/README.md).
 
 # Train item wake
 

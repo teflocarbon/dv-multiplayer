@@ -1,6 +1,6 @@
 # Lost and Found
 
-> Status: written in R6 of the [item refactor](../item-refactor.md) (#378 to #387, 2026-10-25), not
+> Status: built in R6 of the [item refactor](../item-refactor.md) (#378 to #388, merged, 2026-10-25), not
 > yet proved in a game: that is the end pass (OI-REF-01). It replaces the legacy
 > [lost-and-found.md](../../legacy/items/lost-and-found.md), which is evidence of the old behaviour
 > only. An owner sends an item here from their list ([owned-list.md](owned-list.md)), and a full
@@ -28,9 +28,9 @@ asked before the ledger moves, LF9).
 | `LostItemReason` | When | Code |
 | --- | --- | --- |
 | `OwnerDistance` | the collection policy: far from its owner, or its owner offline | `LostAndFoundServer.HostTick` |
-| `ContainerCleared` | a car is about to be deleted with an owned item in it or on it ([below](#a-deleted-car)); an owned ammo row whose tool went cold without it | `DeletedCarItems`; `PlayerItems.Ammo` |
+| `ContainerCleared` | a car is about to be deleted with an owned item in it or on it ([below](#a-deleted-car)); an owned item in a box destroyed for good; owned ammo of a tool destroyed for good, or whose stow into the tool's container failed; an owned ammo row whose tool went cold without it ([containers.md](containers.md#ammo-in-a-magazine)) | `DeletedCarItems`; `ContainerServer.OnRemoved`; `MagazineServer.Release`; `PlayerItems.Ammo` |
 | `BorrowerLeft` | a player left holding someone else's item | `PlayerItems.SendHome` |
-| `InventoryOverflow` | an owned item with no free slot: a leaver's own hand item, a row going live into a taken slot, a hand item at a save | `PlayerItems`; `ItemSaveLoad.Save` |
+| `InventoryOverflow` | an owned item with no free slot: a leaver's own hand item, a row going live into a taken slot, a hand item at a save, a withdrawal into a full inventory, an issued essential, an admin's grant | `PlayerItems`; `ItemSaveLoad.Save`; `ContainerServer` (withdrawal); `StartingItemsIssuer`; `AdminItemGrants` |
 | `RetrievedByOwner` | the owner retrieved it from their owned-items list | `Retrieval`, through `ServerLedger.SendToLostAndFound` |
 | `SaveRecovery`, `GadgetDestinationMissing` | a saved item that can't go back where it was | `ItemSaveLoad.Load`, `ServerLedger.Repair` |
 
@@ -44,6 +44,16 @@ an owned item lying in the world 200 m or more from its owner, unless another pl
 their items are collected from the world, a train's interior, a shelf (a shed's `ItemStaticParent`),
 a car's end or a snap point, under the same protection and grace. With nobody connected nothing is
 collected (OI-LF-03). Unknown state protects: an owner whose position isn't known, or no player's.
+
+The policy never collects an item vanilla doesn't count as a player's: it reads vanilla's
+`BelongsToPlayer` (`IsPersonalItem` in `BuildCandidate`; `not-a-personal-item`), so an owned item
+whose flag is false stays. Nor a licence (`license-paper-excluded`), nor one grabbed or listed in
+vanilla's `StorageItemContainers` (`actively-contained-or-interacted`).
+
+**Distances are from the item's own position** (OI-LF-18): `BuildCandidate` measures from
+`item.transform.position` to the owner's and every other player's `ServerPlayer.WorldPosition`, not
+from a car or a box the item is in. The sweep takes only live objects (`NetworkedItem.GetAll` in
+`HostTick`): a box's contents are rows and are never measured.
 
 Where a player is comes from their game's position packets (`ServerPlayer.ApplyPosition`):
 
@@ -82,6 +92,9 @@ its own copy of the record is set back (`ApplyAuthorityMetadata`). Nothing is se
 game has heard of the collection yet. One that was attached to a car or loaded in a tool can't go
 back where it was, its collection having taken it off, so it goes into the world where it is, as a
 deleted car's unowned item does (`DeletedCarItems.IntoWorld`), and that move is sent to every game.
+That covers `Attached` and `Magazine` only (`LostAndFoundServer.RollBack`): a record restored as
+`SnappedAttachment` (from a save row) is unsnapped by the collection too, but its rollback doesn't
+put it into the world.
 
 Scenario: `lost-and-found-data`.
 
@@ -93,16 +106,29 @@ way in collects an object as before (`Collect`, or the load's `RestoreEntry`), a
 (`PlayerItems.ToLostData`): its state is a row Lost and Found keeps, by its id, and its record and
 NetId stay, as a cold inventory row's do. It waits while its saved state is still loading
 (`ItemSaveLoad.IsRestorePending`) and while its ammo can't go with it. Its ammo goes to data with it
-(`PlayerItems.AmmoRows`). It stays an object when it couldn't be made again from its row
+(`PlayerItems.AmmoGoesData`). It stays an object when it couldn't be made again from its row
 (`PlayerItems.CanBeLostData`, J3): its prefab is one this game doesn't list (a mod item without
 its mod), or a job paper that can't be a row. So does one still in an active inventory slot (a VR
-belt's, J8).
+belt's, J8), and an installed gadget (`InstalledItems.RefuseDestroy`).
+
+**An item collected here goes to data and its object is destroyed** (OI-LF-19): `ToLostData`
+leaves its record and NetId reserved (`NetworkedItem.HandOverToData`) and destroys the object, and
+`LostAndFoundServer` keeps the row (`ToData`, from `ReconcileCanonicalPlacements`). **A retrieval
+makes a new object from the row**, with the same NetId, persistent id, record and state:
+`CarryCollectLost` → `LostAndFoundServer.TryCollect` → `TryRetrieve` → `ObjectOf` →
+`PlayerItems.FromLostData` → `InstantiateFromRow` (the prefab) and `TakeUpObject` (its state from the
+row, `ItemStateText.LoadNowOrSoon`; its NetId, `TakeUpFromData`; its id, `ItemIdentity`; its ammo,
+`TakeUpAmmo`) → inert in Lost and Found again (`ProjectToInertStorage`) →
+`LiveItems.TryRetrieveFromLostAndFound` on the record it always had. It stays the same object only
+while it is still one: before the scan has handed it over, and in each case above where it can't go
+to data.
 
 - **Out:** a retrieval, a recall (`CarryRecall`, the repair's `IntoSlot`) and anything else that names
   it (`PlayerItems.WithObject`) has the object made again from its row under its NetId, inert in Lost
   and Found (`LostAndFoundServer.ObjectOf`, `PlayerItems.FromLostData`), and goes on as with an
   object. One made for a request that's then refused goes back to data at the next scan. One that
-  can't be made (its prefab gone) is refused (`lost-item-not-made`) and stays.
+  can't be made (its prefab gone) is refused and stays: a collection with `lost-item-not-made`, a
+  recall with `unknown-network-entity` (`CarryRecall`), any other request with `item-data-unavailable`.
 - **Saved** from its row (`ItemSaveLoad.OwnedRow`), and the one-home check reads the row
   (`ObservedSource.LostAndFoundRow`).
 - **A booklet** kept as data goes when its job ends, as its object would (the scan asks
@@ -144,8 +170,8 @@ Each item then goes, by the ledger:
 
 **An installed gadget** comes off with vanilla's own removal (`GadgetBase.OnTrainCarDestroyed`,
 `ForceRemove`), which the gadget code commits into the world at its pose
-(`GadgetItemTransitions.CommitRemoved`). On a car being deleted (`NetworkedTrainCar.IsDestroying`)
-an owned gadget then goes on to its owner's Lost and Found (`DeletedCarItems.InstalledOffDeletedCar`);
+(`GadgetItemTransitions.CommitRemoved`). On a car being deleted (one `DeletedCarItems.Collect` has
+noted by its GUID until `DeletedCarItems.Deleted`, as below) an owned gadget then goes on to its owner's Lost and Found (`DeletedCarItems.InstalledOffDeletedCar`);
 an unowned one stays where it came off.
 
 **A fixture** (OI-FIX) would go back to its spot rather than lie by the track; the fixture list is

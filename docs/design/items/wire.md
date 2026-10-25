@@ -1,11 +1,15 @@
 # The item wire
 
 > Status: built in R2 of the [item refactor](../item-refactor.md#the-wire), 2026-10-24. This page
-> says what the code does. Five packets carry every item change, request and list, all in
-> `Multiplayer/Shared/Protocol/Packets/Items/`, with their data in `Shared/Protocol/Data/Items/`.
-> The spatial packets (lease, sample, settlement, commit), the wake witness, the projection
-> acknowledgement and the authored catalogue are unchanged and are the [physics](../../legacy/items/item-spatial-physics.md)
-> and [projection](../../legacy/items/item-world-sync.md) docs' to describe.
+> says what the code does. Six packets carry every item change, request and list, all in
+> `Multiplayer/Shared/Protocol/Packets/Items/`, with their data in `Shared/Protocol/Data/Items/`
+> (`ItemWirePacketTests.ThePacketsOfTheWireAreTheItemsNamespace`); the sixth, the inventory rows,
+> came with rows on every game (D14) in R4C. The spatial packets (lease, sample, settlement, commit),
+> the wake witness, the projection acknowledgement and the authored catalogue are the
+> [physics](physics.md) and [projection](projection.md) docs' to describe. Two of them have
+> changed since R2: the spatial commit carries its move's cause (`MoveReason`, `MovedByPlayerId`,
+> `MoveDetail`), and the acknowledgement says what the client did (`Kind`: `Projected`, `Retired`
+> or `Failed`).
 
 | Packet | Way | What |
 | --- | --- | --- |
@@ -14,6 +18,7 @@
 | `ClientboundItemResultPacket` | to a client | the one answer to a request |
 | `ServerboundItemListRequestPacket` | to the server | asks for one list |
 | `ClientboundItemListPacket` | to a client | a list: Lost and Found, owned items, or a container's slots, as `ItemRow`s |
+| `ClientboundInventoryRowsPacket` | to a client | rows of the recipient's own inventory: each item's `Create`, built for them, and its saved state beside it (`Full`, `Rows`, `States`); the whole inventory at the join (`Full`), and each item the server puts in it itself ([inventory.md](inventory.md)) |
 
 Two more carry a stashed boombox's music and a stashed alarm clock's ring, which are presentation,
 not a change, so they aren't in `Items/`: `Serverbound/ServerboundStashedCassettePacket` (its holder's
@@ -22,8 +27,11 @@ game: where the cassette has got to, for its row) and `Clientbound/World/Clientb
 turn). [inventory.md](inventory.md#stashed-items-that-act)
 says what they do.
 
-A player host's own player uses the same packets through its local session
-(`LocalPlayerSession.Items.cs`): there is one path for every host.
+A player host's own player sends its requests and asks for its lists with the same packets, through
+its local session (`LocalPlayerSession.Items.cs`), handled in-process and answered with the same
+result and list packets. Its own grabs, drops, throws and leases are the server's world already and
+go to the server's part directly (`NetworkedItem.ServerPart`), and it is never sent updates or
+inventory rows (`NetworkServer.SendItemUpdatesTo`, `SendInventoryRows`).
 
 ## Naming an item
 
@@ -34,7 +42,9 @@ A player host's own player uses the same packets through its local session
   or a container's GUID to a handle, and back, on the server only. A handle stays the same for the
   session, so a row keeps its handle when it moves between lists.
 - **Never a GUID.** No item packet, nor anything inside one, has a `Guid` field
-  (`ItemWirePacketTests.NoItemPacketCarriesAGuid` walks every item packet's types; OI-ID-07).
+  (`ItemWirePacketTests.NoItemPacketCarriesAGuid` walks the types of every packet with `Item` in its
+  name; OI-ID-07). That leaves out `ClientboundInventoryRowsPacket`, whose rows are the same
+  `ItemUpdate` the walk covers through `ClientboundItemUpdatesPacket`.
 
 ## Naming a player
 
@@ -64,16 +74,33 @@ server builds each update **per recipient** (`NetworkServer.SendItemUpdatesTo` c
 each one: the relation, and the claim if the recipient is the claimant) and sends it by interest.
 An `ItemUpdate` has:
 
-- the type (`Create`, `Destroy`, `ItemState`, `ObjectState`, or `FullSync`, which is both states),
-  the NetId and the revision (`AuthorityRevision`);
-- on `Create`, the prefab and the scene-authored key;
-- with item state: where it is (`ItemState`, with the pose; a car's NetId for an item in a train or
-  attached to a car's end; the holder and hand; for `InMagazine`, the tool's NetId and the slot,
-  `MagazineNetId` and `MagazineSlot`), the relation and the claim, and why it changed
-  (`TransitionReason`, the cause);
-- with object state: the item type's own values (`States`);
-- on a `Destroy`, why it went away, when the server knows (into a container, into Lost and Found, used
-  up), and not for a recipient the item merely left the interest of.
+- on every update, a header (`ItemUpdate.Serialize`): the type (`Create`, `Destroy`, `ItemState`,
+  `ObjectState`, or `FullSync`, which is both states), the NetId, the revision (`AuthorityRevision`),
+  the relation, whether there is a claim and, if there is, its slot and flags, the transition reason
+  (`TransitionReason`) and the cause's actor (`OriginatingPlayerId`);
+- on a `Destroy`, nothing more but why it went away (`RemovalCause`), when the server knows (into a
+  container, into Lost and Found, used up), and not for a recipient the item merely left the
+  interest of;
+- with item state (or `Create`), why it moved (`MoveCause`);
+- on every other update, its home (`WireHome`), and on `Create` the prefab, the scene-authored key
+  and vanilla's `BelongsToPlayer`;
+- with item state (or `Create`), the home's own fields, a union (OI-SYNC-21): `World` the pose;
+  `TrainInterior` the pose, the car's NetId and the pose in the car; `Shelf` the pose, the shelf's key
+  and the pose on it (these three also whether it was thrown, and then the throw direction); `Hand`
+  the holder and the hand; `Slot` the holder and the slot; `Attached` the car's NetId and which end;
+  `Snapped` the snap point's key; `Installed` the car's NetId (0 on the world); `Magazine` the tool's
+  NetId and the slot (`MagazineNetId`, `MagazineSlot`);
+- on `Create` or with object state: the item type's own values (`States`).
+
+The transition reason `ClientAdoption` and the move reasons `ReturnedToRejoiningOwner` and `Adopted`
+are gone since R2 (a4b0faad, 2026-10-24): nothing makes or reads them.
+
+A home is one of the live placements (`ItemPlacementKind`). `Container` is never a live placement,
+only a save row's: a stored item has no record (`ItemSaveLoad.Save.cs`). `SnappedAttachment` comes
+only from save rows (the load's `Snapped` home, `ItemSaveLoad.Load.cs`, kept by the record made from
+the row); such a record goes out as `Snapped`. A live snap is `Attached` (`NetworkedItem.GetItemState`,
+`LiveItems.PlacementFrom`): on a car's end with the car's NetId, snapped anywhere else with car 0 and
+no key, so it goes out as `Attached` with car 0 and its ledger home is `Attached`, never `Snapped`.
 
 A player's own change never goes up as an update: it's a request.
 
@@ -87,8 +114,8 @@ arguments the action uses are written:
 | Action | Its arguments | Carried out by |
 | --- | --- | --- |
 | `Take` | the hand; the item's states | the live state (`CarryChange`) |
-| `Stash` | the slot and claim flags; states | the live state |
-| `MoveSlot` | the slot | moves the item to that slot of its holder's inventory, or swaps it with the holder's own item there (`NetworkServer.CarryMoveSlot`, `LiveItems.TrySwapSlots`); refused on `slot-occupied` or `slot-reserved` (R3, [inventory.md](inventory.md)) |
+| `Stash` | the slot and claim flags; the item's saved state as the requester's game put it away (`SavedState`); states | the live state |
+| `MoveSlot` | the slot | moves the item to that slot of its holder's inventory, or swaps it with the holder's own item there (`NetworkServer.CarryMoveSlot`, `LiveItems.TrySwapSlots`); refused on `slot-invalid`, `slot-occupied` or `slot-reserved` (R3, [inventory.md](inventory.md)) |
 | `Drop` | the pose and its parent (world, a train car, a static parent); states | the live state |
 | `Throw` | as `Drop`, with a direction | the live state |
 | `Recall` | the claim slot | `LiveItems.TryRecall`, or Lost and Found for an essential there |
@@ -97,14 +124,16 @@ arguments the action uses are written:
 | `Deposit` | the container's handle, or its shell's NetId; the slot | containers |
 | `Withdraw` | the slot | containers |
 | `MoveInContainer` | the container, its revision, the slot | containers |
-| `DepositMoney` | none | the wallet |
+| `DepositMoney` | none | the wallet; refused on `money-not-spendable` |
 | `ReportBelowMap` | the surface height | the terrain guard |
 | `Attach` | the car's NetId and which end; states | the live state |
 | `SetState` | the states, and whether it was a world interaction (a lever, a switch) | the live state |
 | `LoadMagazine` | the tool's NetId and the magazine slot; states | the live state; refused on `magazine-tool-unknown`, `magazine-tool-foreign` (a tool another player holds), `magazine-slot-invalid`, `magazine-refused-item`, `magazine-slot-taken` ([containers.md](containers.md#ammo-in-a-magazine)) |
+| `UseUp` | the tool it is used in (`MagazineNetId`: a spray can's sprayer; 0 for a key) | `UseUp.Carry` ([vanilla-storage.md](vanilla-storage.md#used-up)); refused on `item-unknown` or `tool-unknown` (`UnknownItem`), else `NotAllowed`: `item-installed`, `key-not-in-hand`, `no-padlock-near`, `sprayer-not-in-hand`, `can-not-in-sprayer`, `not-a-consumable` |
 
-`ItemAction` is a byte, append-only. `CollectLost` sends the inventory's occupancy from the client
-until R3 keeps slots on the server.
+`ItemAction` is a byte, append-only. `CollectLost` still sends the inventory's capacity and occupied
+slots from the client, and the server plans the collection's slot from them
+(`LostAndFoundServer.TryCollect`, `LostItemRetrievalPlanner.Plan`), not from its own rows.
 
 `ClientboundItemResultPacket { RequestId, Refusal, Detail, Revision, ItemNetId }` answers each
 request once: accepted (`Refusal == None`) or a refusal code and its detail, the revision the
@@ -117,7 +146,7 @@ remembers its last 256 requests (`ItemRequestMemory`, Core `Items/LiveState`; `S
 | A request id that is | The server |
 | --- | --- |
 | new | carries it out and remembers its result |
-| still being carried out (a withdrawal materializing its item) | does nothing: the one answer is on its way |
+| still being carried out (a withdrawal, or any request waiting for an item kept as data to be made again: `PlayerItems.WithObject`) | does nothing: the one answer is on its way |
 | already answered | sends the remembered answer again, and does nothing else |
 | older than every id it still remembers | refuses it, `Expired`: it may have run already |
 
@@ -171,10 +200,12 @@ really is (OI-LIST-22).
 
 ## Proof
 
-- `Multiplayer.Protocol.Tests/Items/ItemWirePacketTests.cs`: no item packet carries a GUID; every
-  packet round-trips; a request for each action writes only its arguments; an update tells each
-  relation and only the claimant the claim (a claimless update is smaller); translation of a
-  player's own change into a request, through the wire; a debug projector for every packet.
+- `Multiplayer.Protocol.Tests/Items/ItemWirePacketTests.cs`: no item packet carries a GUID; the six
+  packets are the `Items` namespace; every packet round-trips (the inventory rows with their states
+  and `Full`, `InventoryRows_RoundTrip...`); a request for each action writes only its arguments; an
+  update tells each relation and only the claimant the claim (a claimless update is smaller);
+  translation of a player's own change into a request, through the wire; a debug projector for five
+  of the packets (`ProjectorsCoverEveryPacketOfTheWire`): the inventory rows packet has none.
 - `Multiplayer.Core.Tests/Items/LiveState/ItemRequestsTests.cs`: the request memory (new, pending,
   repeat, expired, request 0), refusal codes, relations.
 - Scenarios ([testing.md](../../testing.md)): `red`, `item-request-repeat`, `recall` (both `TAKEN`

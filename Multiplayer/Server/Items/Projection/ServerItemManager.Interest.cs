@@ -33,9 +33,9 @@ internal sealed partial class ServerItemManager
     // Host recipient interest, known-item lifetimes, and outbound replication.
 
     // Rebuilding a player's relevant set walks every item in 25 cells; near a yard that cost ~4 ms
-    // a tick on the host. Rebuild at once when the item index changes (it clears HostPlayerCells)
-    // or the player changes cell, otherwise a few times a second for movement-driven relevance
-    // (holders, train interiors).
+    // a tick on the host. Rebuild at once when an item moves into or within the index (that clears
+    // HostPlayerCells; one taken out of it waits for the next rebuild) or the player changes cell,
+    // otherwise a few times a second for movement-driven relevance (holders, train interiors).
     private const uint InterestRefreshTicks = NetworkLifecycle.TICK_RATE / 4;
     private readonly Dictionary<byte, uint> lastInterestRefreshTick = new();
     // Items a player's interest keeps whatever their cells say, each until a time: a pending train
@@ -149,15 +149,11 @@ internal sealed partial class ServerItemManager
             }
             return items;
         }
-        HashSet<NetworkedItem> desiredItems = RelevantItems(desiredCells);
-        // Hysteresis: items enter at the 3x3 neighbourhood but only leave once outside 5x5.
-        // Without it, walking along a cell boundary destroyed and re-created everything on
-        // the other side each time the player stepped across it.
-        if (player.NearbyItems.Count > 0)
-        {
-            HashSet<NetworkedItem> retainable = RelevantItems(WorldItemCellCoord.Neighbourhood(centre, WorldItemCellCoord.KeepRadius));
-            desiredItems.UnionWith(player.NearbyItems.Keys.Where(item => item != null && retainable.Contains(item)));
-        }
+        // Items enter at the 3x3 neighbourhood but only leave once outside 5x5 (InterestCells).
+        HashSet<NetworkedItem> desiredItems = InterestCells.Wanted(
+            radius => RelevantItems(radius == InterestCells.EnterRadius ? desiredCells : WorldItemCellCoord.Neighbourhood(centre, radius)),
+            player.NearbyItems.Count > 0,
+            item => item != null && player.NearbyItems.ContainsKey(item));
         AddPinnedInterest(player, desiredItems);
         bool membershipChanged = cellsChanged || player.NearbyItems.Count != desiredItems.Count ||
                                  player.NearbyItems.Keys.Any(item => !desiredItems.Contains(item));

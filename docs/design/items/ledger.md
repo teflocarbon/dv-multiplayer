@@ -4,7 +4,7 @@
 > It covers the ledger of owned items (`Multiplayer.Core/Items/Ledger`, `Multiplayer/Server/Items/Ledger`):
 > entries, homes, owners, operations, births, cold and live homes, the re-key merge and the one-home check.
 > Inventories are [inventory.md](inventory.md), causes [change-causes.md](change-causes.md), the wire
-> [wire.md](wire.md); the save format changes in R4 (`save-load.md`).
+> [wire.md](wire.md), the save [save-load.md](save-load.md).
 
 ## The entry
 
@@ -42,7 +42,7 @@ placement into a home.
 | `Attached` | `Home.Attached(car, front)` | an end-of-train lantern on a car's end |
 | `Snapped` | `Home.Snapped(parent)` | on a snap point, by its parent's key |
 | `Magazine` | `Home.Magazine(tool, slot)` | loaded in a live tool's magazine, by the tool's item id and the slot ([containers.md](containers.md#ammo-in-a-magazine)); a row tool's ammo is `Container(tool, slot)` |
-| `Missing` | `Home.Missing` | the load found no store holding it; goes in R4 (D9, OI-LED-16) |
+| `Unloadable` | `Home.Unloadable` | its saved row can't be made because its prefab is gone (an item mod removed, D9): no object, the row kept verbatim and tried again at each load ([save-load.md](save-load.md#rows-that-wont-load)) |
 
 An installed gadget's home names only its anchor; the gadget keeps its own UID (D13). A save's gadget
 on the world stays installed at load (`GadgetItemTransitions.CommitInstalled`) and a joining player
@@ -62,13 +62,13 @@ ledger (`CountLive`). The wire carries no owner, only each player's relation ([w
 
 | Operation | What it does |
 | --- | --- |
-| `Register(BirthRequest)` | An item becomes owned. `Invalid` without an owner or prefab; `Refused` when its home is a taken slot. An id the ledger already has, live or ended, is a copy: registered under a new id, born `Duplicate` from the first (`Reminted`). An essential gets its claim here |
+| `Register(BirthRequest)` | An item becomes owned. `Invalid` without an owner or prefab; `Refused` when its home is a slot it can't take (`slot-invalid`, `slot-occupied`, `slot-reserved`). An id the ledger already has, live or ended, is a copy: registered under a new id, born `Duplicate` from the first (`Reminted`). An essential gets its claim here |
 | `Replace(usedId, reason, replacement)` | Vanilla used an item up and made another: the new one is the used one's owner's, born `Replaced` from it; the used entry ends with `replacedBy` |
 | `Commit(id, from, to, cause)` | The one way a player's change moves an owned item. Refusals below |
 | `Repair(id, to, cause)` | Puts a live item in `to` whatever its home was: for the load, the one-home check and the server's own placing, never a player's request. The slot rules still hold |
 | `Swap(id, from, otherId, otherFrom, cause)` | Two items of one holder's inventory change slots in one commit. Refused with `stale-home`, `slot-invalid` (not two slots of one holder) or `slot-reserved` (a third essential claims either slot) |
 | `End(id, reason, replacedBy, detail)` | Ends a live entry. It stays for lineage; each owner keeps the newest 100 ended |
-| `Revive(id, home)` | Brings an ended entry back, for a load that finds its item in a store. Raised as `Born` |
+| `Revive(id, home)` | Brings an ended entry back, raised as `Born`. Nothing calls it |
 | `Rekey(from, to)` | One identity merges into another ([The re-key merge](#the-re-key-merge)). Raises nothing |
 | `Restore(saved, starterKits, displaced)` | Replaces the ledger with saved entries, raising nothing: an id saved twice keeps its first; a second live entry in one slot goes to Lost and Found; clashing claims move apart |
 | `CanTake(home, id, owner)` | The slot rules alone, for an item the ledger doesn't hold (OI-SLOT-03) |
@@ -91,19 +91,19 @@ owner's game is told (`ClaimSlot` change, `LiveItems.SendClaim`). On the belt it
 
 ## The ledger decides, live state follows
 
-A change to an owned item is a ledger commit before anything else sees it. In `LiveItems.ApplyTransition`
-the record works out the new placement and slot, then `ServerLedger.CommitTransition` commits it; only
-then is the update written, logged (`ItemChangeLog.RecordMove`) and sent. A refusal puts the record back
-(`RestoreFrom`) and corrects the sender. `CommitTransition` commits an owned item (`ServerLedger.Commit`);
-makes an unowned personal item (`BelongsToPlayer`) its first taker's (`Own`, born `Claimed`, or the
-cause's birth: `Purchased`, `Granted`, ...), except a job paper, which is its job's and never owned or
-in the ledger (D5, OI-ID-12: `Own` makes nothing of one); and holds any other unowned item to `CanTake`.
+A change to an owned item is a ledger commit (`ServerLedger.CommitTransition`) before it is written,
+logged or sent; a refusal puts the record back and corrects the sender ([live-state.md](live-state.md#a-change)).
+A job paper is its job's, never owned or in the ledger (D5, OI-ID-12: `Own` makes nothing of one).
 
 Recall (`TryRecall`), Lost and Found collection and retrieval and slot swaps (`TrySwapSlots` →
 `ServerLedger.Swap`) commit the same way. A `MoveSlot` request into an empty slot is a stash there, onto
-another item of the requester's a swap ([inventory.md](inventory.md)). A server-made placement (a
-withdrawal, a cold item made live, a Lost and Found restore) goes through `ServerLedger.Settle`: a
-`Repair` to where the record has it, or a birth; a refusal is logged `item.ledger-refused`.
+another item of the requester's a swap ([inventory.md](inventory.md)). A container's deposit,
+withdrawal and move commit by id first (`ServerLedger.CommitStored`); a withdrawal then only places the
+row (`PlayerItems.Issue` with an `own` that does nothing, or `ItemSaveLoad.MakeLive` at the feet). The
+server's other placings go through `ServerLedger.Settle`, a `Repair` to where the record has it or a
+birth: a Lost and Found restore (`LiveItems.RestoreLostRecord`), a row made into an inventory
+(`LiveItems.RegisterDataOnly`, from `PlayerItems.Issue` and the join's rows) and an object made into
+one (`LiveItems.RegisterMaterializedColdItem`). A refusal is logged `item.ledger-refused`.
 
 Two checks catch a path that skips the ledger. `ServerLedger.Commit` meeting `stale-home` (record and
 ledger disagree on `from`) logs `item.ledger-stale-home` and repairs the ledger to `to`, so a drift never
@@ -115,7 +115,8 @@ shelf) as it lands, from one car into another too.
 
 `ServerLedger.OnRemoved` (from `ItemChangeLog.RecordRemoval`) ends the entry with the removal's reason,
 except `CollectedToLostAndFound` (home becomes `LostAndFound`), `DepositedInContainer` (the deposit
-committed it first, `ServerLedger.CommitStored`), `LeftInterest`, `WentCold`, and while the world unloads. Every change raises
+committed it first, `ServerLedger.CommitStored`), `LeftInterest`, `WentCold`, `RemadeFresh` (the item
+made again keeps its entry, D9), and while the world unloads. Every change raises
 `ItemLedger.Changed` with a `LedgerChange`: its kind (`Born`, `Moved`, `Ended`, `ShopStocked`,
 `ClaimSlot`), a copy of the entry, the home it left and a `LedgerCause` ([change-causes.md](change-causes.md#the-ledgers-cause)).
 
@@ -124,12 +125,11 @@ committed it first, `ServerLedger.CommitStored`), `LeftInterest`, `WentCold`, an
 | Birth | Made by |
 | --- | --- |
 | `Purchased` | a shop delivery (`ShopDelivery`) |
-| `StarterKit`, `Issued` | the issuer (`StartingItemsIssuer`), through `RegisterMaterializedColdItem` and `Settle` |
-| `Granted` | an admin's give (`AdminItemGrants`), owned by its target |
-| `Claimed` | the first player to take an unowned personal item |
+| `StarterKit`, `Issued` | the issuer (`StartingItemsIssuer`): a row in its slot through `PlayerItems.Issue` (`LiveItems.RegisterDataOnly`, then `Settle`); with the inventory full, an object at the player's feet through `RegisterMaterializedColdItem` and `Settle` |
+| `Granted` | an admin's give (`AdminItemGrants`, `ServerLedger.Own`), owned by its target |
+| `Claimed` | the first player to take an unowned personal item; and any other birth whose move names none of the reasons above (`ServerLedger.BirthFrom`): the check's repair of a stray with a stored owner, an item `OnMove` or `Settle` finds owned by its store but not in the ledger |
 | `Replaced` | `ServerLedger.RecordReplacement`: a spray can's empty can (`UseUp`, [vanilla-storage.md](vanilla-storage.md#used-up)); the gadget tools later (OI-LIN-02..04, paused with gadgets) |
 | `Made` | nothing yet |
-| `Migrated` | the load registering an owned item the ledger never saw; a gadget's saved owner; the check's repair of a stray; a restored, withdrawn or retrieved item with no entry |
 | `Duplicate` | a copy of an id already in use: `Register`, or `Own` for an object `ClaimPersistentId` re-minted |
 
 An id is for life. When an object registers an id another live object has,
@@ -137,7 +137,7 @@ An id is for life. When an object registers an id another live object has,
 names the original) and logs `item.duplicate-persistent-id`; once owned, the copy is born `Duplicate`
 from the original (OI-ID-05, -18). An ended id that comes back gets a new one too (`TakeNewId`). An
 entry ends with an `ItemRemovalReason`: binning (`Discarded`, by its binner, [vanilla-storage.md](vanilla-storage.md#bins)), using up (`UsedUp`,
-[vanilla-storage.md](vanilla-storage.md#used-up)), a deleted car, a money deposit (`MoneyDeposited`, a client's or the host
+[vanilla-storage.md](vanilla-storage.md#used-up)), a money deposit (`MoneyDeposited`, a client's or the host
 player's, [vanilla-storage.md](vanilla-storage.md#money)), the dev console (`DevConsole`), or `DestroyedByGame` when
 nothing said why.
 
@@ -145,29 +145,11 @@ nothing said why.
 
 D12. A home nobody is using is **cold**: the item is data, its saved state as a row plus its ledger
 entry, with no object on any game, so no vanilla path, sweep or respawn can touch it. Every other home
-is **live**: an object people can see and touch.
-
-- **Going cold** (OI-COLD-02). `PlayerItems.Leave` (`Server/Items/Inventory`): a leaver's own or
-  nobody's hand item goes to a free slot, its claim first (D5); a borrowed item, in hand or inventory,
-  is dropped and sent to its owner's Lost and Found (`BorrowerLeft`); an owned hand item with no free
-  slot goes there too (`InventoryOverflow`). Every inventory item then `GoCold`s: its state becomes a
-  row in `ColdInventories` (state, exact slot, claim) and its object is destroyed on every game
-  (`WentCold`). The ledger entry stays, home `Slot(holder, slot)`. Job papers stay objects. The save
-  writes the rows; a load makes no object for an offline holder's items.
-- **Going live.** At join `PlayerItems.Join` makes each row again (`GoLive`) in its exact slot, once
-  the ledger has loaded. A taken slot means a free one; with none free, or with the ledger's home
-  `LostAndFound` (a re-key clash), it is dropped at the player's feet and sent to Lost and Found
-  (`InventoryOverflow`). R4 makes this happen before the inventory shows (OI-COLD-03).
-- **Data only on the server** (OI-COLD-06). An item in a connected remote player's inventory, settled
-  there 1 s (`PlayerItems.Update`), becomes a row too: the server hands its NetId over
-  (`HandOverNetId`), destroys its own object and keeps the live record; the holder's game has the only
-  object. Anything that names it has the object made again first under the same NetId
-  (`PlayerItems.WithObject`, `TakeUpNetId`): an item request (the item, the shell it opens, the slot it
-  swaps with, a retrieval's subject), a shop banknote deposit, a container browse. Container shells
-  included. The host's own player's items and job papers stay objects (OI-COLD-07, moved to R6).
-- **Optimistic clients** (OI-COLD-05). A client shows a stash, slot move or drop at once and sends a
-  request; the server commits it to the ledger and confirms. Only a refusal rolls the client back (a
-  refused swap corrects both items).
+is **live**: an object people can see and touch. An inventory item that goes cold, or is data only on
+the server, keeps its entry and its home `Slot(holder, slot)`. How inventories do it is
+[inventory.md](inventory.md): [Cold inventories](inventory.md#cold-inventories) (leaving and
+joining), [Data only on the server](inventory.md#data-only-on-the-server) and
+[The optimistic client](inventory.md#the-optimistic-client).
 
 **Lost and Found** (R6, OI-COLD-08): an entry is data on the server too. Its object goes at the scan
 after it arrives, once its state is loaded, and Lost and Found keeps its row; a retrieval or a recall
@@ -181,13 +163,9 @@ and move it back if the graph or the object refuses after ([containers.md](conta
 
 ## The re-key merge
 
-When a player's install GUID is re-keyed to their Steam id (`InstallGuidRekey.MoveInto`, at a verified
-login), everything under the old id merges into the new one, never skipped (OI-ID-19). `ItemLedger.Rekey`
-moves owners, holders, `Born.By` and the starter kit, ended entries included. An item whose slot the
-new id already fills goes to `LostAndFound` (`RekeyResult.ToLostAndFound`, logged); a clashing claim
-moves to a free slot. Cold rows follow (`ColdInventories.Rekey`): a row that clashed, or that the ledger
-sent to Lost and Found, loses its slot and is placed at join. Live records, Lost and Found and the
-container graph are re-keyed too.
+A re-key (`InstallGuidRekey.MoveInto`) merges one identity into another; the ledger's part is
+`ItemLedger.Rekey`, which moves owners, holders, `Born.By` and the starter kit, ended entries included.
+The merge as a whole is [inventory.md](inventory.md#the-re-key-merge).
 
 ## The invariant check
 
@@ -198,21 +176,23 @@ and Found entries and container rows, with vanilla's storage lists.
 
 | Rule | Holds when |
 | --- | --- |
-| 1 `OneHome` | each live entry's item has exactly one copy (a `Missing` entry isn't looked for) |
+| 1 `OneHome` | each live entry's item has exactly one copy (an `Unloadable` entry isn't looked for) |
 | 2 `LiveAgrees` | that copy is in the entry's home (a loose item's kind and anchor; a hand's holder) |
 | 3 `NoStray` | no owned copy without a live entry, and no copy of an ended entry |
 | 4 `OneItemPerSlot` | one item per holder slot, owned and unowned together; one claim per owner slot |
 | 5 `VanillaAgrees` | in at most one vanilla list; nothing in a dedicated host's own inventory; only the host's player's items in its inventory list; nothing owned in its Lost and Found list unless home `LostAndFound` |
 
-`ServerLedger.CheckInvariant(when)` runs at load (`load`), before every save (`before-save`), every 5 s
+`ServerLedger.CheckInvariant(when)` runs at load (`load`, from `ServerLedger.FinishLoad`), every 5 s
 in a Debug build (`debug-tick`), on demand (`ServerLedger.CheckNow`, `asked`), and after every scenario
 run (`ScenarioRun.LeakCheckAsync` calls the `Invariant.Check` step in `DevTools/DvmpScenarios/Library/Ledger.cs`
-and fails the run on any line). Each breach is logged once as an error,
+and fails the run on any line). It doesn't run before a save today: that call went with the old save
+key (d1c1843f). A check before every save is the decided rule (D7), and is being restored. Each breach is logged once as an error,
 `item.invariant-broken (<when>): <violation>`, and published as the debug event `item.invariant-broken`
 (category `inventory`; [observability.md](../../observability.md)).
 
-A Debug build stops there, and the scenario fails. A Release build then repairs (`ServerLedger.Repair`
-in `ServerLedger.Repair.cs`, D7): the ledger wins on where.
+A Debug build stops there, and the scenario fails. A Release build then repairs two rules only
+(`ServerLedger.Repair` in `ServerLedger.Repair.cs`, D7): `LiveAgrees`, and `NoStray` of a record whose
+store named an owner. The ledger wins on where.
 
 - `LiveAgrees`: `PutHome` puts the item in its ledger home. The ledger first follows the record, so
   the move commits from where the item is; a data-only item is made again first (`WithObject`).
@@ -226,13 +206,15 @@ in `ServerLedger.Repair.cs`, D7): the ledger wins on where.
   | the ground, a train, a shelf (the ledger keeps no pose), a container's slot, an install | the owner's Lost and Found |
 
   Where the move is refused, the item goes to its owner's Lost and Found; where that is refused too, or
-  the item has no owner, it stays and the ledger follows it. An item installed, attached or snapped
-  where it is stays, and the ledger follows: the server can't take it off yet (a retrieval can't
-  either, R8).
-- `NoStray` of a record whose store named an owner: registered, born `Migrated`;
+  the item has no owner, it stays and the ledger follows it. An item installed, attached, snapped or
+  loaded in a tool's magazine where it is stays, and the ledger follows: the repair doesn't take it off.
+- `NoStray` of a record whose store named an owner (`StoredOwner`): registered as that owner's, born
+  `Claimed`;
 - a cold row that disagrees has no object to move: its holder's join makes it again, and the next check
-  puts it home;
-- the rest (lost, copied, two in a slot, vanilla's lists) stays logged for R4's load recovery.
+  puts it home.
+
+The other breaches are logged only, with nothing repaired: `OneHome` (an item lost or copied),
+`NoStray` of an ended entry or with no stored owner, `OneItemPerSlot` and `VanillaAgrees`.
 
 `ServerLedger.SendToLostAndFound(id, reason, detail, out refused)` is the one way into Lost and Found by
 id (OI-LF-08). An item already there is accepted; else it is refused as `unknown-item`,
@@ -241,12 +223,11 @@ never made just to be refused.
 
 ## Saving the ledger
 
-`ServerLedger.WriteSave` writes it with `LedgerSaveCodec` under `Multiplayer.OwnedItemsV1`, format 2
-(exact homes; format 1 reads as none, and the load migrates from the stores). `ServerLedger.HostTick`
-restores it before any store imports an item; once the item save, Lost and Found and containers have
-imported, `Reconcile` gives slotless inventory items a slot (`GiveSlots`: the saved claim, else the
-lowest free, essentials first), applies `LoadReconciler`'s plan and runs the check. R4 replaces this
-with one key, `Multiplayer.Items`, and carries out the steps only logged today (`DropCopy`, `RecoverToLostAndFound`).
+The ledger's rows are saved with every item's in the one key, `Multiplayer.Items`
+(`ItemSaveLoad.WriteSave`, `ItemsSaveCodec`; [save-load.md](save-load.md#the-key)). The load hands
+them to `ServerLedger.LoadEntries` (`ItemLedger.Restore`) before it makes any item, makes each live
+entry's item by `ItemLoadPlanner`'s plan, and ends with `ServerLedger.FinishLoad`, which runs the check
+([save-load.md](save-load.md#loading)). `ServerLedger.HostTick` only runs the Debug check.
 
 **Reading it.** `ItemLedger.Dump(owner)` lists entries one per line, live first, with home, claim and
 birth (OI-LED-13): in a `dvmp_eval` probe on the host, `return ServerLedger.Dump();`. Scenarios use the

@@ -2,6 +2,7 @@ using DV.CabControls;
 using DV.Customization.Gadgets;
 using DV.Items;
 using Multiplayer.Core.Items.LiveState;
+using Multiplayer.Core.Items.Projection;
 using Multiplayer.Core.Items.WorldItems;
 using Multiplayer.Server.Items.ChangeCauses;
 using Multiplayer.Server.Items.LiveState;
@@ -241,7 +242,7 @@ internal sealed class OfficeStockReplenishment
     private static bool AnyPlayerInterested(Vector3 absolutePosition, bool lying)
     {
         WorldItemCellCoord slotCell = WorldItemCellCoord.FromAbsolute(absolutePosition);
-        int radius = lying ? WorldItemCellCoord.KeepRadius : 1;
+        int radius = lying ? InterestCells.KeepRadius : InterestCells.EnterRadius;
         return NetworkServer.Instance.ServerPlayers.Any(player => player != null &&
             OfficeStockRules.Protects(player.LoadingState >= PlayerLoadingState.ReadyForItems,
                 WorldItemCellCoord.Neighbourhood(WorldItemCellCoord.FromAbsolute(player.AbsoluteWorldPosition),

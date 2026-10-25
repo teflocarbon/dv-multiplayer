@@ -1,7 +1,8 @@
 # Projection
 
-> Status: built in R7 of the [item refactor](../item-refactor.md) (#389-#396, drafts, 2026-10-25), not yet
-> proved in a game: that is the end pass (OI-REF-01). It covers interest and what each client is
+> Status: built in R7 of the [item refactor](../item-refactor.md) (#389-#398) and merged into
+> `items/refactor`, not yet proved in a game: that is the end pass (OI-REF-01).
+> It covers interest and what each client is
 > shown: the cells, who is sent which item, a client's copy of it, acknowledgements, retries and
 > convergence. Scene items, shelves and office stock are [world-items.md](world-items.md); leases and
 > settlement are [physics.md](physics.md); the packets are [wire.md](wire.md); why an item went is
@@ -21,8 +22,8 @@ The server's record ([live-state.md](live-state.md)) is the item. A client's obj
 made and taken away by the server. For each player (`ServerPlayer`) the server keeps:
 
 - **nearby** (`NearbyItems`): the items its interest takes in now;
-- **known** (`KnownItems`): the items it has been sent a Create for, with the tick it was last sent
-  anything. An item is known from the moment its Create goes, before any answer;
+- **known** (`KnownItems`): the items it has been sent a Create or a Lost and Found tombstone for,
+  with the tick it was last sent anything. An item is known from the moment its Create goes, before any answer;
 - **acknowledged** (`AcknowledgedWorldItems`): the items its game said it has
   ([Acknowledgements](#acknowledgements));
 - **a retry hold** (`ProjectionRetries`): when a Create it failed may go again, and how many times in a
@@ -30,7 +31,8 @@ made and taken away by the server. For each player (`ServerPlayer`) the server k
 
 ## Cells
 
-The world is cut into 128 m squares on absolute X and Z (`WorldItemCellCoord`, `Size = 128`). The
+The world is cut into 128 m squares on absolute X and Z (`WorldItemCellCoord`; the size and both
+radii are Core's `InterestCells`: `CellSize = 128`, `EnterRadius = 1`, `KeepRadius = 2`). The
 server indexes every item it has (`ServerItemManager.RefreshHostWorldItem`):
 
 - **nowhere**: waiting for its restore (`ItemSaveLoad.IsRestorePending`), in Lost and Found,
@@ -44,18 +46,31 @@ A shelf item lies where it is, as an item on the ground does. Before R7 a spatia
 onto a shelf took it out of the cells, nothing else made it relevant, and every client was sent its
 retirement 0.3 s after it landed (SH2, F42, OI-SYNC-04).
 
-An item is indexed again in the same operation as every committed placement, at the record's pose
-(`OnAuthoritativeItemTransition`), so an item thrown out of a car is in its cell before its Unity
-state applies. So is every accepted change to one of the server's own copies (`ProcessChanged`) and
-every `RegisterHostWorldItem`. Spatial samples and commits take a cheaper path
-(`RefreshHostSpatialPosition`) that does nothing while the cell and the kind of parent stay the same.
-Each re-index clears every player's cached cells, so everyone's interest is rebuilt at the next tick
-(F43). That is the code's rule; OI-SYNC-05 is rewritten to it and ticks in R8.
+An item is indexed again when it moves (OI-SYNC-05; `ServerItemManager.WorldIndex.cs`):
+
+- **a committed placement**, in the same operation, at the record's pose: `LiveItems.cs` calls the
+  hook `OnAuthoritativeItemTransition`, which calls `RefreshHostWorldItem`. So an item thrown out of
+  a car is in its cell before its Unity state applies.
+- **a change to one of the server's own copies**: `ProcessChanged` commits it
+  (`LiveItems.TryApplyTransition`, or `TryApplyServerTransition` on a dedicated host, through the
+  same hook) and then calls `RefreshHostWorldItem` again
+  (`ServerItemManager.Interest.cs`).
+- **every `RegisterHostWorldItem`** (a load, a restore, a refill, a retrieval and the rest).
+- **spatial samples and commits** take a cheaper path, `RefreshHostSpatialPosition`, from
+  `ServerItemSpatial`. It does nothing while the item stays in the same cell, or stays non-spatial
+  (in a car).
+
+A re-index that puts the item in a cell or among the non-spatial items clears every player's cached
+cells (`HostPlayerCells`), so everyone's interest is rebuilt at the next tick (F43). One that takes it
+out of the index (waiting for a restore, in Lost and Found, destroyed) doesn't clear them; the next
+quarter-second rebuild catches it.
 
 ## Interest
 
 Every network tick (24 Hz), `UpdatePlayerItemLists` looks at each player at `ReadyForItems` or later.
-Their centre is the cell of `ServerPlayer.AbsoluteWorldPosition`, and their cells are the 3×3 around it.
+Their centre is the cell of `ServerPlayer.AbsoluteWorldPosition`, and their cells are those within a
+radius of 1 cell, the 3×3 around it (`EnterRadius`, `WorldItemCellCoord.Neighbourhood`;
+`ServerItemManager.Interest.cs`, `UpdatePlayerItemLists`).
 Their interest is rebuilt (`RefreshPlayerInterest`) when their cells change, when the index changed,
 or a quarter of a second after the last rebuild, for what moves with players (holders, cars).
 
@@ -74,16 +89,19 @@ them (`IsNonSpatialRelevantTo`):
 Only items the player's catalogue takes go in (`ServerPlayer.TakesAuthored`: any item but a scene item
 whose key was refused, [world-items.md](world-items.md#the-authored-catalogue)).
 
-**Staying.** An item already nearby stays until it is outside the 5×5 cells around the player. Without
-it, walking along a cell edge retired and re-made everything on the other side at each step (F44;
-OI-SYNC-06 is rewritten to this rule and ticks in R8).
+**Staying** (OI-SYNC-06). An item already nearby stays until it is outside a radius of 2 cells, the
+5×5 around the player (`KeepRadius`; `InterestCells.Wanted`, from `RefreshPlayerInterest`). Without this
+hysteresis, walking along a cell edge retired and re-made everything on the other side at each step
+(F44).
 
 **Pinned.** Some items are in a player's interest whatever their cells say (`AddPinnedInterest`):
 
 - every item a remote player simulates (a lease, `ServerItemSpatial.SimulatedBy`) stays theirs until
-  the lease ends, wherever it flies;
-- a train wake that finds nobody with its item pins it, for 10 s, in the interest of each player in
-  range who lacks it, so their game gets it and can take the wake (`ServerItemManager.PinInterest`,
+  the lease ends, wherever it flies. These skip the catalogue check (`TakesAuthored`): a simulator
+  has the item already, as its releaser or a candidate who acknowledged it (`ServerItemSpatial.Candidates`);
+- a train wake that finds nobody with its item pins it, for 10 s from each attempt, only in the
+  interest of each player in range who lacks it (and whose catalogue takes it), so their game gets it
+  and can take the wake (`ServerItemManager.PinInterest`,
   OI-PHY-12; [train-wake.md](train-wake.md)). A pin brings the player's next rebuild forward. A
   player's pins go when they leave, so whoever takes their number next starts with none.
 
@@ -241,6 +259,15 @@ Projection runs the same on both, but for who the host's world is:
   in the server's own world. Its interest is worked out, but it is sent no Creates, Destroys,
   retirements, tombstones or convergence, and isn't pinned what it simulates. Its game's changes are
   the server's own copies' changes, committed in its name.
+  It never sends a world-item catalogue (only a client's `NetworkClient.SyncWorldState` does), so
+  `WorldItemCatalogueAccepted` stays false for it and `TakesAuthored` refuses it every scene item:
+  its `NearbyItems` leaves scene items out (`RefreshPlayerInterest`, and a wake's pins in
+  `AddPinnedInterest`). That is harmless. Its game is the server's world and has every object, and
+  what reads its nearby set skips its peer anyway: `ProcessChanged` (`ServerItemManager.Interest.cs`),
+  retirements and tombstones (`RefreshPlayerInterest`, `UpdatePlayerItemLists`) and convergence
+  (`ServerItemManager.Convergence.cs`). It is a simulator candidate by its object being active, not by
+  interest (`ServerItemSpatial.Candidates`). The one other reader is office stock, where it makes no
+  difference ([world-items.md](world-items.md#office-stock)).
 - **On a dedicated host** there is no player of the host's (`HostItemActor.IsServer`): every player is
   a remote client, and the server commits its world's changes itself, with an empty actor
   (`LiveItems.TryApplyServerTransition`). The server can simulate an item itself
@@ -256,7 +283,8 @@ Projection runs the same on both, but for who the host's world is:
 ## Tests
 
 - `Multiplayer.Core.Tests/Items/Projection/`: `ProjectionAcksTests` (each kind and outcome; the retry holds),
-  `WorldItemIndexingTests` (a shelf item by its cell), `ItemPossessionInterestPolicyTests`,
+  `WorldItemIndexingTests` (a shelf item by its cell), `InterestCellsTests` (128 m cells, in within
+  one cell, kept to two, OI-SYNC-06), `ItemPossessionInterestPolicyTests`,
   `RemoteItemProjectionPlannerTests`, `ItemWireStateProjectionTests`.
 - `Multiplayer.Core.Tests/Replication/InterestMembershipTests.cs`: dirty against full sync, known-item
   delivery.
@@ -274,7 +302,8 @@ on both host kinds unless marked:
 - `item-bug-shelf-unseen` (SH2, player host only), `item-bug-client-shelf`, `shelf-item` (a late joiner
   sees a shelf item);
 - `installed-kept` (OI-GAD-06);
-- `container-interest` (a deposit's Destroy only to who knew it; player host only), `server-throw` (an
+- `container-interest` (a deposit's Destroy only to who knew it; player host only; in testing.md, not
+  in gate.sh's list), `server-throw` (an
   item indexed in its cell at once; player host only), `late-join-train-item` (`MODE=convergence`
   too), `overview-pickup` (an older ack revision counts);
 - `rejoin` and `starting-items`, which re-prove OI-SYNC-01.
