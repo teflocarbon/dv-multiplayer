@@ -38,12 +38,14 @@ namespace Dvmp.Scenarios
         protected override async Task Run(Pair pair, Options o)
         {
             await Task.Delay(5000);
-            // The client's own mug and one nobody owns, into the bin.
+            // The client's own mug and one nobody owns, into the bin. Both are made beside the client,
+            // near the host player too, whose game has the ground there.
             ushort own = await pair.Host.Run<ushort>(s => Items.SpawnPersonal(s, "Mug", "client"));
             await pair.Host.Run(() => Ownership.Give(own, "client"));
             string ownId = await pair.Host.Run(() => Owned.IdOf(own));
             ushort nobodys = await pair.Host.Run<ushort>(s => Items.Spawn(s, "Mug", "client"));
             pair.Cleanup(() => pair.Host.Run<ushort[]>(s => Items.Destroy(s, new[] { own, nobodys }), 60));
+            Abs start = await pair.Client.Run<Abs>(s => Walk.Away(s, 0, 0));
 
             if (o.Far)
                 foreach (ushort mug in new[] { own, nobodys })
@@ -54,6 +56,8 @@ namespace Dvmp.Scenarios
 
             foreach (ushort mug in new[] { own, nobodys })
             {
+                // Back to the mugs: the last bin may be far off (the nearest dumpster), the mug out of the client's range.
+                await pair.Client.Run(() => Players.TeleportToGround(start.X, start.Z));
                 await pair.Client.Run<int>(s => Items.Stash(s, mug, true), 60);
                 string bin = await pair.Client.Run<string>(s => InGame.DropInBin(s, mug), 60);
                 Report.Note($"the client's drop of {mug}: {bin}");

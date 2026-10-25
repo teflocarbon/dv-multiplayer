@@ -124,21 +124,24 @@ namespace Dvmp.Scenarios
                 GameObject other = PlayerInventory.SlotObject(otherId);
                 int otherSlot = PlayerInventory.Slot(otherId);
                 if (otherSlot < 0) throw new Exception($"item {otherId} isn't in the inventory");
+                // Named now: either object may be gone by the end (the slot's object and its stand-in swap
+                // places, D14), and a destroyed object's name throws.
+                string essentialName = Name(essential), otherName = Name(other);
                 int free = inv.GetLastFreeSlot();
                 if (free < 0 || free == otherSlot) throw new Exception("no free slot");
                 if (!inv.MoveItemFromTo(slot, free, false)) throw new Exception("couldn't move the essential to slot " + free);
                 yield return new WaitForSeconds(1);
-                if (!inv.MoveItemFromTo(otherSlot, slot, false)) throw new Exception($"couldn't move {Name(other)} from {otherSlot} to {slot}");
+                if (!inv.MoveItemFromTo(otherSlot, slot, false)) throw new Exception($"couldn't move {otherName} from {otherSlot} to {slot}");
                 yield return new WaitForSeconds(3);
                 // By NetId: a slot's object and its stand-in swap places (D14), so the objects read
                 // before the moves may not be the ones in the slots now.
                 int essentialAt = PlayerInventory.Slot(essentialId), otherAt = PlayerInventory.Slot(otherId);
                 if (essentialAt != free || otherAt != slot)
-                    throw new Exception($"the moves didn't stick: {Name(essential)} in slot {essentialAt}, not {free}; {Name(other)} in slot {otherAt}, not {slot}");
+                    throw new Exception($"the moves didn't stick: {essentialName} in slot {essentialAt}, not {free}; {otherName} in slot {otherAt}, not {slot}");
                 step.Result = new Layout
                 {
-                    Essential = Name(essential), EssentialId = essentialId, EssentialSlot = free,
-                    Other = Name(other), OtherId = otherId
+                    Essential = essentialName, EssentialId = essentialId, EssentialSlot = free,
+                    Other = otherName, OtherId = otherId
                 };
             }
 
