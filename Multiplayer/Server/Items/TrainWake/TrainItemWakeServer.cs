@@ -42,10 +42,6 @@ internal sealed class TrainItemWakeServer
     internal const int MaximumWakeDepth = 8;
     internal const float ImpactRelativeSpeedThreshold = NetworkedItemManager.TrainItemImpactRelativeSpeedThreshold;
     internal const float ImpactImpulseThreshold = NetworkedItemManager.TrainItemImpactImpulseThreshold;
-    internal const float HeavyAccelerationThreshold = 3.5f;
-    internal const float HeavyBrakingThreshold = 3f;
-    internal const float JoltThreshold = 14f;
-    internal const float AngularAccelerationThreshold = 1.25f;
     internal const float MotionSampleInterval = 0.1f;
     internal const float WholeCarWakeCooldown = 1f;
     internal const float WitnessDedupeSeconds = 0.25f;
@@ -413,8 +409,9 @@ internal sealed class TrainItemWakeServer
             if (motion.Initialized && now - motion.SampledAt < MotionSampleInterval)
                 continue;
             Vector3 position = car.transform.position - WorldMover.currentMove;
-            Vector3 velocity = car.rb.velocity;
-            Vector3 angularVelocity = car.rb.angularVelocity;
+            // In the car's own frame: a steady curve keeps them the same (OI-PHY-12).
+            Vector3 velocity = car.transform.InverseTransformDirection(car.rb.velocity);
+            Vector3 angularVelocity = car.transform.InverseTransformDirection(car.rb.angularVelocity);
             bool derailed = car.Bogies != null && car.Bogies.Any(bogie => bogie != null && bogie.HasDerailed);
             if (!motion.Initialized)
             {
@@ -432,24 +429,21 @@ internal sealed class TrainItemWakeServer
                 });
                 continue;
             }
-            Vector3 acceleration = (velocity - motion.Velocity) / dt;
+            CarMotionWake wake = TrainCarMotionRules.Classify(
+                new CarMotionSample(N(motion.Velocity), N(motion.Acceleration), N(motion.AngularVelocity), motion.Derailed),
+                N(velocity), N(angularVelocity), derailed, dt, out MotionVector measured);
+            Vector3 acceleration = new(measured.X, measured.Y, measured.Z);
             Vector3 jolt = (acceleration - motion.Acceleration) / dt;
             Vector3 angularAcceleration = (angularVelocity - motion.AngularVelocity) / dt;
-            TrainItemWakeReason? reason = null;
-            if (derailed && !motion.Derailed)
-                reason = TrainItemWakeReason.Derailment;
-            else if (angularAcceleration.magnitude >= AngularAccelerationThreshold)
-                reason = TrainItemWakeReason.ViolentRotation;
-            else if (jolt.magnitude >= JoltThreshold && acceleration.magnitude >= 1.5f)
-                reason = TrainItemWakeReason.TrainJolt;
-            else if (acceleration.magnitude >= HeavyAccelerationThreshold)
-                reason = Vector3.Dot(acceleration, motion.Velocity) < 0f &&
-                    motion.Velocity.magnitude > 1f
-                    ? TrainItemWakeReason.HeavyBraking
-                    : TrainItemWakeReason.HeavyAcceleration;
-            else if (Vector3.Dot(acceleration, motion.Velocity.normalized) <= -HeavyBrakingThreshold &&
-                     motion.Velocity.magnitude > 1f)
-                reason = TrainItemWakeReason.HeavyBraking;
+            TrainItemWakeReason? reason = wake switch
+            {
+                CarMotionWake.Derailment => TrainItemWakeReason.Derailment,
+                CarMotionWake.ViolentRotation => TrainItemWakeReason.ViolentRotation,
+                CarMotionWake.TrainJolt => TrainItemWakeReason.TrainJolt,
+                CarMotionWake.HeavyAcceleration => TrainItemWakeReason.HeavyAcceleration,
+                CarMotionWake.HeavyBraking => TrainItemWakeReason.HeavyBraking,
+                _ => null
+            };
 
             motion.Position = position;
             motion.Velocity = velocity;
@@ -460,7 +454,8 @@ internal sealed class TrainItemWakeServer
             if (!reason.HasValue || now - motion.LastWholeCarWakeAt < WholeCarWakeCooldown)
                 continue;
             motion.LastWholeCarWakeAt = now;
-            Vector3 localKick = (car.interior ?? car.transform).InverseTransformDirection(-acceleration) * 0.05f;
+            Vector3 localKick = (car.interior ?? car.transform).InverseTransformDirection(
+                car.transform.TransformDirection(-acceleration)) * 0.05f;
             ushort[] wakeSet = items.Where(settledByItem.ContainsKey).Take(MaximumWakeItems).ToArray();
             Wake(wakeSet, 0, Vector3.ClampMagnitude(localKick, 1.5f), reason.Value);
             Publish("train-item.car-motion-wake", 0, carNetId, new()
@@ -594,6 +589,8 @@ internal sealed class TrainItemWakeServer
         motion.Derailed = derailed;
         motion.SampledAt = now;
     }
+
+    private static MotionVector N(Vector3 value) => new(value.x, value.y, value.z);
 
     private static bool Finite(Vector3 value) => IsFinite(value.x) && IsFinite(value.y) &&
         IsFinite(value.z);

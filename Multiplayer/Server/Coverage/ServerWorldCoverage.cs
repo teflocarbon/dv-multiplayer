@@ -123,6 +123,17 @@ public sealed class ServerWorldCoverage : MonoBehaviour
         return true;
     }
 
+    /// <summary>
+    /// Whether the server's world is solid at a point: DV has its cell loaded, or static ground is
+    /// just under it. What the server itself needs to simulate an item there (a dedicated host taking
+    /// a lease, docs/design/items/physics.md, "Who simulates").
+    /// </summary>
+    public static bool IsSolidAt(Vector3 point)
+    {
+        WorldStreamingInit streaming = WorldStreamingInit.Instance;
+        return streaming == null || streaming.IsSceneAndTerrainCellLoaded(point) || HasGroundBelow(point);
+    }
+
     // Static world geometry under a point: anything without a rigidbody, so not a car or an item.
     private static bool HasGroundBelow(Vector3 point)
     {

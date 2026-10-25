@@ -54,6 +54,7 @@ runs=( # name | scenario | variables | pair kind it prefers (default player)
   "lease-ends-refused|lease-ends|MODE=refused"
   "lease-ends-samples|lease-ends|MODE=samples"
   "lease-ends-save|lease-ends|MODE=save"
+  "thrower-leaves|thrower-leaves||dedicated"
   "lost-and-found|lost-and-found|"
   "lost-and-found-host|lost-and-found|WHO=host|player"
   "retrieved-state|retrieved-state|"
