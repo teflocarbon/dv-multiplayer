@@ -22,8 +22,14 @@ namespace Dvmp.Scenarios
     /// instead, through its own container requests, which the server handles in-process (checked);
     /// needs a player host. UNOWNED=1: the container is nobody's (spawned loose), and the player
     /// holding it opens it (OI-CON-08). A box in a box across a restart is containers-nested.
+    /// MODE=proxies (OI-CON-10; containers.md, "The client's view"): the client fills its box with
+    /// two items and a box of the same kind, and opens it. Each stored row is a hidden proxy object
+    /// in the client's game, a box's row with a <c>ColdProxyContainer</c> too, and none is an item:
+    /// no <c>NetworkedItem</c>, no <c>ItemBase</c>, and the server keeps no record it didn't have
+    /// before the box was opened. Opened again, the old proxies are gone and the new ones are one per
+    /// row again.
     /// </summary>
-    [Scenario("containers", "Deposit, reopen and withdraw through a container the player holds, a stateful item keeping its state; the host can't browse the client's container (WHO=host: the host's own, handled in-process)")]
+    [Scenario("containers", "Deposit, reopen and withdraw through a container the player holds, a stateful item keeping its state; the host can't browse the client's container (WHO=host: the host's own, handled in-process; MODE=proxies: the open box's rows are hidden proxies, never items)")]
     public sealed class Containers : Scenario<Containers.Options>
     {
         public sealed class Options
@@ -36,11 +42,19 @@ namespace Dvmp.Scenarios
             public string Who = "client";
             /// <summary>The container is nobody's: the player who holds it opens it.</summary>
             public bool Unowned;
+            /// <summary>round-trip, or proxies (the client's view of an open box, OI-CON-10).</summary>
+            public string Mode = "round-trip";
         }
 
         protected override async Task Run(Pair pair, Options o)
         {
             if (o.Who == "host" && pair.Dedicated) throw new HarnessException("WHO=host needs a player host: a dedicated host has no player to open the container");
+            if (o.Mode == "proxies")
+            {
+                await Proxies(pair, o);
+                return;
+            }
+            if (o.Mode != "round-trip") throw new ArgumentException("MODE: round-trip or proxies, not " + o.Mode);
             ushort box = o.Unowned
                 ? await pair.Host.Run<ushort>(s => Items.Spawn(s, o.Container, o.Who))
                 : await pair.Host.Run<ushort>(s => Items.SpawnPersonal(s, o.Container, o.Who));
@@ -72,6 +86,61 @@ namespace Dvmp.Scenarios
             Report.Note($"owner {h.Owner}, host browse: {h.Status} {h.Reason}");
             Expect.That(h.Owner != h.HostId, "the client's container isn't the host's", $"owner {h.Owner}, the host is {h.HostId}");
             Expect.Equal("Unauthorized", h.Status, "the host browsing the client's container");
+        }
+
+        // MODE=proxies: the client's open box is shown through proxies that are never items.
+        private static async Task Proxies(Pair pair, Options o)
+        {
+            if (o.Who != "client") throw new ArgumentException("MODE=proxies is the client's view: WHO=client");
+            // A box that takes a box of its kind, so one row is a box and gets a ColdProxyContainer.
+            string boxPrefab = await pair.Host.Run<string>(s => Boxes.SelfNesting(s, o.Container));
+            if (boxPrefab.Length == 0) throw new HarnessException("no container the game has takes a box of its own kind");
+            ushort box = await pair.Host.Run<ushort>(s => Items.SpawnPersonal(s, boxPrefab, "client"));
+            ushort inner = await pair.Host.Run<ushort>(s => Items.SpawnPersonal(s, boxPrefab, "client"));
+            ushort first = await pair.Host.Run<ushort>(s => Items.SpawnPersonal(s, o.Prefab, "client"));
+            ushort second = await pair.Host.Run<ushort>(s => Items.SpawnPersonal(s, o.Prefab, "client"));
+            Report.Note($"{boxPrefab} {box} gets {o.Prefab} {first}, {o.Prefab} {second} and {boxPrefab} {inner}");
+            foreach (ushort stored in new[] { first, second, inner })
+                Require.Equal(Boxes.Accepted, await pair.Client.Run<string>(s => Boxes.Deposit(s, box, stored), 120), $"the deposit of {stored}");
+
+            // Opened, its three rows are proxies in the client's game and nothing else.
+            ushort[] before = await pair.Host.Run(() => InGame.RecordIds());
+            await pair.Client.Run(() => Boxes.OpenBox(box), 60);
+            ProxyView open = await pair.Client.Run(() => InGame.ProxiesNow());
+            string[] made = await pair.Host.Run(() => InGame.NewRecords(before));
+            Report.Note($"open: {open}; the server's records {before.Length}, new since the box opened: {(made.Length == 0 ? "none" : string.Join(", ", made))}");
+            Require.That(open.Active, "the box's view is open on the client");
+            Expect.Equal(3, open.Rows, "rows in the open box's list");
+            // Each would fail if a row were made a real object: an item in the game and on the server.
+            Expect.Equal(open.Rows, open.Proxies, "proxy objects in the client's game (one per row)");
+            Expect.Equal(open.Rows, open.ForRows, "proxies naming a row of the open list");
+            Expect.Equal(open.Rows, open.Hidden, "proxies hidden (HideAndDontSave)");
+            Expect.Equal(1, open.Containers, "ColdProxyContainers (the stored box's row)");
+            Expect.Zero(open.WithNetworkedItem, "proxies with a NetworkedItem");
+            Expect.Zero(open.WithItemBase, "proxies with an ItemBase");
+            Expect.Empty(made, "records the server made while the box was open (a proxy kept as an item)");
+            await pair.Client.Run(() => Boxes.CloseBox(box), 60);
+            // Closing keeps them until the next list replaces them (ContainerUi.ClearProxies, only on a new list).
+            Report.Note($"closed: {(await pair.Client.Run(() => InGame.ProxiesNow())).Proxies} proxy object(s) left");
+
+            // Opened again: the old proxies go, and there is again one per row, not twice as many.
+            await pair.Client.Run(() => Boxes.OpenBox(box), 60);
+            ProxyView again = await pair.Client.Run(() => InGame.ProxiesNow());
+            Report.Note($"reopened: {again}");
+            Expect.Equal(open.Rows, again.Rows, "rows in the reopened box's list");
+            Expect.Equal(again.Rows, again.Proxies, "proxy objects after reopening (the old ones destroyed)");
+            Expect.Zero(again.WithNetworkedItem + again.WithItemBase, "reopened proxies with a NetworkedItem or an ItemBase");
+            await pair.Client.Run(() => Boxes.CloseBox(box), 60);
+        }
+
+        /// <summary>The client's open box's view and the proxy objects in its game (InGame.ProxiesNow).</summary>
+        public sealed class ProxyView
+        {
+            public bool Active;
+            public int Rows, Proxies, ForRows, Hidden, Containers, WithNetworkedItem, WithItemBase;
+            public override string ToString() =>
+                $"{(Active ? "open" : "closed")}, {Rows} row(s), {Proxies} proxy object(s) ({ForRows} for a row, {Hidden} hidden, " +
+                $"{Containers} ColdProxyContainer(s), {WithNetworkedItem} with a NetworkedItem, {WithItemBase} with an ItemBase)";
         }
 
         public sealed class Browse
@@ -181,6 +250,43 @@ namespace Dvmp.Scenarios
                     if (powerAfter == null || Mathf.Abs(powerAfter.Value - powerBefore.Value) > 1f) throw new Exception("item state lost: " + string.Join("; ", log));
                 }
                 step.Result = log.ToArray();
+            }
+
+            /// <summary>
+            /// Client: the open box's list and every container proxy object in this game, hidden ones
+            /// included (Resources.FindObjectsOfTypeAll): how many name a row of the list, are hidden,
+            /// carry a ColdProxyContainer, a NetworkedItem or an ItemBase.
+            /// </summary>
+            [Step]
+            public static ProxyView ProxiesNow()
+            {
+                var rows = CUI.Active ? CUI.activeView?.Rows ?? Array.Empty<Multiplayer.Shared.Protocol.Data.Items.ItemRow>() : Array.Empty<Multiplayer.Shared.Protocol.Data.Items.ItemRow>();
+                var proxies = Resources.FindObjectsOfTypeAll<Multiplayer.Client.Items.Containers.ColdContainerItemProxy>()
+                    .Where(p => p != null).ToArray();
+                return new ProxyView
+                {
+                    Active = CUI.Active,
+                    Rows = rows.Length,
+                    Proxies = proxies.Length,
+                    ForRows = proxies.Count(p => p.ContainerHandle == CUI.ActiveHandle && rows.Any(r => r.Handle == p.ItemHandle && r.Slot == p.Slot)),
+                    Hidden = proxies.Count(p => (p.gameObject.hideFlags & HideFlags.HideAndDontSave) == HideFlags.HideAndDontSave),
+                    Containers = proxies.Count(p => p.GetComponent<Multiplayer.Client.Items.Containers.ColdProxyContainer>() != null),
+                    WithNetworkedItem = proxies.Count(p => p.GetComponentInChildren<NetworkedItem>(true) != null),
+                    WithItemBase = proxies.Count(p => p.GetComponentInChildren<DV.CabControls.ItemBase>(true) != null)
+                };
+            }
+
+            /// <summary>Host: the net IDs of every record the server keeps.</summary>
+            [Step]
+            public static ushort[] RecordIds() => LiveItems.GetAll().Select(r => r.NetId).ToArray();
+
+            /// <summary>Host: the records the server keeps that weren't among <paramref name="before"/>, as "netId prefab placement".</summary>
+            [Step]
+            public static string[] NewRecords(ushort[] before)
+            {
+                var known = new HashSet<ushort>(before);
+                return LiveItems.GetAll().Where(r => !known.Contains(r.NetId))
+                    .Select(r => $"{r.NetId} {r.PrefabName} {r.Placement}").ToArray();
             }
 
             /// <summary>Host: the container's owner, and what the host gets when it tries to browse it itself.</summary>
