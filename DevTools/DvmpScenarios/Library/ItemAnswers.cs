@@ -9,15 +9,8 @@ namespace Dvmp.Scenarios
         /// A copy of an answer, to keep past its handler. The client reads every answer into the one
         /// packet object (a reusable subscription), so a step that kept the packet read the next
         /// answer's fields: magazine-tools' retrieval read as refused when the client's own next
-        /// request was.
+        /// request was. The packet's own <c>Clone</c>, so a field added to it is copied too.
         /// </summary>
-        public static ClientboundItemResultPacket Copy(ClientboundItemResultPacket answer) => new()
-        {
-            RequestId = answer.RequestId,
-            Refusal = answer.Refusal,
-            Detail = answer.Detail,
-            Revision = answer.Revision,
-            ItemNetId = answer.ItemNetId
-        };
+        public static ClientboundItemResultPacket Copy(ClientboundItemResultPacket answer) => answer.Clone();
     }
 }
