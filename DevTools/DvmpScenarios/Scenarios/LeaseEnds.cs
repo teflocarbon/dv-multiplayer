@@ -33,6 +33,9 @@ namespace Dvmp.Scenarios
     ///   moves it 20 m itself, a new revision, with its lease kept open past the move (a probe skips
     ///   the lease's end), and saves. The row has the record's pose, not the stale lease's: a lease
     ///   saves its pose only while it holds (OI-PER-11, F25).
+    /// In every mode the thrower simulates the flight (OI-PHY-09; physics.md, "Throws and release"):
+    /// every frame of the lease the host's lease names the client as its simulator, never the host's
+    /// own player or the server.
     /// </summary>
     [Scenario("lease-ends", "A collection or a refused settlement mid-flight ends the item's lease at once; samples change nothing until the settlement; a mid-flight save takes a lease's pose only while the lease holds")]
     public sealed class LeaseEnds : Scenario<LeaseEnds.Options>
@@ -65,6 +68,9 @@ namespace Dvmp.Scenarios
             Flight f = await watch;
             Report.Note($"lease r{f.LeaseRevision} seen {f.Leased}, revisions while leased {f.Revisions}, ended after {f.Seconds:0.#} s: {(f.Ended.Length > 0 ? f.Ended : "still open")}");
             Require.That(f.Leased, "the throw opened a lease (it flew)");
+            // OI-PHY-09: the thrower simulates its throw. It fails if the server or the host's player took the flight.
+            Report.Note($"the lease's simulator, frame by frame: {f.Simulators} (the client is player {f.ClientId})");
+            Expect.Equal(f.ClientId.ToString(), f.Simulators, "who the host's lease named as the flight's simulator, every frame (the thrower: the client)");
 
             switch (o.Mode)
             {
@@ -114,6 +120,9 @@ namespace Dvmp.Scenarios
             public uint LeaseRevision;
             public int ChangedWhileLeased;
             public string Revisions = "", Ended = "", ActedDetail = "";
+            /// <summary>The simulators the lease named while it was open, in order (repeats dropped), and the client's player number.</summary>
+            public string Simulators = "";
+            public int ClientId = -1;
             public float Seconds, SecondsAfterAct;
         }
 
@@ -237,7 +246,11 @@ namespace Dvmp.Scenarios
                 var manager = NetworkedItemManager.Instance;
                 var spatial = manager.Spatial;
                 Flight f = new();
+                var server = Multiplayer.Server.Session.NetworkServer.Instance;
+                foreach (var player in server.ServerPlayers)
+                    if (player != null && player.Peer != server.SelfPeer && player != server.LocalPlayer) { f.ClientId = player.PlayerId; break; }
                 var revisions = new List<uint>();
+                var simulators = new List<byte>();
                 string endedBefore = spatial.LastLeaseEnd(id);
                 float t0 = Time.realtimeSinceStartup, actedAt = -1f;
                 while (Time.realtimeSinceStartup - t0 < seconds)
@@ -252,6 +265,9 @@ namespace Dvmp.Scenarios
                     }
                     if (leased)
                     {
+                        if (spatial.TryGetActiveLeaseIdentity(id, out _, out _, out byte simulator, out ItemSpatialStateData _) &&
+                            (simulators.Count == 0 || simulators[simulators.Count - 1] != simulator))
+                            simulators.Add(simulator);
                         if (revisions.Count == 0 || revisions[revisions.Count - 1] != record.Revision)
                         {
                             if (revisions.Count > 0) f.ChangedWhileLeased++;
@@ -284,6 +300,7 @@ namespace Dvmp.Scenarios
                 f.Seconds = end - t0;
                 f.SecondsAfterAct = actedAt > 0f ? end - actedAt : -1f;
                 f.Revisions = string.Join(",", revisions);
+                f.Simulators = string.Join(",", simulators);
                 step.Result = f;
             }
         }
