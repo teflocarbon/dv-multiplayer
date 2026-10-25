@@ -216,6 +216,8 @@ Each game adds its part:
   each pass, to the last value the holder sent (`NetworkedItem.RevertRemoteHolderDrift`, before
   `GetSnapshot`): a drop carries no object state, so once they let go the server's copy is the
   item's, and its drifted wick (the knob turned back to full) was sent to everyone (`retrieved-state`).
+  A value that runs on by itself in every copy is no drift: a boombox's cassette changes only on a
+  press ([behaviours.md](behaviours.md#the-boombox)), so its copy's tape moving on isn't put back.
   "Holds or carries" is the record's word as well as the snapshot's (`HeldByAnotherPlayer`): an object
   made for an item kept as data in their inventory lies inactive at the safety position and reads
   itself as dropped there, and that was taken as the server moving it out of their slot into the

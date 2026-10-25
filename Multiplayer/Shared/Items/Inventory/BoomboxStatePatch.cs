@@ -36,8 +36,11 @@ internal static class BoomboxStatePatch
     private static void AfterLoad(BoomboxInteractionController __instance, JObject data)
     {
         if (!__instance.initialized)
-            CoroutineManager.Instance.StartCoroutine(AfterSetup(__instance, __instance.volumeAndInterferenceController.GetVolume(),
-                data?.DeepClone() as JObject));
+        {
+            float volume = __instance.volumeAndInterferenceController.GetVolume();
+            Behaviours.BoomboxLiveState.HoldVolume(__instance, volume);
+            CoroutineManager.Instance.StartCoroutine(AfterSetup(__instance, volume, data?.DeepClone() as JObject));
+        }
         else if (!__instance.HasCassetteInserted && StashedCassette.TryRead(data, out _))
             CoroutineManager.Instance.StartCoroutine(Resume(__instance, data.DeepClone() as JObject));
     }
