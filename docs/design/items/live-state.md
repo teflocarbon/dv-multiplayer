@@ -222,6 +222,8 @@ Each game adds its part:
   its wick from 0.2 to 0.4, sent as the host's own change (end pass). It's put back for a second
   after their lease ends in its settlement too: the body is held from then, but its knob may still
   swing.
+  A value that runs on by itself in every copy is no drift: a boombox's cassette changes only on a
+  press ([behaviours.md](behaviours.md#the-boombox)), so its copy's tape moving on isn't put back.
   "Holds or carries" is the record's word as well as the snapshot's (`HeldByAnotherPlayer`): an object
   made for an item kept as data in their inventory lies inactive at the safety position and reads
   itself as dropped there, and that was taken as the server moving it out of their slot into the

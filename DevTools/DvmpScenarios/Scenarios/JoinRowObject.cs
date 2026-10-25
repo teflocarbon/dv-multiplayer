@@ -177,7 +177,12 @@ namespace Dvmp.Scenarios
                 return count;
             }
 
-            /// <summary>Client: the item's rows and updates never make it a stand-in, as a VR belt row isn't (0 stops).</summary>
+            /// <summary>
+            /// Client: the item's rows and updates never make it a stand-in, nor does its going into its
+            /// slot, as a VR belt row's doesn't (0 stops). Without the second, the object a row made was put
+            /// away at once, the server's answer made it again, and so on, several times a frame: a boombox
+            /// never lived to set up its cassette, and its state lost the cassette's keys.
+            /// </summary>
             [Step]
             public static void KeepAsObject(ushort netId)
             {
@@ -186,8 +191,12 @@ namespace Dvmp.Scenarios
                 keep = netId;
                 refused = 0;
                 if (netId != 0)
+                {
                     harmony.Patch(AccessTools.Method(typeof(ClientItemManager), "ReceiveAsStandIn"),
                         prefix: new HarmonyMethod(typeof(InGame).GetMethod(nameof(KeepPrefix))));
+                    harmony.Patch(AccessTools.Method(typeof(ClientItemManager), nameof(ClientItemManager.PutsAwayAsStandIn)),
+                        prefix: new HarmonyMethod(typeof(InGame).GetMethod(nameof(KeepInSlotPrefix))));
+                }
             }
 
             public static bool KeepPrefix(ItemUpdate update, ref bool __result)
@@ -195,6 +204,14 @@ namespace Dvmp.Scenarios
                 if (keep == 0 || update == null || update.ItemNetId != keep)
                     return true;
                 refused++;
+                __result = false;
+                return false;
+            }
+
+            public static bool KeepInSlotPrefix(NetworkedItem item, ref bool __result)
+            {
+                if (keep == 0 || item == null || item.NetId != keep)
+                    return true;
                 __result = false;
                 return false;
             }

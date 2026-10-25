@@ -13,6 +13,10 @@ namespace Multiplayer.Shared.Items.Inventory;
 /// magazine handler needs that: it threw, the load with it, and the cassette was left loose and
 /// inactive. Vanilla's load waits a frame, so it never sees this. The handler runs once the area is
 /// set up instead; it reads what the magazine holds then, as vanilla's load would have found it.
+/// The cassette is in at once all the same: the boombox's save in its first frame names its track
+/// and whether it plays only with a cassette in (a stashed state's, OI-COLD-13), and an area set up
+/// with one in leaves VR's insert trigger off, as vanilla's own insert does. Its fake cassette shows at
+/// once too (<see cref="DynamicRendererSetupPatch"/>).
 /// </summary>
 [HarmonyPatch(typeof(CassetteInteractionArea), nameof(CassetteInteractionArea.OnMagazineDataChanged))]
 internal static class CassetteAreaSetupPatch
@@ -28,6 +32,17 @@ internal static class CassetteAreaSetupPatch
             return true;
         if (waiting.Add(__instance))
             CoroutineManager.Instance.StartCoroutine(AfterSetup(__instance, container));
+        if (container[sourceIndex] is { } loaded && loaded.GetComponent<Cassette>() is { } cassette)
+        {
+            try
+            {
+                __instance.InsertedCassette = cassette;
+            }
+            catch (System.Exception exception)
+            {
+                Debug.LogException(exception);
+            }
+        }
         return false;
     }
 
