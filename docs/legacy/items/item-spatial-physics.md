@@ -1,4 +1,4 @@
-> Legacy: describes the item system before the refactor (names as on `beta` 04bfe277). Read it only as evidence of how the code behaves today, not as design. Replaced by `items/physics.md` (R7). The item docs start at [items/README.md](../../design/items/README.md).
+> Legacy: describes the item system before the refactor (names as on `beta` 04bfe277). Read it only as evidence of how the code behaves today, not as design. Replaced by [items/physics.md](../../design/items/physics.md) (R7). The item docs start at [items/README.md](../../design/items/README.md).
 
 # Item spatial physics
 
