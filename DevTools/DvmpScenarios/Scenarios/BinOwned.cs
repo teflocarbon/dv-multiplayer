@@ -38,22 +38,28 @@ namespace Dvmp.Scenarios
         protected override async Task Run(Pair pair, Options o)
         {
             await Task.Delay(5000);
-            // The client's own mug and one nobody owns, into the bin.
-            ushort own = await pair.Host.Run<ushort>(s => Items.SpawnPersonal(s, "Mug", "client"));
-            await pair.Host.Run(() => Ownership.Give(own, "client"));
-            string ownId = await pair.Host.Run(() => Owned.IdOf(own));
-            ushort nobodys = await pair.Host.Run<ushort>(s => Items.Spawn(s, "Mug", "client"));
+            // The client's own mug and one nobody owns, into the bin. Each is made beside the client when
+            // its turn comes: the first bin's far teleport leaves one made at the start out of its range.
+            ushort own = 0, nobodys = 0;
+            string ownId = null;
             pair.Cleanup(() => pair.Host.Run<ushort[]>(s => Items.Destroy(s, new[] { own, nobodys }), 60));
 
-            if (o.Far)
-                foreach (ushort mug in new[] { own, nobodys })
+            for (int turn = 0; turn < 2; turn++)
+            {
+                ushort mug;
+                if (turn == 0)
+                {
+                    mug = own = await pair.Host.Run<ushort>(s => Items.SpawnPersonal(s, "Mug", "client"));
+                    await pair.Host.Run(() => Ownership.Give(own, "client"));
+                    ownId = await pair.Host.Run(() => Owned.IdOf(own));
+                }
+                else
+                    mug = nobodys = await pair.Host.Run<ushort>(s => Items.Spawn(s, "Mug", "client"));
+                if (o.Far)
                 {
                     bool latched = await pair.Host.Run<bool>(s => InGame.RefuseRespawn(s, mug), 30);
                     Require.That(latched, $"mug {mug}'s respawn checker latched by a refused respawn", "not latched");
                 }
-
-            foreach (ushort mug in new[] { own, nobodys })
-            {
                 await pair.Client.Run<int>(s => Items.Stash(s, mug, true), 60);
                 string bin = await pair.Client.Run<string>(s => InGame.DropInBin(s, mug), 60);
                 Report.Note($"the client's drop of {mug}: {bin}");
