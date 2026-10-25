@@ -58,7 +58,7 @@ mirror them in `Multiplayer.Core.Tests/Items/` and `Multiplayer.Protocol.Tests/I
 | `TrainWake` | items in moving trains (the item's own part is `NetworkedItem.TrainWake`, in Shared `LiveState`) | ✓ | ✓ | | | [train-wake.md](train-wake.md) (R7) |
 | `ChangeCauses` | why an item moved or went away | ✓ | ✓ | ✓ | ✓ | [change-causes.md](change-causes.md) |
 | `VanillaStorage` | the guards that keep DV's own storage, Lost and Found and respawn from moving an item | ✓ | ✓ | | ✓ | [vanilla-storage.md](vanilla-storage.md) (R6) |
-| `Behaviours` | one item type's own sync: flashlight, lantern, lighter, shovel, page book, money, the grabber | ✓ | ✓ | ✓ | ✓ | `behaviours.md` (R8) |
+| `Behaviours` | one item type's own sync: flashlight, lantern, lighter, shovel, page book, money, magazines, the grabber; used-up items and the dev console | ✓ | ✓ | ✓ | ✓ | [behaviours.md](behaviours.md) |
 
 A partial class can't span namespaces, so each one sits whole in the subsystem most of its code
 belongs to: `NetworkedItem` and `NetworkedItemManager` in Shared `LiveState`, `ServerItemManager`

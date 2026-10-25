@@ -9,7 +9,7 @@ using System.Collections.Generic;
 using System.Reflection;
 using UnityEngine;
 
-namespace Multiplayer.Server.Items.Behaviours;
+namespace Multiplayer.Shared.Items.Behaviours;
 
 /// <summary>
 /// Repairs the Derail Valley non-VR grabber when a forced/rapid inventory transition leaves its
