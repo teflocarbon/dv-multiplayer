@@ -78,9 +78,10 @@ Scenarios: `leave-holding` (own, unowned and borrowed, at a quit and a crash), `
 A collection that fails after the record has moved (Lost and Found refuses the entry, or its
 projection into inert storage throws) is rolled back whole (`LiveItems.RollbackLostAndFoundCollection`,
 J4): the record is restored from a copy taken before the move, the ledger goes back to its home, and
-every game is sent it. One that was attached to a car or loaded in a tool can't go back where it
-was, its collection having taken it off, so it goes into the world where it is, as a deleted car's
-unowned item does (`DeletedCarItems.IntoWorld`).
+its own copy of the record is set back (`ApplyAuthorityMetadata`). Nothing is sent for that: no
+game has heard of the collection yet. One that was attached to a car or loaded in a tool can't go
+back where it was, its collection having taken it off, so it goes into the world where it is, as a
+deleted car's unowned item does (`DeletedCarItems.IntoWorld`), and that move is sent to every game.
 
 Scenario: `lost-and-found-data`.
 
@@ -132,7 +133,10 @@ What is taken off:
 
 Each item then goes, by the ledger:
 
-- **Owned:** to its owner's Lost and Found (`ContainerCleared`), connected or not (OI-LF-09).
+- **Owned:** to its owner's Lost and Found (`ContainerCleared`), connected or not (OI-LF-09). It
+  comes off the car's item list first (`TrainPhysicsLod.RemoveItem`), as vanilla takes an item off a
+  car, and so does any item put into Lost and Found (`StorageIntegration.ProjectLostAndFound`): a car
+  that still listed it turned it back on in the world as its interior went (L3).
 - **Unowned:** into the world where it is, committed by the server (`ItemMoveReason.Detached`, "left
   beside the track") and sent to every player, and physics takes it down beside the track, as
   vanilla puts a deleted car's items back (`TrainCar.InteriorOnDestroy`). It is never destroyed (LF2,

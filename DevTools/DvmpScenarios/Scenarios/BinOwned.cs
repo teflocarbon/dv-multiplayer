@@ -17,7 +17,9 @@ namespace Dvmp.Scenarios
     /// client then drops the host player's mug in: refused, it lies beside the bin and its entry lives.
     /// FAR=true: each mug was once out of everyone's range first, so vanilla's checker asked for its
     /// respawn and the server refused it; that latched the checker, and the bin never destroyed it (K1).
-    /// TAKEBACK=true: the client takes its mug back out of the bin into its inventory and puts it down
+    /// Binning clears the latch; the refusal itself leaves it (L1: cleared on every refusal, every game
+    /// asked again 5 times a second).
+    /// TAKE_BACK=true: the client takes its mug back out of the bin into its inventory and puts it down
     /// 30 m off; once everyone has gone it is still there, its entry live. It used to stay binned (no
     /// trigger exit for an object turned off) and go as Discarded (K3).
     /// </summary>
@@ -47,7 +49,7 @@ namespace Dvmp.Scenarios
                 foreach (ushort mug in new[] { own, nobodys })
                 {
                     bool latched = await pair.Host.Run<bool>(s => InGame.RefuseRespawn(s, mug), 30);
-                    Expect.That(!latched, $"mug {mug}'s respawn checker runs again after a refused respawn", "latched out of range");
+                    Require.That(latched, $"mug {mug}'s respawn checker latched by a refused respawn", "not latched");
                 }
 
             foreach (ushort mug in new[] { own, nobodys })
@@ -56,6 +58,8 @@ namespace Dvmp.Scenarios
                 string bin = await pair.Client.Run<string>(s => InGame.DropInBin(s, mug), 60);
                 Report.Note($"the client's drop of {mug}: {bin}");
                 await Until.Value(() => pair.Host.Run(() => InGame.Binned(mug)), b => b, 20, $"the server has mug {mug} in the bin");
+                if (o.Far)
+                    Expect.That(!await pair.Host.Run(() => InGame.Latched(mug)), $"mug {mug}'s respawn checker, latched before, runs again once binned", "still latched");
             }
 
             if (o.TakeBack)
@@ -66,6 +70,8 @@ namespace Dvmp.Scenarios
                 await pair.Client.Run(() => Owned.DropFromInventory(own), 60);
                 await Task.Delay(3000);
                 Expect.That(!await pair.Host.Run(() => InGame.Binned(own)), "the mug taken back out of the bin isn't binned");
+                // Nor vanilla's: listed, it keeps the bin's 75 m destroy, and thrown back in it could never be binned again (L6).
+                Expect.That(!await pair.Host.Run(() => InGame.InVanillaBin(own)), "the taken-back mug is in no dumpster's list on the host");
             }
 
             // Everyone walks off: the bin's destroy.
@@ -162,6 +168,17 @@ namespace Dvmp.Scenarios
                 for (int i = 0; i < 10; i++) yield return null;
                 step.Result = respawner.wentOutOfRange;
             }
+
+            /// <summary>Host: whether any dumpster in vanilla's own bookkeeping lists the item.</summary>
+            [Step]
+            public static bool InVanillaBin(ushort netId) =>
+                NetworkedItem.TryGet(netId, out NetworkedItem item) && item != null && item.Item != null &&
+                UnityEngine.Object.FindObjectsOfType<ItemDumpster>().Any(bin => bin.dumpsteredItems.ContainsKey(item.Item));
+
+            /// <summary>Host: whether the item's respawn checker is latched out of range (it asks nothing until cleared).</summary>
+            [Step]
+            public static bool Latched(ushort netId) =>
+                NetworkedItem.TryGet(netId, out NetworkedItem item) && item != null && item.GetComponent<RespawnOnDrop>() is { } respawner && respawner.wentOutOfRange;
 
             /// <summary>Host: whether the server has the item in a bin.</summary>
             [Step]

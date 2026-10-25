@@ -1,7 +1,10 @@
+using System;
 using System.Collections;
+using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using Dvmp.Lib;
+using Multiplayer.Shared.Items.LiveState;
 using UnityEngine;
 
 namespace Dvmp.Scenarios
@@ -18,6 +21,8 @@ namespace Dvmp.Scenarios
     /// over a few frames (DeleteTrainCars: vanilla prepares and hides a car every two frames and
     /// deletes them after), the loco last: an item taken off every car up front fell back into a car
     /// still there (J1), and a gadget came off after its car's NetId had gone (J2).
+    /// With HOW=slow the mug is watched every frame through the delete: once off its car, it never
+    /// goes back into one (L5). The client still has the unowned lantern and mug either way (L4).
     /// </summary>
     [Scenario("car-delete-attached", "Deleted cars with a lantern on a coupler and a gadget installed: owned ones go to Lost and Found, an unowned lantern stays in the world")]
     [Budget(600)]
@@ -59,7 +64,7 @@ namespace Dvmp.Scenarios
             await Until.Value(() => pair.Host.Run(() => Items.Record(mug)), r => r.Placement == "TrainInterior", 20, "the host has the unowned mug in the loco");
 
             string[] left = o.How == "slow"
-                ? await pair.Host.Run<string[]>(s => InGame.DeleteSlowly(s, new[] { loco, owned, unowned }))
+                ? await pair.Host.Run<string[]>(s => InGame.DeleteSlowly(s, new[] { loco, owned, unowned }, mug))
                 : await pair.Host.Run<string[]>(s => Cars.Delete(s, cars));
             deleted = true;
             Require.That(left.Length == 0, "the cars are deleted", string.Join(", ", left));
@@ -86,22 +91,51 @@ namespace Dvmp.Scenarios
             Report.Note($"the unowned mug after the delete: exists {mugAfter.Exists}, {mugAfter.Placement}, last move {mugAfter.LastMove} {mugAfter.LastMoveDetail}");
             Expect.That(mugAfter.Exists, "the unowned mug still exists after its loco was deleted", "destroyed");
             Expect.Equal("World", mugAfter.Placement, "the unowned mug's placement after the delete");
-            Expect.That((await pair.Client.Run(() => Items.Pose(mug))).Present, "the client still has the unowned mug", "missing");
+            ItemPose mugOnClient = await pair.Client.Run(() => Items.Pose(mug));
+            Report.Note($"the unowned mug on the client: {mugOnClient}");
+            Expect.That(mugOnClient.Present, "the client still has the unowned mug", "missing");
+            if (o.How == "slow")
+            {
+                // Taken off its car once, it never went back into one: vanilla's teardown rescues an
+                // item still in a car's list, so Exists and World alone pass without the fix (L5).
+                string[] seen = await pair.Host.Run(() => InGame.Seen());
+                Report.Note("the unowned mug through the delete: " + string.Join(" > ", seen));
+                int off = Array.FindIndex(seen, s => !s.StartsWith("TrainInterior"));
+                Expect.That(off >= 0 && !seen.Skip(off).Any(s => s.StartsWith("TrainInterior") || s.EndsWith("in a car")),
+                    "the unowned mug, once off its car, never went back into a car", string.Join(" > ", seen));
+            }
         }
 
         // ---- runs inside the games
         public static class InGame
         {
+            private static readonly List<string> seen = new();
+
             /// <summary>Host: deletes the cars as one list over a few frames (DeleteTrainCars), the
-            /// first one last. Result: the IDs still there 5 s later.</summary>
+            /// first one last, watching <paramref name="watch"/>'s record and object every frame
+            /// (<see cref="Seen"/>). Result: the IDs still there 5 s later.</summary>
             [Step]
-            public static IEnumerator DeleteSlowly(Step<string[]> step, string[] ids)
+            public static IEnumerator DeleteSlowly(Step<string[]> step, string[] ids, ushort watch)
             {
                 var cars = ids.Select(Trains.Find).ToList();
+                seen.Clear();
                 CarSpawner.Instance.DeleteTrainCars(cars);
-                yield return new WaitForSecondsRealtime(5f);
+                float t0 = Time.realtimeSinceStartup;
+                while (Time.realtimeSinceStartup - t0 < 5f)
+                {
+                    string now = (Multiplayer.Server.Items.LiveState.LiveItems.TryGet(watch, out var r) ? r.Placement.ToString() : "no record") +
+                                 (NetworkedItem.TryGet(watch, out NetworkedItem item) && item != null && TrainCar.Resolve(item.gameObject) != null
+                                     ? ", in a car" : ", in no car");
+                    if (seen.Count == 0 || seen[seen.Count - 1] != now)
+                        seen.Add(now);
+                    yield return null;
+                }
                 step.Result = CarSpawner.Instance.AllCars.Where(c => c != null && ids.Contains(c.ID)).Select(c => c.ID).ToArray();
             }
+
+            /// <summary>Host: what the watched item was through the last slow delete, each change once: its placement, and whether its object was in a car.</summary>
+            [Step]
+            public static string[] Seen() => seen.ToArray();
         }
     }
 }

@@ -54,12 +54,9 @@ internal static class RespawnOnDropPatch
         if (!MultiplayerStoragePatchGuard.Active || networked == null || networked.NetId == 0)
             return true;
         // A client never decides; the server, for the few it allows.
-        bool allowed = ItemServer.Current?.AllowsRespawnOrDestroy(networked, __instance) == true;
-        // Refused: vanilla's checker latched wentOutOfRange before asking, and only vanilla's own run
-        // clears it, so the item was never checked again, and a bin never destroyed it (K1).
-        if (!allowed)
-            __instance.wentOutOfRange = false;
-        return allowed;
+        // A refusal leaves vanilla's checker latched (wentOutOfRange): the item isn't asked about again
+        // until something clears it, which binning does (Binning.TryBin, K1).
+        return ItemServer.Current?.AllowsRespawnOrDestroy(networked, __instance) == true;
     }
 
     // A destroy the server allowed carries its cause: a binned item's is its binner's (OI-VAN-02).

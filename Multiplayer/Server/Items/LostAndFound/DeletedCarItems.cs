@@ -130,6 +130,10 @@ public static class DeletedCarItems
         if (LostAndFoundServer.Contains(item.NetId))
             return;
         item.LeaveSnapPoint();
+        // Out of the car's item list too, as vanilla takes an item off a car: still registered, the
+        // car's interior teardown (UnregisterAndActivateItems) turned a collected item back on (L3).
+        if (item.Item != null && car.TryGetComponent(out TrainPhysicsLod lod))
+            lod.RemoveItem(item.Item);
         item.transform.SetParent(WorldMover.OriginShiftParent, true);
         // Owned, or a booklet kept for the player it was issued to (OI-LF-17).
         bool owned = LiveItems.TryGet(item.NetId, out LiveItems.LiveItem record) && LiveItems.KeeperOf(record) != Guid.Empty;

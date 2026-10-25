@@ -39,8 +39,11 @@ internal static class Binning
         public string Name { get; }
     }
 
-    // The items in a bin: who binned each, and where its bin is (absolute) and how far its inside reaches.
-    private static readonly Dictionary<ushort, (Binner By, Vector3 At, float Reach)> binned = new();
+    // The items in a bin: who binned each, its bin, where it is (absolute) and how far its inside reaches.
+    private static readonly Dictionary<ushort, (Binner By, ItemDumpster Bin, Vector3 At, float Reach)> binned = new();
+
+    private static readonly Action<ItemDumpster, ItemBase> unregister =
+        AccessTools.MethodDelegate<Action<ItemDumpster, ItemBase>>(AccessTools.Method(typeof(ItemDumpster), "UnregisterItem"));
 
     /// <summary>Whether the item is in a bin, waiting to go.</summary>
     internal static bool IsBinned(ushort itemNetId) => InBin(itemNetId, out _);
@@ -52,13 +55,17 @@ internal static class Binning
     private static bool InBin(ushort netId, out Binner by)
     {
         by = default;
-        if (!binned.TryGetValue(netId, out (Binner By, Vector3 At, float Reach) entry) ||
+        if (!binned.TryGetValue(netId, out (Binner By, ItemDumpster Bin, Vector3 At, float Reach) entry) ||
             !LiveItems.TryGet(netId, out LiveItems.LiveItem record) || record.Placement != ItemPlacementKind.World ||
             !NetworkedItem.TryGet(netId, out NetworkedItem item) || item == null)
             return false;
         if (Vector3.Distance(item.transform.position - WorldMover.currentMove, entry.At) > entry.Reach)
         {
             binned.Remove(netId);
+            // Vanilla's bin still lists it, with its 75 m destroy and no respawn: thrown back in, it
+            // could never be binned again (K3). It gets its own respawn back.
+            if (entry.Bin != null && item.Item != null)
+                unregister(entry.Bin, item.Item);
             Multiplayer.Log($"Binning: {record.PrefabName} (netId {netId}) is out of its bin; it is no longer binned");
             return false;
         }
@@ -81,7 +88,11 @@ internal static class Binning
         if (record.Owner == Guid.Empty || record.Owner == by.Identity)
         {
             Bounds bounds = BoundsOf(bin);
-            binned[item.NetId] = (by, bounds.center - WorldMover.currentMove, bounds.extents.magnitude + 1f);
+            binned[item.NetId] = (by, bin, bounds.center - WorldMover.currentMove, bounds.extents.magnitude + 1f);
+            // A respawn the server refused before latched vanilla's checker (wentOutOfRange), and only
+            // vanilla's own run clears it: the bin would never have destroyed it (K1).
+            if (item.TryGetComponent(out RespawnOnDrop respawner))
+                respawner.wentOutOfRange = false;
             Multiplayer.Log($"Binning: {by.Name} put {record.PrefabName} (netId {item.NetId}) in a bin");
             return true;
         }

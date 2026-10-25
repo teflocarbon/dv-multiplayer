@@ -104,7 +104,8 @@ internal static class AdminItemGrants
         {
             if (player == null || player.Peer == null)
                 yield break;
-            if (player.Guid != Guid.Empty && GiveAsRow(player, spec))
+            bool full = false;
+            if (player.Guid != Guid.Empty && GiveAsRow(player, spec, out full))
             {
                 yield return new WaitForSeconds(0.5f);
                 continue;
@@ -142,8 +143,9 @@ internal static class AdminItemGrants
                 ItemChangeLog.RecordMove(networked, record, ItemChangeLog.Move(ItemMoveReason.Granted, player,
                     "at their feet, owner " + player.Username));
             // Theirs with no slot free: into their Lost and Found, as a starting item made with the
-            // inventory full is; if it refuses, it stays at their feet, in sight either way.
-            if (refused.Length == 0 && record != null &&
+            // inventory full is; if it refuses, it stays at their feet, in sight either way. A row refused
+            // for another reason leaves it at their feet, its reason logged by the row.
+            if (full && refused.Length == 0 && record != null &&
                 LostAndFoundServer.Collect(networked, LostItemReason.InventoryOverflow, "given with the inventory full"))
                 Multiplayer.Log($"Gave {player.Username} a {spec.ItemPrefabName} (item {networked.NetId}): their inventory is full, so it is in their Lost and Found");
             else
@@ -154,19 +156,23 @@ internal static class AdminItemGrants
 
     // Into a free slot as a row, owned by them and born Granted (OI-ID-13), with no object made:
     // their game draws its stand-in, as a saved inventory comes back at login. False when their
-    // inventory is full.
-    private static bool GiveAsRow(ServerPlayer player, InventoryItemSpec spec)
+    // inventory is full (<paramref name="full"/>) or the row was refused.
+    private static bool GiveAsRow(ServerPlayer player, InventoryItemSpec spec, out bool full)
     {
         Guid id = Guid.NewGuid();
         int slot = ServerLedger.FreeSlot(id, player.Guid, -1, player.Guid);
-        if (slot < 0)
+        full = slot < 0;
+        if (full)
             return false;
         SavedItemRow row = new() { PersistentItemId = id, PrefabName = spec.ItemPrefabName, OwnerIdentity = player.Guid };
         LiveItems.LiveItem record = PlayerItems.Issue(player, row, slot,
             ItemChangeLog.Move(ItemMoveReason.Granted, player, "by an admin command, slot " + slot),
             made => ServerLedger.Own(made, player.Guid, BirthReason.Granted, Guid.Empty, "by an admin command"));
         if (record == null)
+        {
+            Multiplayer.LogWarning($"Couldn't give {player.Username} a {spec.ItemPrefabName} as a row in slot {slot}; it goes to their feet");
             return false;
+        }
         Multiplayer.Log($"Gave {player.Username} a {spec.ItemPrefabName} (item {record.NetId}), in their inventory, slot {record.Slot}");
         return true;
     }
