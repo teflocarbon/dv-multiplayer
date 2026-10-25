@@ -70,7 +70,8 @@ internal sealed class OfficeStockReplenishment
         ItemPlacementKind previousPlacement, bool appliesPlacement)
     {
         if (!NetworkLifecycle.Instance.IsHost() || !appliesPlacement || item == null || record == null ||
-            record.Placement is not (ItemPlacementKind.PlayerHand or ItemPlacementKind.PlayerInventory) ||
+            // A tool's magazine too: a prop loaded straight into a held tool (vanilla's load by use).
+            record.Placement is not (ItemPlacementKind.PlayerHand or ItemPlacementKind.PlayerInventory or ItemPlacementKind.Magazine) ||
             previousPlacement is not (ItemPlacementKind.World or ItemPlacementKind.StaticParent) ||
             !IsEligibleAuthoredOfficeProp(item))
             return;

@@ -89,7 +89,7 @@ namespace Dvmp.Scenarios
                 uint requestId = 0;
                 void Heard(ClientboundItemResultPacket packet)
                 {
-                    if (packet.RequestId == requestId) result = packet;
+                    if (packet.RequestId == requestId) result = ItemAnswers.Copy(packet);
                 }
                 client.ItemResultReceived += Heard;
                 try

@@ -208,7 +208,8 @@ index, not a cell, and train motion moves its parent without being resent.
   the car's and `ApplySimulationVelocity` doesn't add it; a shelf's body velocity is subtracted. DV
   keeps a resting cab item awake with small impulses: hence the car-local dwell.
 - **A settled car item is kinematic on every game** (`HoldSettledTrainItem`; OI-PHY-06): the rule is
-  [train-wake.md](train-wake.md#settled-train-items)'s.
+  [train-wake.md](train-wake.md#settled-train-items)'s. That doc also says how a game holds such an
+  item again when vanilla lets a car's items go (`TrainItemKinematicPatch`).
 
 ## The terrain guard
 

@@ -104,7 +104,13 @@ An entry is data on the server (OI-COLD-08, D12): no object until it is retrieve
 way in collects an object as before (`Collect`, or the load's `RestoreEntry`), and the scan after it
 (`ReconcileCanonicalPlacements`, every 24 ticks and before a list or a save) hands it to data
 (`PlayerItems.ToLostData`): its state is a row Lost and Found keeps, by its id, and its record and
-NetId stay, as a cold inventory row's do. It waits while its saved state is still loading
+NetId stay, as a cold inventory row's do. Not until two frames after it was collected: taking an
+item off a snap point (a hanger in a cab) has vanilla put it back in the car's interior first, which
+queues ECS commands on its entity (`BeginPresentationEntityCommandBufferSystem`), and an object
+destroyed before they play back loses its entity first, a native crash in
+`EntityCommandBuffer.Playback` (the collection's own list to a connected owner runs the scan at
+once). They play back at the end of PreLateUpdate: in the collection's frame, or the next for one
+made at the end of a frame. It waits while its saved state is still loading
 (`ItemSaveLoad.IsRestorePending`) and while its ammo can't go with it. Its ammo goes to data with it
 (`PlayerItems.AmmoGoesData`). It stays an object when it couldn't be made again from its row
 (`PlayerItems.CanBeLostData`, J3): its prefab is one this game doesn't list (a mod item without
@@ -126,13 +132,18 @@ to data.
 - **Out:** a retrieval, a recall (`CarryRecall`, the repair's `IntoSlot`) and anything else that names
   it (`PlayerItems.WithObject`) has the object made again from its row under its NetId, inert in Lost
   and Found (`LostAndFoundServer.ObjectOf`, `PlayerItems.FromLostData`), and goes on as with an
-  object. One made for a request that's then refused goes back to data at the next scan. One that
+  object. One made for a request that's then refused goes back to data at the next scan, though
+  not until two frames after it was made: the caller has it meanwhile (a destroy too). One that
   can't be made (its prefab gone) is refused and stays: a collection with `lost-item-not-made`, a
   recall with `unknown-network-entity` (`CarryRecall`), any other request with `item-data-unavailable`.
 - **Saved** from its row (`ItemSaveLoad.OwnedRow`), and the one-home check reads the row
   (`ObservedSource.LostAndFoundRow`).
 - **A booklet** kept as data goes when its job ends, as its object would (the scan asks
   `JobPaperRows.Wanted`).
+- **One being destroyed** is gone to the scan (`NetworkedItem.IsDestroying`): a box's destroy sends its
+  contents here, and their owner's list runs the scan inside the box's OnDestroy, while the dying box
+  still answers to Unity's null check. Taken for one that stays, it would be made data again, a row
+  whose entry has ended.
 - **Its owner's silhouette** of a lost essential, their recall, is made from its row: a row with a
   claim carries the claim slot and the item's NetId (`ItemRow.ClaimSlot`, `ItemRow.ItemNetId`), and
   the owner's game puts the item's stand-in there, dropped and reserved (`LostAndFoundSilhouettes`;
@@ -141,6 +152,9 @@ to data.
 - **Clients** keep what they had: a game that had the item when it was collected keeps an inert copy
   (`EnforceLostAndFoundProjection`), as before. When an entry kept as data goes (`PlayerItems.LostDataGone`) every
   game is sent its destroy before its NetId is freed, so a reused NetId never names that copy (J7).
+  The games that knew the object as it went to data (`PlayerItems.ToLostData`) know the one made
+  again (`TakeUpObject`, as for an inventory's data), so that object's own Destroy reaches their copy.
+  They're kept by player id, and a game that leaves or joins is taken out of them (`ForgetKnower`): its id may be the next player's.
 - **Its id** is the entry's: the ledger gives a second item asking for it a new one
   (`ServerLedger.ClaimPersistentId`, J6), as it does for an id a live object holds.
 

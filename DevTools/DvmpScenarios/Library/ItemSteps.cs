@@ -239,12 +239,13 @@ namespace Dvmp.Scenarios
 
     public static class Saves
     {
-        /// <summary>Host: a manual save, given 3 s to be written.</summary>
+        /// <summary>Host: a manual save, given 3 s to be written. Real seconds: a dedicated host with
+        /// nobody online is paused, and a scaled wait never ends there.</summary>
         [Step]
         public static IEnumerator Manual()
         {
             SaveGameManager.Instance.Save(DV.Common.SaveType.Manual);
-            yield return new WaitForSeconds(3);
+            yield return new WaitForSecondsRealtime(3);
         }
     }
 

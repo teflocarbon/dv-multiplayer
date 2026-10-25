@@ -137,7 +137,11 @@ tool. Its ammo has a home in each of the tool's forms (CN1 and OI-CON-16; R5 C7 
   `MagazineSlot`; [wire.md](wire.md#the-update)). The game that loads it (`MagazinePatch` on
   `AddItem` and `RemoveItem`) observes it as any change: a client may send it while it holds or
   stashes the tool, and a client's load is a `LoadMagazine` request with the tool and the slot
-  ([wire.md](wire.md#one-request-one-result)). The server takes it from the ammo's holder (`SenderPossesses`), checks
+  ([wire.md](wire.md#one-request-one-result)). The server takes it from the ammo's holder (`SenderPossesses`), or
+  from the world: ammo lying in the world, a car or on a shelf, loaded into a tool in the sender's
+  hand (not one stashed: the load by use needs it held), is vanilla's load by use (a sprayer aimed at a can on the ground), a take from the
+  world held to the pickup's reach and asked of `ItemAccess` as one (`IsLoadFromWorld`; refused for
+  want of possession before the end pass, `use-up`). It checks
   the tool (not one another player holds), the slot and that the magazine takes that item
   (`LiveItems.MagazineRefusal`: `magazine-tool-unknown`, `magazine-tool-foreign`,
   `magazine-slot-invalid`, `magazine-refused-item`, `magazine-slot-taken`), within 64 m of the
@@ -238,6 +242,13 @@ destination's. For an item moved between that box and the one directly inside it
 around it) the source isn't the box the client has open, so the server checks the source by the row
 the handle names and the open box by its revision (`NetworkServer.CarryMoveInContainer`, OI-CON-13).
 Between boxes not nested directly, both revisions are checked as sent.
+
+A move has no live object to ask, so the game's own compatibility is read from the prefabs: the box's
+allowed types and the type the item's spec gives it (`HostRuntimeCompatibility`). Vanilla's `ValidItem`
+reads the type from an item that has woken, which a prefab hasn't, so before the end pass a move
+between boxes was refused unless a live deposit of the same kinds had been seen first
+(`container-nested-move`). A magazine keeps vanilla's own `ValidItem`, which checks the ammo type, and a prefab
+has that (its `allowedItemTypes` is never used).
 
 A withdrawal's item goes by interest too: a row is sent to the withdrawer alone (`PlayerItems.Issue`),
 and one made loose at their feet reaches others through the world index, as any item does.

@@ -36,7 +36,18 @@ A settled car item is **kinematic on every game**, with no velocity:
   (`NetworkedItemSpatialManager.HoldSettledTrainItem`, from `NetworkedItem.StateApplication`;
   OI-PHY-06, F34). That game also takes its settled state as committed, so it can report an impact
   on it ([Impact witnesses](#impact-witnesses)). Before, that game made it a live body the car's
-  motion threw about. One with a lease open is left to the lease.
+  motion threw about. One with a lease open is left to the lease;
+- on any game, server or client, again each time vanilla lets the car's items go
+  (`TrainItemKinematicPatch`, after `TrainItemActivityHandler.ToggleKinematic`). Vanilla frees them
+  when the car's physics LOD comes down to -1 (kinematic while it's above -1): the car the local player
+  is in (`OnPlayerCarChanged`), one with `LockHighestLOD`, or a forced update at -1. At a higher LOD
+  it frees the ones outside the car's bounding box. The patch holds each item the game has settled
+  in the car, with no lease on it and not in a hand. Without it, a rejoined client put back in
+  the cab let its mug go live while every other game held it (`late-join-train-item@dedicated`, end
+  pass). A player host's server copy went live the same way, with no lease, when its own player
+  boarded. Vanilla's `Unregister` and `UnregisterAndActivateItems` free an item too, but those take it
+  off the car (picked up, the car gone or derailed), so it's no longer a settled car item. They're the
+  next suspects if a settled item still goes live.
 
 The server keeps a **settled record** for each (`TrainItemWakeServer.RegisterSettlement`): its
 revision, car, car-local pose and bounds, and epoch. One is made:

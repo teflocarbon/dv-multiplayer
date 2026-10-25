@@ -37,8 +37,10 @@ public class ClientboundJobsUpdatePacket
                 case NetworkedJob.DirtyCause.JobBooklet:
                     // Only while it's an object: one gone since (made from its row for a deposit and
                     // put in the box that frame) was sent by its NetId with no position, and each
-                    // client made a booklet of it at the world's origin.
-                    if (job.LastChangedJobBooklet is { } booklet && booklet != null)
+                    // client made a booklet of it at the world's origin. One retiring into a box is
+                    // still an object until the frame ends, and this tick can be that frame: the
+                    // client had its Destroy and made the booklet again from this (papers-in-box).
+                    if (job.LastChangedJobBooklet is { } booklet && booklet != null && !booklet.ColdStorageRetirement)
                     {
                         validationItemNetId = booklet.NetId;
                         itemPositionData = ItemPositionData.FromItem(booklet);

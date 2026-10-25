@@ -22,4 +22,15 @@ public class ClientboundItemListPacket
     public ItemRow[] Rows { get; set; } = System.Array.Empty<ItemRow>();
 
     public bool Accepted => Refusal == ItemRefusal.None;
+
+    /// <summary>
+    /// A copy to keep past the handler, its rows with it: the client reads every list into one packet
+    /// object (a reusable subscription), so a kept packet reads the next list, of any kind.
+    /// </summary>
+    public ClientboundItemListPacket Clone()
+    {
+        ClientboundItemListPacket copy = (ClientboundItemListPacket)MemberwiseClone();
+        copy.Rows = Rows != null ? (ItemRow[])Rows.Clone() : System.Array.Empty<ItemRow>();
+        return copy;
+    }
 }

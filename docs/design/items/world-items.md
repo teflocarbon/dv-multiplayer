@@ -89,8 +89,9 @@ integrity failure (`world-item.authored-binding-missing`) and is acknowledged `F
 sends it again later ([projection.md](projection.md#retries)). A retirement puts the object back to
 dormant; it keeps its key for the next Create.
 
-**Detached slots.** When a client applies an office prop going into a hand or an inventory
-(`AuthoredProjections.DetachForPossession`, from `NetworkedItem.HandleInventoryOrHandState`), its object
+**Detached slots.** When a client applies an office prop going into a hand, an inventory or a tool's
+magazine (`AuthoredProjections.DetachForPossession`, from `NetworkedItem.HandleInventoryOrHandState`
+and `HandleMagazineState`), its object
 lets go of its key and leaves the catalogue, and the key is noted. When the server refills that slot
 ([Office stock](#office-stock)), only a game that noted the key makes a fresh copy for it, which takes
 the key (`AdoptAuthoredItemKey`); every other game binds the dormant object it still has.
@@ -160,7 +161,8 @@ harmless: a prop that lies in the world or on a shelf is in a nearby set only wi
 cells (`ServerItemManager.RefreshPlayerInterest`), and a fork is a dynamic item, in its nearby set
 like anyone's.
 
-1. **Taken.** A prop moved from the world or a shelf into a hand or an inventory leaves its slot
+1. **Taken.** A prop moved from the world or a shelf into a hand, an inventory or a held tool's
+   magazine (vanilla's load by use: a sprayer aimed at a paint can) leaves its slot
    (`OnAuthoritativeTransition`). It loses its key and becomes a dynamic item with a GUID of its own,
    marked a **stock fork** (`LiveItems.PromoteAuthoredToPersistent`); the slot waits. Dropping it back
    by the desk doesn't make it a scene item again. Office props aren't a player's items, so nobody

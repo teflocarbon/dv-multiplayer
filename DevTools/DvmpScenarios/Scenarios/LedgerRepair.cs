@@ -192,8 +192,7 @@ namespace Dvmp.Scenarios
             Report.Note("the client's lantern: " + await pair.Client.Run<string>(s => SaveHomes.InGame.AttachToCoupler(s, lantern, flatbed), 90));
             await Until.Value(() => pair.Host.Run(() => Items.Record(lantern)), r => r.Placement == "Attached", 20, "the host has the client's lantern attached");
             int slot = await pair.Host.Run(() => InGame.FreeSlot(client, lanternId));
-            await pair.Host.Run(() => InGame.SetHome(lanternId, "slot", client, slot));
-            await RepairSeen(pair, "LiveAgrees", "entry", "", -1, "the lantern on a coupler, home the client's slot", lanternId);
+            await HomedAndRepaired(pair, "slot", client, slot, "LiveAgrees", "the lantern on a coupler, home the client's slot", lanternId);
             OwnerInfo off = await pair.Host.Run<OwnerInfo>(s => InGame.WaitFor(s, lanternId, "PlayerInventory", 15), 30);
             LedgerEntry home = await pair.Host.Run(() => Owned.Entry(lanternId));
             Report.Note($"the lantern after the repair: {off}; ledger {home}");
@@ -207,11 +206,12 @@ namespace Dvmp.Scenarios
 
             AttachedOffline.Hung hung = await pair.Host.Run<AttachedOffline.Hung>(s => AttachedOffline.InGame.Hang(s, loco), 120);
             Report.Note($"on the hanger {hung.Hanger} in {loco}: a {hung.Prefab} ({hung.Item}), {hung.State}");
-            await Until.Value(() => pair.Host.Run(() => Items.Record(hung.Item)), r => r.Placement is "Attached" or "SnappedAttachment", 20, "the host has the item on the hanger");
+            // Settled: it hangs as Attached first and snaps a moment later, and that commit moves the ledger
+            // back to its record (item.ledger-stale-home), undoing a break planted before it.
+            await Until.Value(() => pair.Host.Run(() => Items.Record(hung.Item)), r => r.Placement == "SnappedAttachment", 20, "the host has the item snapped to the hanger");
             await pair.Host.Run(() => Ownership.Give(hung.Item, "client"));
             string hungId = await pair.Host.Run(() => Owned.IdOf(hung.Item));
-            await pair.Host.Run(() => InGame.SetHome(hungId, "lost", "", -1));
-            await RepairSeen(pair, "LiveAgrees", "entry", "", -1, "the item on a hanger, home Lost and Found", hungId);
+            await HomedAndRepaired(pair, "lost", "", -1, "LiveAgrees", "the item on a hanger, home Lost and Found", hungId);
             await Until.Value(() => pair.Host.Run(() => Items.Record(hung.Item)), r => r.Lost, 20, "the hung item collected into the client's Lost and Found");
             Expect.Equal("LostAndFound", (await pair.Host.Run(() => Owned.Entry(hungId))).Place, "the hung item's ledger home");
             Expect.That(!await pair.Host.Run(() => AttachedOffline.InGame.HangerHolds(hung.HangerNetId)), "the hanger is free on the host");
@@ -388,6 +388,15 @@ namespace Dvmp.Scenarios
             Report.Note($"{what}: repaired; breaches left {(left.Length == 0 ? "none" : left)}");
         }
 
+        // The break (the ledger's home set to where the item isn't) and its repair, the entry's home, in
+        // one host step: between two, the item's next commit can put the ledger back to its record
+        // first (item.ledger-stale-home), and the check sees no break.
+        private static async Task HomedAndRepaired(Pair pair, string kind, string holder, int slot, string rule, string what, string id)
+        {
+            string left = await pair.Host.Run<string>(s => InGame.SetHomeAndRepair(s, kind, holder, slot, rule, new[] { id }), 60);
+            Report.Note($"{what}: repaired; breaches left {(left.Length == 0 ? "none" : left)}");
+        }
+
         private static async Task Holds(Pair pair, string what, params string[] ids)
         {
             string[] broken = (await pair.Host.Run(() => Invariant.Check())).Where(l => ids.Any(id => l.Contains(id))).ToArray();
@@ -553,6 +562,17 @@ namespace Dvmp.Scenarios
                 };
                 LedgerCommit commit = ServerLedger.Ledger.Repair(Guid.Parse(id), want, new LedgerCause(ItemMoveReason.HostCorrection, Guid.Empty, StraysDetail));
                 if (!commit.Committed) throw new Exception($"the ledger refused {want}: {commit.Refusal}");
+            }
+
+            /// <summary>Host: <see cref="SetHome"/> and <see cref="RepairBreach"/> (the entry's home) in the same
+            /// frame, so nothing can commit the item in between.</summary>
+            [Step]
+            public static IEnumerator SetHomeAndRepair(Step<string> step, string kind, string holder, int slot, string rule, string[] ids)
+            {
+                SetHome(ids[0], kind, holder, slot);
+                IEnumerator repair = RepairBreach(step, rule, ids, "entry", "", -1);
+                while (repair.MoveNext())
+                    yield return repair.Current;
             }
 
             /// <summary>Host: waits up to <paramref name="seconds"/> for the item's record to be at

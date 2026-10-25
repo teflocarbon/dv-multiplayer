@@ -49,6 +49,9 @@ public static class LostAndFoundServer
     // The entries kept as data, by item id: each one's state (OI-COLD-08).
     private static readonly Dictionary<Guid, SavedItemRow> rows = new();
     private static readonly Dictionary<ushort, float> eligibleSince = new();
+    // The frame each entry's object was collected or made again in, until it goes to data (two frames
+    // on: ToData).
+    private static readonly Dictionary<ushort, int> objectFrame = new();
     private static readonly Dictionary<ushort, Dictionary<string, object>> lastEvaluations = new();
     private static uint generation;
 
@@ -76,7 +79,8 @@ public static class LostAndFoundServer
     /// <summary>
     /// The object of an item in Lost and Found: the one there is, or made again from its row under
     /// its NetId, inert in Lost and Found as it went (OI-COLD-08). Null when there is neither. One
-    /// made for a request that is then refused goes back to data at the next scan.
+    /// made for a request that is then refused goes back to data at the next scan, though not in the
+    /// frame it was made: whatever it was made for (a destroy too) is done with it by then.
     /// </summary>
     internal static NetworkedItem ObjectOf(ushort itemNetId)
     {
@@ -91,15 +95,28 @@ public static class LostAndFoundServer
             return null;
         rows.Remove(lost.PersistentItemId);
         ProjectToInertStorage(item);
+        objectFrame[itemNetId] = Time.frameCount;
         return item;
     }
 
-    // An entry's object goes to data once it can (OI-COLD-08): its state loaded, its ammo able to go with it.
+    // An entry's object goes to data once it can (OI-COLD-08): its state loaded, its ammo able to go with
+    // it, and not until two frames after it was collected or made again. Taking it off a snap point
+    // (vanilla's unsnap puts it back in a car's interior) queues ECS commands on its entity
+    // (BeginPresentationEntityCommandBufferSystem); an object destroyed before they play back loses its
+    // entity first, and their playback crashes the game (natively, in EntityCommandBuffer.Playback).
+    // They play back at the end of PreLateUpdate: the collection's own frame, or the next one for a
+    // collection made after that (at the end of the frame). One made again is the caller's meanwhile.
     private static void ToData(NetworkedItem item, LostItemRecord lost)
     {
         if (!ServerLedger.Loaded || !LiveItems.TryGet(item.NetId, out LiveItems.LiveItem record) ||
             record.Placement != ItemPlacementKind.LostAndFound)
             return;
+        if (objectFrame.TryGetValue(item.NetId, out int frame))
+        {
+            if (Time.frameCount - frame < 2)
+                return;
+            objectFrame.Remove(item.NetId);
+        }
         SavedItemRow row = PlayerItems.ToLostData(record, item);
         if (row != null)
             rows[lost.PersistentItemId] = row;
@@ -310,6 +327,7 @@ public static class LostAndFoundServer
             TraceRecallRejection(itemNetId, rejectionReason);
             return false;
         }
+        objectFrame.Remove(itemNetId);
         // The transition indexed the item while its entry still held it, which skips it: index it
         // now, or a player who joins later (its owner, rejoining) is never sent it.
         ServerItemManager.Instance?.RegisterHostWorldItem(item);
@@ -462,6 +480,7 @@ public static class LostAndFoundServer
             return false;
         }
         eligibleSince.Remove(item.NetId);
+        objectFrame[item.NetId] = Time.frameCount;
         generation++;
         ItemChangeLog.RecordRemoval(item, cause);
         foreach (ServerPlayer player in NetworkServer.Instance.ServerPlayers)
@@ -506,6 +525,7 @@ public static class LostAndFoundServer
         registry.Clear();
         rows.Clear();
         eligibleSince.Clear();
+        objectFrame.Clear();
         lastEvaluations.Clear();
         generation = 0;
     }
@@ -693,7 +713,10 @@ public static class LostAndFoundServer
             return;
         foreach (LostItemRecord lost in registry.GetAll())
         {
-            bool itemPresent = NetworkedItem.TryGet(lost.NetId, out NetworkedItem item) && item != null;
+            // One being destroyed is gone: a box's destroy sends its contents here, and their owner's
+            // list runs this scan inside the box's OnDestroy, which would make the dying box data
+            // again, a row with its entry ended (NoStray).
+            bool itemPresent = NetworkedItem.TryGet(lost.NetId, out NetworkedItem item) && item != null && !item.IsDestroying;
             SavedItemRow row = null;
             bool data = !itemPresent && rows.TryGetValue(lost.PersistentItemId, out row);
             // A booklet kept as data goes when its job ends, as its object would (OI-COLD-08).
@@ -740,6 +763,7 @@ public static class LostAndFoundServer
             PlayerItems.LostDataGone(gone);
         generation++;
         eligibleSince.Remove(itemNetId);
+        objectFrame.Remove(itemNetId);
         Multiplayer.Log($"[LostAndFound] Removed entry handle={removed.Handle}, netId={itemNetId}, " +
             $"prefab={removed.PrefabName}, owner={removed.OwnerIdentity}: {reason}");
         if (PlayerNumbers.TryGetSession(OwnerOf(removed),

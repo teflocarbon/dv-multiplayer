@@ -200,6 +200,11 @@ A list also comes unasked, with request 0: the recipient's Lost and Found at the
 its owned items with every retrieval's answer, accepted or refused, so the page shows where each item
 really is (OI-LIST-22).
 
+A client reads every result and every list into one packet object of its type (LiteNetLib's reusable
+subscription), so anything kept past its handler is a copy (`Clone()` on both packets): the open
+container's view (`ContainerUi`) kept the packet itself, and the next list of any kind (an owned-items
+push, a Lost and Found list) became the open box's handle, revision and rows.
+
 ## Proof
 
 - `Multiplayer.Protocol.Tests/Items/ItemWirePacketTests.cs`: no item packet carries a GUID; the six

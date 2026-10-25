@@ -90,6 +90,8 @@ public partial class NetworkedItem
 
     private void HandleMagazineState(ItemUpdate snapshot)
     {
+        // An office prop loaded straight into a held tool is taken from its slot, as a pickup is.
+        NetworkedItemManager.Instance?.ClientPart?.DetachAuthoredProjectionForPossession(this, snapshot);
         if (TryGetMagazine(out NetworkedItem current, out _, out int slot) &&
             current.NetId == snapshot.MagazineNetId && slot == snapshot.MagazineSlot)
             return;
