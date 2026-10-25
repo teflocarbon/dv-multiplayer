@@ -651,10 +651,12 @@ public static class LostAndFoundServer
     private static bool HasPosition(ServerPlayer player) =>
         player.TrackingData.Position.HasValue || NetworkLifecycle.Instance.IsHost(player);
 
+    // A grace period from their first position after their load, not from the load itself: after a
+    // restart a client's game can take longer than the grace to send where it put them (OI-JOIN-10).
     private static bool HasSettledPosition(ServerPlayer player, float now) =>
         NetworkLifecycle.Instance.IsHost(player) || player.TrackingData.Position.HasValue &&
-        player.LoadingState == PlayerLoadingState.Complete && player.CompletedLoadingAt >= 0f &&
-        now - player.CompletedLoadingAt >= Multiplayer.Settings.LostItemCollectionGraceSeconds;
+        player.LoadingState == PlayerLoadingState.Complete && player.FirstPositionAfterLoadAt >= 0f &&
+        now - player.FirstPositionAfterLoadAt >= Multiplayer.Settings.LostItemCollectionGraceSeconds;
 
     private static LostItemCandidate BuildCandidate(NetworkedItem item,
         LiveItems.LiveItem authority, float now)
@@ -663,7 +665,7 @@ public static class LostAndFoundServer
         // A just-joined owner's items were collected seconds after they loaded (ledger-save on a
         // dedicated host, 2026-10-21): before their game sends a position it reads as the origin, and
         // its first ones can be from before it put the player at their saved spot. An owner's
-        // position counts once they have been loaded for a grace period.
+        // position counts a grace period after the first one their loaded game sent.
         bool ownerKnown = PlayerNumbers.TryGetSession(
             keeper, out ServerPlayer owner) && HasSettledPosition(owner, now);
         List<ServerPlayer> players = NetworkServer.Instance.ServerPlayers

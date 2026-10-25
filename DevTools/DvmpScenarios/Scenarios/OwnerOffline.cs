@@ -7,7 +7,7 @@ namespace Dvmp.Scenarios
 {
     /// <summary>
     /// A real owner goes offline (owned-items.md, PRs 2a and 3). The client claims a mug and leaves
-    /// it on the ground (or in a loco's cab, WHERE=cab), and stashes a second one. Then it quits (or
+    /// it on the ground (or in a loco's cab, WHERE=cab, or on a shed's shelf, WHERE=shelf: OI-LF-02), and stashes a second one. Then it quits (or
     /// its game is killed, LEAVE=crash). Its left mug must keep its owner identity, now one with no
     /// session (item-refactor.md, "Identity only"), not become nobody's. On a player host, once nobody is near, it goes to the client's Lost and Found under
     /// its own id, and not to vanilla's list behind the server's back (item-review L4); after the
@@ -24,7 +24,7 @@ namespace Dvmp.Scenarios
         {
             /// <summary>How the client leaves: quit or crash (its game killed).</summary>
             public string Leave = "quit";
-            /// <summary>Where the left mug is: ground or cab (a loco's cab).</summary>
+            /// <summary>Where the left mug is: ground, cab (a loco's cab) or shelf (the nearest shed's floor).</summary>
             public string Where = "ground";
         }
 
@@ -46,6 +46,13 @@ namespace Dvmp.Scenarios
                 await pair.Client.Run<float>(s => Items.CarryIntoCab(s, loco, left, "drop", 90), 90);
                 await pair.Client.Run<Abs>(s => Walk.Away(s, 0, 8));   // off the train, onto the ground beside it
             }
+            else if (o.Where == "shelf")
+            {
+                await pair.Client.Run<int>(s => Items.Stash(s, left, true), 60);
+                string shed = await pair.Client.Run<string>(s => OwnedListShelf.InGame.DropInShed(s, left, false), 90);
+                Report.Note("the client's shelf: " + shed);
+                await Until.Value(() => pair.Host.Run(() => Items.Record(left)), r => r.ParentKind == "StaticParent", 30, "the host has the mug on the shelf");
+            }
             ushort kept = await pair.Host.Run<ushort>(s => Items.SpawnPersonal(s, "Mug", "client"));
             await pair.Client.Run<int>(s => Items.Stash(s, kept, false), 60);
             await Task.Delay(2000);   // the stash reaches the host's record
@@ -55,6 +62,7 @@ namespace Dvmp.Scenarios
             Require.Equal(client, before.Owner, "the left mug's owner (the client)");
             Require.That(before.OwnerConnected, "the left mug's owner (the client) has a session");
             if (o.Where == "cab") Require.Equal("TrainInterior", before.Placement, "the left mug's placement");
+            if (o.Where == "shelf") Require.Equal("StaticParent", before.Placement, "the left mug's placement");
 
             if (o.Leave == "crash") await pair.Client.Kill();
             else await pair.Client.Quit();
