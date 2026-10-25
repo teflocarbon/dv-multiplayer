@@ -453,7 +453,9 @@ these: its object does.
   how long ago its cassette position was current). Their game plays it at the holder's avatar, in
   the world as the boombox's own source is set (`HeardStashedSounds`), a cassette caught up within
   its track by that much; a track change starts the new track on every game. A dedicated host has
-  no player and plays none.
+  no player and plays none. Once it's out, every game's copy plays it from the boombox's tracked values
+  ([behaviours.md](behaviours.md#the-boombox)): before, a copy made from a live `Create` had none of
+  its state, and a boombox the host's own player took out playing was silent on the clients' games.
 - **The tutorials.** A quick tutorial's radio service (a host playing alone) that starts while the
   comms radio is stashed binds to it once it's taken out (`TutorialRadio`). The tutorial's mode
   control takes a stashed radio out first, and the modes it turns off are kept with the row as the

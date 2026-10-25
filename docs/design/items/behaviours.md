@@ -9,7 +9,7 @@
 | Side | Code |
 | --- | --- |
 | Core | `Multiplayer.Core/Items/Behaviours/`: `TrackedStateComposer` (`TrackedStateEntry`, `TrackedStateMergePlan`), `PageBookSyncPlanner`, `GrabberRecovery.cs` (`GrabberRecoveryPlanner`) |
-| Shared | `Multiplayer/Shared/Items/Behaviours/`: `TrackedValue`, `FlashlightPatch.cs`, `LanternPatch`, `LighterPatch`, `ShovelPatch`, `MoneyAmountPatch`, `PageBookPatch`, `NetworkedPageBookState`, `MagazinePatch`, `ItemInteractionPatch.cs`, `GrabberRecoveryPatch`; the item's side in `Multiplayer/Shared/Items/LiveState/NetworkedItem.Snapshots.cs` and `ItemBasePatch.cs` |
+| Shared | `Multiplayer/Shared/Items/Behaviours/`: `TrackedValue`, `FlashlightPatch.cs`, `LanternPatch`, `LighterPatch`, `ShovelPatch`, `MoneyAmountPatch`, `BoomboxLiveState.cs`, `PageBookPatch`, `NetworkedPageBookState`, `MagazinePatch`, `ItemInteractionPatch.cs`, `GrabberRecoveryPatch`; the item's side in `Multiplayer/Shared/Items/LiveState/NetworkedItem.Snapshots.cs` and `ItemBasePatch.cs` |
 | Client | `Multiplayer/Client/Items/Behaviours/`: `MoneyPatch`, `UseUpRequestPatch`, `DevConsoleRefusalPatch` |
 | Server | `Multiplayer/Server/Items/Behaviours/`: `MoneyDepositPatch`, `DevConsolePatch` |
 
@@ -60,6 +60,9 @@ game.
 | Shovel (`Shovel.Start`) | `coalMassCapacity`, `coalMassLoaded` | the holder's | applying the load runs `UpdateLoadedCoal`. A shovel with no `ShovelNonPhysicalCoal` logs a warning and registers nothing |
 | Page book (`PageBook.Start`, `NetworkedPageBookState`) | `pageBook.currentPage` | the holder's, or anyone's for a book in the world | below |
 | Money (`Money.Awake`, `MoneyAmountPatch`) | `amount` (a round-trip string, so a large payout survives exactly) | server | a client's copy of a $1,234 payout was otherwise worth vanilla's default $10. Spending one is [below](#used-up-money-and-the-dev-console) |
+| Boombox (`BoomboxInteractionController.Awake`, `BoomboxLiveState`) | `powerOn`, `radioMode`, `rsIndex` (the station) | the holder's, or a player working it | [below](#the-boombox) |
+| | `vol`, `antenna` | the holder's, or a player working it | sent when they move by 0.02 or more |
+| | `mpCassette` (track, playing and position, with a mark) | the holder's, or a player working it | sent only on a press of play, stop, pause, next or previous: [below](#the-boombox) |
 | Any other item (`ItemBase.Awake`) | none | | the component only, finalised by the manager's grace |
 
 **The flashlight's beam colour isn't synced:** DV derives it each frame from `originalBeamColor`
@@ -73,6 +76,37 @@ as loaded (`FlashlightItemSavePatch`).
 **On enable, an item's flick reaction is reset** (`ItemBase_Patch.OnEnable`): DV's lighter flick
 and wallet coin block themselves with a flag a coroutine clears, and deactivating the item inside
 that window left it set for good. Multiplayer toggles items far more often than vanilla does.
+
+### The boombox
+
+A boombox sounds the same on every game (everything heard in the world is shared): each copy plays
+what the boombox plays. Before, a copy made from a live `Create` had none of its state: a
+boombox one player took out of their inventory playing (stashed-cassette, `WHO=host`) was silent on
+the others' games. Its power, mode, volume, antenna and station are plain values. Applying them runs
+vanilla's own setters (`SetPower`, `SetMode`, `SetVolume`, `SetAntenna`; a station change turns the
+radio off and on again on the new station, as it picks its station as it turns on), then vanilla's
+own sync of its knobs to its state (`SyncInteractables`), unless the local player is working them.
+A station is an index into each player's own radio playlist, as vanilla saves it.
+
+**The cassette** is one value, `mark|track|playing|seek` (`seek` in samples, as vanilla's player
+counts them). Its position runs on by itself in every copy, and so does its track as each copy's tape
+moves on to its next song, so neither is a change: the value is dirty only when its **mark** changes,
+and the mark changes when play, stop, pause, next or previous is pressed on that game
+(`BoomboxCassettePressPatch`, on `CassettePlayerController`; a load that plays it counts, applying a
+received value doesn't). A received value carries the position at that press, or, in a `Create`, the
+position now. A copy whose tape is on that track within ~2 s of it plays on undisturbed; else it
+stops (stop, not pause: from stopped, play starts again, and a second stop would eject), takes the
+track and position, and plays if the value does. A copy waits up to 10 s for its cassette (its
+`Create` can come after the boombox's), and the value goes if none comes. A dedicated server's copy
+may not advance its tape (it has no audio device), so a copy made from it mid-song may start the
+track early; not confirmed.
+
+**Before its set-up.** A boombox sets itself up a frame after it wakes, and its knobs report their
+own positions the frame after that ([inventory.md](inventory.md#stashed-items-that-act),
+`BoomboxStatePatch`). Its values are registered in `Awake`, and any that arrive before then wait,
+with the getters giving the waiting values meanwhile, so a knob reporting its own position isn't
+taken for a change of volume and sent. A boombox made from its row holds its loaded volume the same
+way (`BoomboxLiveState.HoldVolume`).
 
 ### The page book
 
