@@ -3,6 +3,7 @@ using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
+using System.Runtime.InteropServices;
 using HarmonyLib;
 using UnityEngine;
 
@@ -11,7 +12,7 @@ namespace Dvmp.Agent;
 /// <summary>
 /// A coroutine a probe started, through <see cref="DevContext.StartCoroutine"/>,
 /// <see cref="DevContext.StartBackground(string, IEnumerator, float)"/>, or a plain
-/// <c>MonoBehaviour.StartCoroutine</c> on a probe-made enumerator (caught by a hook).
+/// <c>MonoBehaviour.StartCoroutine</c> on a probe-made enumerator (caught by a hook, except under Wine).
 /// <c>yield return</c> it to wait until it ends.
 /// </summary>
 public sealed class ProbeCoroutine : CustomYieldInstruction
@@ -345,6 +346,16 @@ internal static class ProbeRegistry
     {
         if (hookInstalled) return;
         hookInstalled = true;
+        // Under Wine (RunPod test pairs) Harmony wrote this one patch as an indirect jump through a
+        // pointer in memory that was reserved but not committed, so every StartCoroutine in the game
+        // threw a NullReferenceException and `dvmp up` stopped at loading the save (2026-10-25, the
+        // items/refactor build; the game's other patches are direct jumps). Unpatching didn't
+        // repair it, so under Wine the hook isn't installed: such coroutines go untracked there.
+        if (UnderWine())
+        {
+            Debug.LogWarning("[DvmpDevAgent] under Wine: MonoBehaviour.StartCoroutine is not hooked; probe coroutines started that way are not tracked");
+            return;
+        }
         try
         {
             Harmony harmony = new("dvmp.agent.coroutines");
@@ -356,6 +367,16 @@ internal static class ProbeRegistry
         {
             Debug.LogWarning("[DvmpDevAgent] could not hook MonoBehaviour.StartCoroutine; probe coroutines started that way are not tracked: " + e.Message);
         }
+    }
+
+    [DllImport("kernel32.dll")] private static extern IntPtr GetModuleHandle(string name);
+    [DllImport("kernel32.dll")] private static extern IntPtr GetProcAddress(IntPtr module, string name);
+
+    // Wine's ntdll exports wine_get_version; Windows' doesn't.
+    private static bool UnderWine()
+    {
+        IntPtr ntdll = GetModuleHandle("ntdll.dll");
+        return ntdll != IntPtr.Zero && GetProcAddress(ntdll, "wine_get_version") != IntPtr.Zero;
     }
 
     private static void BeforeStartCoroutine(MonoBehaviour __instance, ref IEnumerator __0, out ProbeCoroutine __state)

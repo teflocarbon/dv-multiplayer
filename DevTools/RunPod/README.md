@@ -77,3 +77,7 @@ To watch the games: `ssh -L 6901:localhost:6901 ...` and open http://localhost:6
 - `DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=1` for dvmp: .NET otherwise loads Proton's ICU and exits.
 - GNS binds a dual-stack IPv6 socket under Wine; dvmp's port check reads both tables.
 - fsync is blocked in RunPod's containers; esync works and is on.
+- The dev agent doesn't hook `MonoBehaviour.StartCoroutine` under Wine: Harmony wrote that patch as
+  an indirect jump through uncommitted memory, and every coroutine in the game threw (2026-10-25).
+  Probe coroutines started with a plain `StartCoroutine` go untracked on pods; use
+  `ctx.StartCoroutine` or `ctx.StartBackground`.
