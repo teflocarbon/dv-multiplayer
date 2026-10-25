@@ -784,6 +784,13 @@ internal sealed class ServerItemSpatial
             lease.LastAccepted == null ||
             !NetworkedItem.TryGet(state.ItemNetId, out NetworkedItem item) || item == null)
             return;
+        // A change committed since the lease was granted handles the lease itself: it ended it, or
+        // a pending begin replaces it. Settling it here ended that begin too and stopped the body:
+        // a server throw naming a player, under that player's drop lease, lost its force to a
+        // sample of the drop still on its way.
+        if (LiveItems.TryGet(state.ItemNetId, out LiveItems.LiveItem record) &&
+            !LiveItems.PlacementUnchangedSince(record, lease.AuthorityRevision))
+            return;
         CommitHostSettlement(item, lease, lease.LastAccepted, $"sample-rejected:{rejection}");
         Publish("item.spatial-reconciled", item.NetId, new()
         {
